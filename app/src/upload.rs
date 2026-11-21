@@ -4,19 +4,25 @@
 
 use crate::commands::state;
 use crate::settings::{self, Settings};
+use scarlet::upload::api::jitter;
 use scarlet::upload::config::{self, UploadConfig};
 use scarlet::upload::keys;
 use scarlet::upload::session::{self, Session};
 use scarlet::upload::state as ustate;
 use serde::Serialize;
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::time::Duration;
 use tauri::AppHandle;
 
 /// True while an upload runs. A second request while one runs sets `PENDING`, and the running
 /// thread goes round once more, so uploads never overlap and none is lost.
 static BUSY: AtomicBool = AtomicBool::new(false);
 static PENDING: AtomicBool = AtomicBool::new(false);
+const RETRY_SECS: [u64; 4] = [30, 120, 600, 1800];
+const LAUNCH_SPREAD_MS: u64 = 60_000;
+static RETRY_STEP: AtomicUsize = AtomicUsize::new(0);
+static SYNCS_ASKED: AtomicU64 = AtomicU64::new(0);
 /// The one quiet line the last upload left, if it failed.
 static LAST_ERROR: Mutex<Option<String>> = Mutex::new(None);
 /// What the website removed behind the player's back, said once.
@@ -131,7 +137,40 @@ pub fn start_if_on(app: &AppHandle) {
     }
 }
 
+/// `start_if_on` after a random wait of up to a minute, so apps a release restarts together do not sync together.
+pub fn start_if_on_after_launch(app: &AppHandle) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(
+            jitter(LAUNCH_SPREAD_MS).saturating_sub(Duration::from_millis(LAUNCH_SPREAD_MS / 2)),
+        );
+        start_if_on(&app);
+    });
+}
+
 fn start(app: &AppHandle) {
+    RETRY_STEP.store(0, Ordering::Release);
+    SYNCS_ASKED.fetch_add(1, Ordering::AcqRel);
+    spawn_sync(app);
+}
+
+fn retry_later(app: &AppHandle) {
+    let step = RETRY_STEP.fetch_add(1, Ordering::AcqRel);
+    let Some(secs) = RETRY_SECS.get(step) else {
+        return;
+    };
+    let asked = SYNCS_ASKED.load(Ordering::Acquire);
+    let app = app.clone();
+    let wait = jitter(secs * 1000);
+    std::thread::spawn(move || {
+        std::thread::sleep(wait);
+        if SYNCS_ASKED.load(Ordering::Acquire) == asked {
+            spawn_sync(&app);
+        }
+    });
+}
+
+fn spawn_sync(app: &AppHandle) {
     if BUSY.swap(true, Ordering::AcqRel) {
         PENDING.store(true, Ordering::Release);
         return;
@@ -140,7 +179,9 @@ fn start(app: &AppHandle) {
     std::thread::spawn(move || {
         loop {
             PENDING.store(false, Ordering::Release);
-            run_once(&app);
+            if run_once(&app) && !PENDING.load(Ordering::Acquire) {
+                retry_later(&app);
+            }
             if !PENDING.load(Ordering::Acquire) {
                 break;
             }
@@ -149,15 +190,15 @@ fn start(app: &AppHandle) {
     });
 }
 
-fn run_once(app: &AppHandle) {
+fn run_once(app: &AppHandle) -> bool {
     let s = settings::load();
     let cfg = s.upload.clone();
     if !cfg.enabled {
-        return;
+        return false;
     }
     let mut sess = match Session::open(&cfg, &s.data, keys::system_store().as_ref(), true) {
         Ok(Some(sess)) => sess,
-        Ok(None) => return,
+        Ok(None) => return false,
         Err(e) => {
             let _ = ustate::record(
                 &s.data,
@@ -167,7 +208,8 @@ fn run_once(app: &AppHandle) {
                     ..Default::default()
                 },
             );
-            return set_error(Some(e.to_string()));
+            set_error(Some(e.to_string()));
+            return e.transient();
         }
     };
     let reports = sess.sync_all(None);
@@ -190,6 +232,7 @@ fn run_once(app: &AppHandle) {
     }
     let failed = reports.iter().find(|r| r.failed);
     set_error(failed.and_then(|r| r.note.clone()));
+    reports.iter().any(|r| r.retry)
 }
 
 #[tauri::command(async)]

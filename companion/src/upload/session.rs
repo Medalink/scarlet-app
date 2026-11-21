@@ -38,6 +38,8 @@ pub struct CharReport {
     /// Why nothing was done or what went wrong.
     pub note: Option<String>,
     pub failed: bool,
+    /// The failure may pass: no answer, a 5xx or a 429. A refusal or a local fault will not.
+    pub retry: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -196,6 +198,7 @@ impl Session {
             };
             if let Err(e) = self.sync_character(&name, &mut r) {
                 r.failed = true;
+                r.retry = e.transient();
                 r.note = Some(e.to_string());
             }
             r.ms = t.elapsed().as_millis() as u64;

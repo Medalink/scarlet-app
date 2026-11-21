@@ -19,6 +19,21 @@ const RATE_TRIES: usize = 3;
 /// The longest a 429 is waited out in one go.
 const MAX_WAIT: u64 = 120;
 
+/// `ms` spread over half to one and a half times itself, so clients that failed together do not retry together.
+pub fn jitter(ms: u64) -> Duration {
+    let mut b = [0u8; 8];
+    if getrandom::fill(&mut b).is_err() {
+        return Duration::from_millis(ms);
+    }
+    let unit = (u64::from_le_bytes(b) >> 11) as f64 / (1u64 << 53) as f64;
+    Duration::from_millis((ms as f64 * (0.5 + unit)) as u64)
+}
+
+fn after_server(seconds: u64) -> Duration {
+    Duration::from_secs(seconds)
+        + jitter(seconds * 500).saturating_sub(Duration::from_millis(seconds * 250))
+}
+
 /// One request as it went over the wire, without anything that names a character.
 #[derive(Clone, Debug)]
 pub struct Hit {
@@ -170,7 +185,7 @@ impl Client {
                     if net_tries >= TRIES {
                         return Err(Error::Net(e));
                     }
-                    std::thread::sleep(Duration::from_secs(1 << (net_tries - 1)));
+                    std::thread::sleep(jitter(1000 << (net_tries - 1)));
                 }
                 Ok((status, head, text, retry_after)) => {
                     let json: Value = serde_json::from_slice(&text).unwrap_or(Value::Null);
@@ -192,7 +207,11 @@ impl Client {
                         if net_tries >= TRIES {
                             return Err(api_error(status, &json));
                         }
-                        std::thread::sleep(Duration::from_secs(1 << (net_tries - 1)));
+                        let backoff = jitter(1000 << (net_tries - 1));
+                        std::thread::sleep(match retry_after {
+                            Some(s) if s <= MAX_WAIT => backoff.max(after_server(s)),
+                            _ => backoff,
+                        });
                     } else if status == 401
                         && json.pointer("/error/code").and_then(Value::as_str)
                             == Some("replayed_request")
@@ -216,7 +235,7 @@ impl Client {
                         if wait > MAX_WAIT {
                             return Err(api_error(status, &json));
                         }
-                        std::thread::sleep(Duration::from_secs(wait));
+                        std::thread::sleep(after_server(wait));
                     } else {
                         return Err(api_error(status, &json));
                     }

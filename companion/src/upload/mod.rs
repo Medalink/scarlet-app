@@ -35,6 +35,15 @@ impl Error {
         Error::Local(m.into())
     }
 
+    /// True when trying again later may work: no answer, a 5xx or a 429.
+    pub fn transient(&self) -> bool {
+        match self {
+            Error::Net(_) => true,
+            Error::Api { status, .. } => *status == 429 || *status >= 500,
+            Error::Local(_) => false,
+        }
+    }
+
     /// The server's error code, when the server answered.
     pub fn code(&self) -> Option<&str> {
         match self {

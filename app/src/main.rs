@@ -170,7 +170,7 @@ fn main() {
                 discover::spawn(app.handle().clone());
             }
             updater::spawn(app.handle().clone());
-            upload::start_if_on(app.handle());
+            upload::start_if_on_after_launch(app.handle());
             // Keeps the startup entry pointing at this exe and the watcher running after
             // a rebuild or a kill.
             if s.open_with_wow {
