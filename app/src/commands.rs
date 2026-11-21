@@ -16,8 +16,11 @@ pub struct State {
     pub settings: Mutex<Settings>,
 }
 
-pub fn state(_app: &AppHandle) -> &State {
-    static CELL: OnceLock<State> = OnceLock::new();
+static CELL: OnceLock<State> = OnceLock::new();
+
+/// Loads the settings and the store the first time it is called; later calls (and a call
+/// that arrives while the first is still loading) get the same value.
+pub fn preload() -> &'static State {
     CELL.get_or_init(|| {
         let settings = settings::load();
         let store = Store::load(&settings.data.clone());
@@ -26,6 +29,10 @@ pub fn state(_app: &AppHandle) -> &State {
             settings: Mutex::new(settings),
         }
     })
+}
+
+pub fn state(_app: &AppHandle) -> &'static State {
+    preload()
 }
 
 pub fn with_store<T>(app: &AppHandle, f: impl FnOnce(&Store) -> T) -> T {
@@ -64,9 +71,9 @@ pub struct MapInfo {
     points: u64,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn app_state(app: AppHandle) -> StoreState {
-    let watch = crate::ops::WATCH_ON.load(Ordering::Relaxed);
+    let watch = crate::watch::WATCH_ON.load(Ordering::Relaxed);
     with_store(&app, |st| StoreState {
         chars: st.chars.clone(),
         events: st.events.len() as u64,
@@ -144,7 +151,7 @@ fn maps_of(st: &Store) -> Vec<MapInfo> {
 }
 
 /// The art for one map as raw bytes, empty when there is none.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn map_image(app: AppHandle, map: u32) -> tauri::ipc::Response {
     let bytes = with_store(&app, |st| {
         map_index(st).get(&map).and_then(|(_, file)| {
@@ -222,7 +229,7 @@ fn big(v: i64) -> String {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn stats(app: AppHandle, ch: Option<String>) -> Stats {
     with_store(&app, |st| {
         let c = ch.and_then(|n| st.char_index(&n));
@@ -402,7 +409,7 @@ pub struct CharOverview {
 /// The character overview for the chosen character; with none chosen, the
 /// one played most recently. Built from the store's rows through the same
 /// model the export writes to Digest.lua.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn overview(app: AppHandle, ch: Option<String>) -> Option<CharOverview> {
     with_store(&app, |st| {
         // A named character must exist; "All characters" shows the one played most recently.
@@ -489,20 +496,32 @@ pub struct Heatmap {
     max_day: u64,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn heatmap(app: AppHandle, ch: Option<String>) -> Heatmap {
     with_store(&app, |st| {
         let c = ch.and_then(|n| st.char_index(&n));
         let mut week = vec![0u64; 7 * 24];
-        let mut days: BTreeMap<String, u64> = BTreeMap::new();
+        // Day number from the common era -> count; formatted once at the end.
+        let mut days: BTreeMap<i32, u64> = BTreeMap::new();
+        // The local weekday, hour and day of the last quarter-hour (UTC) seen. Offsets from
+        // UTC are whole quarter hours, so every event of one quarter-hour has the same ones.
+        let mut bucket = i64::MIN;
+        let mut cell: Option<(usize, i32)> = None;
         for r in &st.events {
             if c.is_some_and(|cc| r.ch != cc) {
                 continue;
             }
-            if let Some(t) = Local.timestamp_millis_opt(r.ms).single() {
-                let wd = t.weekday().num_days_from_monday() as usize;
-                week[wd * 24 + t.hour() as usize] += 1;
-                *days.entry(t.format("%Y-%m-%d").to_string()).or_default() += 1;
+            let b = r.ms.div_euclid(900_000);
+            if b != bucket {
+                bucket = b;
+                cell = Local.timestamp_millis_opt(r.ms).single().map(|t| {
+                    let wd = t.weekday().num_days_from_monday() as usize;
+                    (wd * 24 + t.hour() as usize, t.num_days_from_ce())
+                });
+            }
+            if let Some((slot, day)) = cell {
+                week[slot] += 1;
+                *days.entry(day).or_default() += 1;
             }
         }
         let max_week = week.iter().copied().max().unwrap_or(0);
@@ -510,7 +529,13 @@ pub fn heatmap(app: AppHandle, ch: Option<String>) -> Heatmap {
         Heatmap {
             week,
             max_week,
-            days: days.into_iter().collect(),
+            days: days
+                .into_iter()
+                .filter_map(|(d, n)| {
+                    chrono::NaiveDate::from_num_days_from_ce_opt(d)
+                        .map(|date| (date.format("%Y-%m-%d").to_string(), n))
+                })
+                .collect(),
             max_day,
         }
     })
@@ -530,7 +555,7 @@ pub struct TimelinePage {
     rows: Vec<TRow>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 #[allow(clippy::too_many_arguments)]
 pub fn timeline(
     app: AppHandle,
@@ -588,7 +613,7 @@ pub struct SessionRow {
     casts: u64,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn sessions(app: AppHandle, ch: Option<String>) -> Vec<SessionRow> {
     with_store(&app, |st| {
         let c = ch.and_then(|n| st.char_index(&n));
@@ -619,7 +644,7 @@ pub struct Poly {
     dash: bool,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn map_data(app: AppHandle, map: u32, ch: Option<String>) -> Vec<Poly> {
     with_store(&app, |st| {
         let c = ch.and_then(|n| st.char_index(&n));
@@ -703,7 +728,7 @@ fn top(m: HashMap<String, i64>, n: usize) -> Vec<(String, i64)> {
     v
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn charts(app: AppHandle, ch: Option<String>) -> Charts {
     with_store(&app, |st| {
         let c = ch.and_then(|n| st.char_index(&n));
@@ -863,35 +888,35 @@ pub fn charts(app: AppHandle, ch: Option<String>) -> Charts {
             .into_iter()
             .map(|(id, n)| (spell_name(id), n))
             .collect();
-        spells.sort_by_key(|x| std::cmp::Reverse(x.1));
+        spells.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         spells.truncate(10);
 
         let mut buffs: Vec<(String, i64)> = buff_secs
             .into_iter()
             .map(|(id, s)| (spell_name(id), s))
             .collect();
-        buffs.sort_by_key(|x| std::cmp::Reverse(x.1));
+        buffs.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         buffs.truncate(10);
 
         let mut zones: Vec<(String, i64)> = zone_secs.into_iter().collect();
-        zones.sort_by_key(|x| std::cmp::Reverse(x.1));
+        zones.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         zones.truncate(12);
 
         let mut items_in: Vec<(String, i64)> = item_in
             .into_iter()
             .map(|(id, n)| (item_name(id), n))
             .collect();
-        items_in.sort_by_key(|x| std::cmp::Reverse(x.1));
+        items_in.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         items_in.truncate(10);
         let mut items_out: Vec<(String, i64)> = item_out
             .into_iter()
             .map(|(id, n)| (item_name(id), n))
             .collect();
-        items_out.sort_by_key(|x| std::cmp::Reverse(x.1));
+        items_out.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         items_out.truncate(10);
 
         let mut people: Vec<(String, i64)> = people.into_iter().collect();
-        people.sort_by_key(|x| std::cmp::Reverse(x.1));
+        people.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 
         Charts {
             xp: bucket(xp, 400),
@@ -951,7 +976,7 @@ pub struct Trends {
     statistics: Vec<Trend>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn trends(app: AppHandle, ch: Option<String>) -> Trends {
     with_store(&app, |st| {
         let c = ch.and_then(|n| st.char_index(&n));

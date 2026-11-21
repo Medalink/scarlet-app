@@ -37,7 +37,7 @@ pub struct AddonsView {
     lines: Vec<LineOut>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn addons(app: AppHandle, ch: Option<String>) -> AddonsView {
     let dir = state(&app).settings.lock().unwrap().data.clone();
     let mut keys: BTreeMap<String, KeyOut> = BTreeMap::new();

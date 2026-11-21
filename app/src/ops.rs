@@ -2,16 +2,11 @@
 
 use crate::commands::{reload, state};
 use crate::settings::{self, Settings};
+use crate::watch::{WATCH_ON, set_watch, wake};
 use serde::Serialize;
-use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, SystemTime};
-use tauri::{AppHandle, Emitter};
-
-pub static WATCH_ON: AtomicBool = AtomicBool::new(false);
-/// Bumped on every switch-on; a loop from an older generation exits.
-static WATCH_GEN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+use std::sync::atomic::Ordering;
+use tauri::AppHandle;
 
 #[derive(Serialize)]
 pub struct Sizes {
@@ -22,7 +17,7 @@ pub struct Sizes {
     watch: bool,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn sizes(app: AppHandle) -> Sizes {
     let s = state(&app);
     let (wow, dir) = {
@@ -69,21 +64,18 @@ fn run_export(app: &AppHandle) -> String {
         return "export skipped: the WoW folder in Settings has no _forever_ folder".into();
     }
     let before = std::time::Instant::now();
-    match scarlet::export::export(&wow, &out) {
-        Ok(()) => {
-            reload(app);
-            format!("export ok in {:.1}s", before.elapsed().as_secs_f64())
-        }
+    match crate::watch::export_and_reload(app, &wow, &out) {
+        Ok(_) => format!("export ok in {:.1}s", before.elapsed().as_secs_f64()),
         Err(e) => format!("export failed: {e}"),
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn compress_export(app: AppHandle) -> String {
     run_export(&app)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn compress_logs(app: AppHandle) -> String {
     let s = state(&app);
     let (wow, out) = {
@@ -113,7 +105,7 @@ pub struct SettingsView {
     problems: Vec<String>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_settings() -> SettingsView {
     let settings = settings::load();
     SettingsView {
@@ -124,7 +116,7 @@ pub fn get_settings() -> SettingsView {
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_settings(app: AppHandle, wow: String, data: String) -> Result<Settings, String> {
     let wow_p = PathBuf::from(wow.trim());
     let data_p = PathBuf::from(data.trim());
@@ -140,12 +132,14 @@ pub fn set_settings(app: AppHandle, wow: String, data: String) -> Result<Setting
     })?;
     *state(&app).settings.lock().unwrap() = cur.clone();
     reload(&app);
+    // The watch thread reads the new folders.
+    wake();
     Ok(cur)
 }
 
 /// Turn "Open when WoW Forever starts" on or off: the setting, the HKCU Run value and
 /// the watcher. A running watcher sees the setting off and exits within a few seconds.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_open_with_wow(app: AppHandle, on: bool) -> Result<bool, String> {
     // The setting first: a window starting with it on rewrites the Run value, so a
     // registry change the setting does not match would not stick.
@@ -168,52 +162,7 @@ pub fn set_open_with_wow(app: AppHandle, on: bool) -> Result<bool, String> {
 }
 
 /// Persist the last view so the app reopens on it.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn save_view(view: String) {
     let _ = settings::update(|c| c.last_view = view);
-}
-
-/// Set the watch flag and (re)spawn the thread if needed.
-pub fn set_watch(app: &AppHandle, on: bool) {
-    WATCH_ON.store(on, Ordering::Relaxed);
-    if on {
-        let generation = WATCH_GEN.fetch_add(1, Ordering::Relaxed) + 1;
-        std::thread::spawn(watch_loop(app.clone(), generation));
-    }
-    let _ = app.emit("watch-changed", on);
-}
-
-fn watch_loop(app: AppHandle, generation: u64) -> impl FnOnce() {
-    move || {
-        let mut seen: HashMap<PathBuf, SystemTime> = HashMap::new();
-        let mut first = true;
-        loop {
-            if !WATCH_ON.load(Ordering::Relaxed) || WATCH_GEN.load(Ordering::Relaxed) != generation
-            {
-                return;
-            }
-            let s = state(&app);
-            let (wow, out) = {
-                let st = s.settings.lock().unwrap();
-                (st.wow.clone(), st.data.clone())
-            };
-            let mut changed = first;
-            if let Ok(files) = scarlet::export::find_sv(&wow) {
-                for sv in files {
-                    if let Ok(m) = std::fs::metadata(&sv)
-                        && let Ok(t) = m.modified()
-                        && seen.insert(sv.clone(), t) != Some(t)
-                    {
-                        changed = true;
-                    }
-                }
-            }
-            if changed {
-                let _ = scarlet::export::export(&wow, &out);
-                reload(&app);
-                first = false;
-            }
-            std::thread::sleep(Duration::from_secs(5));
-        }
-    }
 }

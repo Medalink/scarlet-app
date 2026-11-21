@@ -6,6 +6,7 @@ pub mod addons;
 pub mod archive;
 pub mod events;
 pub mod export;
+pub mod gamedir;
 pub mod loot;
 pub mod lua;
 pub mod overview;

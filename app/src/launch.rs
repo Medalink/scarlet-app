@@ -1,6 +1,6 @@
 //! "Open when WoW Forever starts": a windowless copy of this exe (`--on-wow`)
 //! started at sign-in from the HKCU Run value. It scans the process list every
-//! few seconds until `<wow>\_forever_\Wow.exe` starts, opens Scarlet, then waits
+//! few seconds until `Wow.exe` in the game folder under the WoW folder starts, opens Scarlet, then waits
 //! on WoW's process handle (no scanning) until it exits. Nothing is written to
 //! disk; the Run value is a registry entry, not a Startup-folder file.
 //!
@@ -27,7 +27,8 @@ use windows_sys::Win32::System::Threading::{
     WaitForSingleObject,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    FindWindowExW, GetWindowThreadProcessId, IsIconic, SW_RESTORE, SetForegroundWindow, ShowWindow,
+    FindWindowExW, GetWindowThreadProcessId, IsIconic, MB_ICONERROR, MB_OK, MessageBoxW,
+    SW_RESTORE, SetForegroundWindow, ShowWindow,
 };
 
 const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
@@ -279,7 +280,9 @@ pub fn watch() {
                 }
                 return;
             }
-            Some(s) => target = Some(norm(&s.wow.join("_forever_").join("Wow.exe"))),
+            Some(s) => {
+                target = Some(norm(&scarlet::gamedir::game_dir(&s.wow).join("Wow.exe")));
+            }
             None => {}
         }
         // While WoW runs, waiting on its handle is the sleep: no scan until it exits.
@@ -311,4 +314,44 @@ pub fn watch() {
         }
         std::thread::sleep(POLL);
     }
+}
+
+/// A message box for a failure when there is no window to show it in.
+pub fn message_box(title: &str, text: &str) {
+    let (t, x) = (wide(title), wide(text));
+    unsafe {
+        MessageBoxW(
+            std::ptr::null_mut(),
+            x.as_ptr(),
+            t.as_ptr(),
+            MB_OK | MB_ICONERROR,
+        )
+    };
+}
+
+/// Image paths of every running Wow.exe that can be read.
+pub fn wow_paths() -> Vec<PathBuf> {
+    let snap = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
+    if snap == INVALID_HANDLE_VALUE {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    let mut e: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
+    e.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+    let mut more = unsafe { Process32FirstW(snap, &mut e) } != 0;
+    while more {
+        let end = e
+            .szExeFile
+            .iter()
+            .position(|&c| c == 0)
+            .unwrap_or(e.szExeFile.len());
+        if String::from_utf16_lossy(&e.szExeFile[..end]).eq_ignore_ascii_case("wow.exe")
+            && let Some(p) = image_path(e.th32ProcessID)
+        {
+            out.push(PathBuf::from(p));
+        }
+        more = unsafe { Process32NextW(snap, &mut e) } != 0;
+    }
+    unsafe { CloseHandle(snap) };
+    out
 }

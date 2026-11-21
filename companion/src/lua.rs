@@ -208,13 +208,14 @@ impl<'a> P<'a> {
                         _ => out.push(c),
                     }
                 }
+                // A run of plain bytes up to the next quote or escape, copied at once. The
+                // input is a `&str` and a run ends before an ASCII byte, so it stays valid UTF-8.
                 Some(_) => {
-                    let text = std::str::from_utf8(&self.b[self.i..])
-                        .map_err(|_| "invalid utf-8".to_string())?;
-                    let ch = text.chars().next().unwrap();
-                    let mut buf = [0u8; 4];
-                    out.extend_from_slice(ch.encode_utf8(&mut buf).as_bytes());
-                    self.i += ch.len_utf8();
+                    let start = self.i;
+                    while self.peek().is_some_and(|c| c != b'"' && c != b'\\') {
+                        self.i += 1;
+                    }
+                    out.extend_from_slice(&self.b[start..self.i]);
                 }
             }
         }

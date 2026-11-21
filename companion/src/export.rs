@@ -16,10 +16,11 @@ use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-/// Every `<wow>\_forever_\WTF\Account\*\SavedVariables\Scarlet.lua`.
+/// Every `<game>\WTF\Account\*\SavedVariables\Scarlet.lua`, with `<game>` from
+/// `gamedir::game_dir(wow)`.
 pub fn find_sv(wow: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
     let mut found = Vec::new();
-    let accounts = wow.join("_forever_").join("WTF").join("Account");
+    let accounts = crate::gamedir::game_dir(wow).join("WTF").join("Account");
     if let Ok(entries) = fs::read_dir(&accounts) {
         for acc in entries {
             let sv = acc?.path().join("SavedVariables").join("Scarlet.lua");
@@ -124,6 +125,29 @@ impl CharRun {
 /// Export all new chunks from every account's Scarlet.lua. Writes the
 /// readable .txt and one .scl payload per character, then state.json.
 pub fn export(wow: &Path, out: &Path) -> Result<(), Box<dyn Error>> {
+    export_new(wow, out).map(|_| ())
+}
+
+/// True when a SavedVariables file was written after the last export finished
+/// (`state.json` is rewritten at the end of every export). With no `state.json`
+/// yet, any SavedVariables file counts.
+pub fn has_new(wow: &Path, out: &Path) -> bool {
+    let done = fs::metadata(out.join("state.json"))
+        .and_then(|m| m.modified())
+        .ok();
+    find_sv(wow).unwrap_or_default().iter().any(|sv| {
+        let t = fs::metadata(sv).and_then(|m| m.modified()).ok();
+        match (t, done) {
+            (Some(t), Some(done)) => t > done,
+            (Some(_), None) => true,
+            _ => false,
+        }
+    })
+}
+
+/// `export`, reporting whether it wrote any new lines. When it did not, the caller
+/// has nothing to reload.
+pub fn export_new(wow: &Path, out: &Path) -> Result<bool, Box<dyn Error>> {
     let files = find_sv(wow)?;
     let state_path = out.join("state.json");
     let mut state = load_state(&state_path);
@@ -250,6 +274,7 @@ pub fn export(wow: &Path, out: &Path) -> Result<(), Box<dyn Error>> {
     }
 
     save_state(&state_path, &state)?;
+    let wrote = !runs.is_empty() || !addon_runs.is_empty();
     if runs.is_empty() && addon_runs.is_empty() {
         let fail = if bad > 0 {
             format!(", {bad} chunk(s) failed to decode")
@@ -262,7 +287,7 @@ pub fn export(wow: &Path, out: &Path) -> Result<(), Box<dyn Error>> {
         );
     }
     write_digest(wow, out);
-    Ok(())
+    Ok(wrote)
 }
 
 /// Every payload of one character, in time order.
@@ -395,8 +420,7 @@ fn overview_is_stale(dir: &Path, overview: &Path) -> bool {
 /// payloads are newer than it). A failure is a note, not an error: the next
 /// export tries again.
 fn write_digest(wow: &Path, out: &Path) {
-    let addon = wow
-        .join("_forever_")
+    let addon = crate::gamedir::game_dir(wow)
         .join("Interface")
         .join("AddOns")
         .join("Scarlet");
@@ -502,7 +526,7 @@ pub fn watch(wow: &Path, out: &Path) -> Result<(), Box<dyn Error>> {
 
 /// zstd-compress finished WoWCombatLog txt files; originals untouched.
 pub fn logs(wow: &Path, out: &Path) -> Result<(), Box<dyn Error>> {
-    let src_dir = wow.join("_forever_").join("Logs");
+    let src_dir = crate::gamedir::game_dir(wow).join("Logs");
     let dest = out.join("combatlogs");
     fs::create_dir_all(&dest)?;
     let Ok(entries) = fs::read_dir(&src_dir) else {

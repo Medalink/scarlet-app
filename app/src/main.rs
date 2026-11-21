@@ -5,6 +5,7 @@
 mod addons;
 mod agg;
 mod commands;
+mod discover;
 mod launch;
 mod layers;
 mod loot;
@@ -13,6 +14,7 @@ mod openmap;
 mod ops;
 mod settings;
 mod store;
+mod watch;
 
 fn main() {
     // The background copy that opens Scarlet when WoW Forever starts; no window, no Tauri.
@@ -42,6 +44,12 @@ fn main() {
             std::env::set_var("TEMP", &temp);
         }
     }
+
+    // Reads the settings and loads every payload while the window and WebView2 start; the
+    // first command waits for it only if it is still running.
+    std::thread::spawn(|| {
+        commands::preload();
+    });
 
     let run = tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
@@ -81,7 +89,13 @@ fn main() {
             )
             .title("Scarlet")
             .inner_size(1280.0, 840.0)
-            .min_inner_size(960.0, 620.0);
+            .min_inner_size(960.0, 620.0)
+            // GPU work in the browser process instead of its own: one process and about
+            // 20 MB less, same frame times. Setting any argument drops wry's default
+            // --disable-features list, so it is repeated here.
+            .additional_browser_args(
+                "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --in-process-gpu",
+            );
             if let Some(dir) = settings::webview_data() {
                 std::fs::create_dir_all(&dir).ok();
                 window = window.data_directory(dir);
@@ -89,9 +103,16 @@ fn main() {
             window.build()?;
 
             settings::ensure_saved();
-            let s = settings::load();
+            let s = commands::state(app.handle())
+                .settings
+                .lock()
+                .unwrap()
+                .clone();
             if s.watch {
-                ops::set_watch(app.handle(), true);
+                watch::set_watch(app.handle(), true);
+            }
+            if !s.wow.is_dir() {
+                discover::spawn(app.handle().clone());
             }
             // Keeps the startup entry pointing at this exe and the watcher running after
             // a rebuild or a kill.
@@ -102,12 +123,22 @@ fn main() {
             Ok(())
         })
         .run(tauri::generate_context!());
-    // No console in release builds: a startup failure goes to scarlet.log next to settings.json.
+    // No console in release builds: a startup failure goes to scarlet.log next to settings.json,
+    // and into a message box, since a PC without the WebView2 runtime has no window to show it.
     if let Err(e) = run {
+        let text = format!("Scarlet failed to start: {e}\n");
         let log = settings::log_path();
         if let Some(dir) = log.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
-        let _ = std::fs::write(log, format!("scarlet failed to start: {e}\n"));
+        if std::fs::write(&log, &text).is_err() {
+            let _ = std::fs::write(std::env::temp_dir().join("scarlet.log"), &text);
+        }
+        launch::message_box(
+            "Scarlet",
+            &format!(
+                "{text}\nScarlet needs the Microsoft Edge WebView2 Runtime. Install it from microsoft.com/edge/webview2 and start Scarlet again."
+            ),
+        );
     }
 }

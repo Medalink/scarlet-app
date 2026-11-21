@@ -29,4 +29,5 @@ windows-sys = { version = "0.61", features = [
 
 [profile.release]
 strip = true
-lto = true
+lto = "fat"
+codegen-units = 1

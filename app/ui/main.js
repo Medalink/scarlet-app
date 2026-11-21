@@ -92,20 +92,16 @@ function headStats() {
 
 async function boot() {
   buildNav();
-  await loadState();
+  // Restore the last view before the first render, so save_view in setView
+  // does not overwrite it with "overview". Asked together with the app state.
+  const [, s] = await Promise.all([loadState(), location.hash ? null : invoke("get_settings")]);
+  if (s?.last_view && VIEWS[s.last_view]) location.hash = s.last_view;
   await refreshCharSelector();
   headStats();
   $("#char").onchange = async (e) => {
     state.ch = e.target.value || null;
     await setView();
   };
-
-  // Restore the last view before the first render, so save_view in setView
-  // does not overwrite it with "overview".
-  if (!location.hash) {
-    const s = await invoke("get_settings");
-    if (s.last_view && VIEWS[s.last_view]) location.hash = s.last_view;
-  }
   await setView();
 
   window.addEventListener("hashchange", setView);

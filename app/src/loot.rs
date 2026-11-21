@@ -63,7 +63,7 @@ pub struct LootView {
     attribution: Vec<AttrOut>,
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn loot(app: AppHandle, ch: Option<String>) -> LootView {
     with_store(&app, |st| {
         let only = ch.and_then(|n| st.char_index(&n));

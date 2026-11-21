@@ -37,7 +37,15 @@ fn run() -> Result<(), Box<dyn Error>> {
         eprintln!("usage: scarlet <export|watch|logs> [--wow <dir>] [--out <dir>]");
         std::process::exit(2);
     };
-    let wow = wow.unwrap_or_else(|| PathBuf::from(DEFAULT_WOW));
+    // Without --wow: the old default when it exists, else a search of the drives.
+    let wow = wow.unwrap_or_else(|| {
+        let default = PathBuf::from(DEFAULT_WOW);
+        if default.is_dir() {
+            default
+        } else {
+            scarlet::gamedir::find_wow().unwrap_or(default)
+        }
+    });
     let out = out
         .or_else(|| std::env::var("SCARLET_OUT").ok().map(PathBuf::from))
         .unwrap_or_else(default_out);
