@@ -1,13 +1,20 @@
-// Map: P points per uiMapID as glowing polylines over the map's art, redrawn as a dark
-// survey sheet (when a `maps` folder holds it), with session colours, zoom
-// and pan. A teleport on the map is a dashed jump between its two points.
+// Map: P points per uiMapID as glowing polylines over the map's art (when a `maps` folder
+// holds it), shown as the game draws it or redrawn as a dark survey sheet, with session
+// colours, zoom and pan. A teleport on the map is a dashed jump between its two points.
 
 import { invoke, el, num, esc, PALETTE, state } from "../lib.js";
 import { styleMap } from "./mapstyle.js";
 
-// Styled art by map id, oldest first. A styled map is about 11 MB of GPU bitmap, so few are kept.
+// Art by "<look>:<map id>", oldest first. One map is about 11 MB of GPU bitmap, so few are kept.
 const styled = new Map();
 const KEEP = 6;
+
+// Which art the map shows: `game` the zone art as the game draws it, `survey` the dark sheet.
+const LOOK_KEY = "scarlet.mapLook";
+let look = "game";
+try {
+  if (localStorage.getItem(LOOK_KEY) === "survey") look = "survey";
+} catch {}
 
 // The art with its colours muted, the paths staying the brightest thing on the map.
 function darken(c, px, img) {
@@ -28,7 +35,26 @@ export async function render(body) {
   const side = el("div", "map-side");
   const canvas = el("canvas");
   canvas.id = "map-canvas";
-  wrap.append(side, canvas);
+  const stage = el("div", "map-stage");
+  const seg = el("div", "seg map-look");
+  seg.setAttribute("role", "group");
+  seg.setAttribute("aria-label", "Map art");
+  for (const [key, label] of [["game", "Game map"], ["survey", "Survey"]]) {
+    const b = el("button", "", label);
+    b.type = "button";
+    b.dataset.look = key;
+    b.setAttribute("aria-pressed", String(look === key));
+    b.onclick = () => {
+      if (look === key) return;
+      look = key;
+      try { localStorage.setItem(LOOK_KEY, key); } catch {}
+      seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.look === key)));
+      reloadArt();
+    };
+    seg.appendChild(b);
+  }
+  stage.append(canvas, seg);
+  wrap.append(side, stage);
   body.appendChild(wrap);
 
   if (!maps.length) {
@@ -59,14 +85,15 @@ export async function render(body) {
   // its shape and a point (x, y) sits at (x, y * asp).
   let art = null;
 
-  // Art from the `maps` folder, redrawn as a survey sheet (mapstyle.js). A map without a
-  // file keeps the plain canvas; if the restyle throws, the art is darkened instead.
-  // Styled maps are kept (a few, newest last) so going back to one is instant.
-  async function loadArt(map) {
-    const hit = styled.get(map);
+  // Art from the `maps` folder, as the game draws it or redrawn as a survey sheet
+  // (mapstyle.js). A map without a file keeps the plain canvas; if the restyle throws, the
+  // art is darkened instead. Loaded art is kept (a few, newest last) so going back is instant.
+  async function loadArt(map, want) {
+    const key = want + ":" + map;
+    const hit = styled.get(key);
     if (hit) {
-      styled.delete(map);
-      styled.set(map, hit);
+      styled.delete(key);
+      styled.set(key, hit);
       return hit;
     }
     try {
@@ -80,6 +107,7 @@ export async function render(body) {
       c.drawImage(bmp, 0, 0);
       const asp = bmp.height / bmp.width;
       bmp.close();
+      if (want === "game") return keep(key, { img: await createImageBitmap(img), asp });
       const px = c.getImageData(0, 0, img.width, img.height);
       let out;
       try {
@@ -90,17 +118,29 @@ export async function render(body) {
         out = darken(c, px, img);
       }
       // A bitmap stays on the GPU, so redraws while moving do not upload the pixels again.
-      const art = { img: await createImageBitmap(out), asp };
-      styled.set(map, art);
-      while (styled.size > KEEP) {
-        const [old, gone] = styled.entries().next().value;
-        gone.img.close();
-        styled.delete(old);
-      }
-      return art;
+      return keep(key, { img: await createImageBitmap(out), asp });
     } catch {
       return null;
     }
+  }
+
+  function keep(key, found) {
+    styled.set(key, found);
+    while (styled.size > KEEP) {
+      const [old, gone] = styled.entries().next().value;
+      gone.img.close();
+      styled.delete(old);
+    }
+    return found;
+  }
+
+  // The other look on the same map: same paths and view, new art.
+  async function reloadArt() {
+    const mine = ++token;
+    const found = await loadArt(current, look);
+    if (mine !== token) return;
+    art = found;
+    draw();
   }
 
   function resize() {
@@ -114,7 +154,7 @@ export async function render(body) {
     const mine = ++token;
     const [got, found] = await Promise.all([
       invoke("map_data", { map: current, ch: state.ch }),
-      loadArt(current),
+      loadArt(current, look),
     ]);
     if (mine !== token) return; // a newer map was picked meanwhile
     art = found;
