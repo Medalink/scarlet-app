@@ -43,6 +43,23 @@ fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
+/// A mutex name; a copy run with `SCARLET_HOME` gets its own, so trying one never
+/// collides with the Scarlet the user already has open.
+fn mutex_name(base: &str) -> Vec<u16> {
+    match std::env::var("SCARLET_HOME") {
+        Ok(home) if !home.is_empty() => {
+            let hash = home
+                .to_lowercase()
+                .bytes()
+                .fold(0xcbf29ce484222325u64, |h, b| {
+                    (h ^ u64::from(b)).wrapping_mul(0x100000001b3)
+                });
+            wide(&format!("{base}-{hash:x}"))
+        }
+        _ => wide(base),
+    }
+}
+
 fn exe() -> Result<PathBuf, String> {
     std::env::current_exe().map_err(|e| e.to_string())
 }
@@ -90,7 +107,7 @@ pub fn spawn_watcher() {
 /// Called once by the window process. True when this is the only Scarlet window; the
 /// mutex stays held until the process exits. False when one is already open.
 pub fn claim_app() -> bool {
-    let name = wide(APP_MUTEX);
+    let name = mutex_name(APP_MUTEX);
     let h = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
     if !h.is_null() && unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
         unsafe { CloseHandle(h) };
@@ -134,7 +151,7 @@ pub fn focus_existing() {
 }
 
 fn app_open() -> bool {
-    let name = wide(APP_MUTEX);
+    let name = mutex_name(APP_MUTEX);
     let h = unsafe { OpenMutexW(SYNCHRONIZATION_SYNCHRONIZE, 0, name.as_ptr()) };
     if h.is_null() {
         return false;
@@ -239,7 +256,7 @@ fn open_app() {
 /// running, so closing Scarlet mid-session does not bring it back. Exits when
 /// the setting is turned off.
 pub fn watch() {
-    let name = wide(WATCH_MUTEX);
+    let name = mutex_name(WATCH_MUTEX);
     let h = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
     if h.is_null() || unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
         return;

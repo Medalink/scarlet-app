@@ -90,4 +90,5 @@ The installed app keeps `settings.json` in `%APPDATA%\app.scarlet.desktop`. On f
 folder (Battle.net's registered install location, then the usual folders on every fixed drive) and uses
 `Documents\Scarlet\out` for its data. A copy with a `settings.json` next to the exe keeps using that file and its
 old rules (data off C:). Setting `SCARLET_HOME` to a folder keeps settings, the WebView2 profile, temp and the
-default data folder inside it.
+default data folder inside it, and gives that copy its own single-window lock, so it runs beside the Scarlet you
+already have open.
