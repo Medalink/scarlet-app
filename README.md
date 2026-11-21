@@ -28,3 +28,7 @@ cd ..\app
 cargo build --release
 target\release\scarlet-app.exe
 ```
+
+## License
+
+GPL-3.0. See `LICENSE`.
