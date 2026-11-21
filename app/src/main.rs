@@ -2,6 +2,7 @@
 //! into memory and serves aggregates to the static UI in ui/.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod addons;
 mod agg;
 mod commands;
 mod launch;
@@ -32,6 +33,7 @@ fn main() {
     let run = tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             commands::app_state,
+            addons::addons,
             commands::overview,
             commands::stats,
             commands::heatmap,

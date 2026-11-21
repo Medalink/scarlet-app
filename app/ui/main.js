@@ -9,6 +9,7 @@ import * as sessions from "./views/sessions.js";
 import * as map from "./views/map.js";
 import * as charts from "./views/charts.js";
 import * as loot from "./views/loot.js";
+import * as addons from "./views/addons.js";
 import * as compress from "./views/compress.js";
 import * as settings from "./views/settings.js";
 
@@ -21,6 +22,7 @@ const VIEWS = {
   map: ["Map", map],
   charts: ["Charts", charts],
   loot: ["Loot", loot],
+  addons: ["Addons", addons],
   compress: ["Compress", compress],
   settings: ["Settings", settings],
 };
