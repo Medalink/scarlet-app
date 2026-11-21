@@ -1,5 +1,4 @@
-//! Finding the game folder under the World of Warcraft folder, and the World of
-//! Warcraft folder itself when the saved path does not exist on this PC.
+//! Finding the game folder under the World of Warcraft folder.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -40,23 +39,4 @@ pub fn game_dir(wow: &Path) -> PathBuf {
 /// True when `p` is a World of Warcraft folder that has a WoW Forever game folder.
 pub fn is_wow_root(p: &Path) -> bool {
     p.join(FOREVER).is_dir()
-}
-
-/// Looks for the World of Warcraft folder on every drive in the places such folders
-/// usually are. Slow on a PC with disconnected network drives, so call it off the UI thread.
-pub fn find_wow() -> Option<PathBuf> {
-    let roots = ["", "Games", "Program Files (x86)", "Program Files"];
-    for letter in b'A'..=b'Z' {
-        for root in roots {
-            let mut dir = PathBuf::from(format!("{}:\\", letter as char));
-            if !root.is_empty() {
-                dir.push(root);
-            }
-            let cand = dir.join("World of Warcraft");
-            if is_wow_root(&cand) {
-                return Some(cand);
-            }
-        }
-    }
-    None
 }

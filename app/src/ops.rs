@@ -60,8 +60,9 @@ fn run_export(app: &AppHandle) -> String {
         let st = s.settings.lock().unwrap();
         (st.wow.clone(), st.data.clone())
     };
-    if !wow.join("_forever_").is_dir() {
-        return "export skipped: the WoW folder in Settings has no _forever_ folder".into();
+    if !scarlet::gamedir::game_dir(&wow).join("WTF").is_dir() {
+        return "export skipped: the WoW folder in Settings has no game folder with a WTF folder"
+            .into();
     }
     let before = std::time::Instant::now();
     match crate::watch::export_and_reload(app, &wow, &out) {
@@ -163,6 +164,18 @@ pub fn set_open_with_wow(app: AppHandle, on: bool) -> Result<bool, String> {
 
 /// Persist the last view so the app reopens on it.
 #[tauri::command(async)]
-pub fn save_view(view: String) {
-    let _ = settings::update(|c| c.last_view = view);
+pub fn save_view(app: AppHandle, view: String) {
+    {
+        let mut st = state(&app).settings.lock().unwrap();
+        // Re-rendering the same view writes nothing.
+        if st.last_view == view {
+            return;
+        }
+        st.last_view = view.clone();
+    }
+    // The file as written, not `update`: that looks for the WoW install on every call.
+    if let Some(mut s) = settings::try_load() {
+        s.last_view = view;
+        let _ = settings::save(&s);
+    }
 }

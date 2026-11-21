@@ -56,15 +56,13 @@ fn run() -> Result<(), Box<dyn Error>> {
     if words.len() > 1 {
         return Err("unexpected argument".into());
     }
-    // Without --wow: the old default when it exists, else a search of the drives.
-    let wow = wow.unwrap_or_else(|| {
-        let default = PathBuf::from(DEFAULT_WOW);
-        if default.is_dir() {
-            default
-        } else {
-            scarlet::gamedir::find_wow().unwrap_or(default)
-        }
-    });
+    let wow = wow.unwrap_or_else(|| PathBuf::from(DEFAULT_WOW));
+    if !wow.is_dir() {
+        eprintln!(
+            "scarlet: {} does not exist; pass --wow <the World of Warcraft folder>",
+            wow.display()
+        );
+    }
     match cmd.as_str() {
         "export" => export::export(&wow, &out),
         "watch" => export::watch(&wow, &out),

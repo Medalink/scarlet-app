@@ -101,13 +101,7 @@ fn main() {
             )
             .title("Scarlet")
             .inner_size(1280.0, 840.0)
-            .min_inner_size(960.0, 620.0)
-            // GPU work in the browser process instead of its own: one process and about
-            // 20 MB less, same frame times. Setting any argument drops wry's default
-            // --disable-features list, so it is repeated here.
-            .additional_browser_args(
-                "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --in-process-gpu",
-            );
+            .min_inner_size(960.0, 620.0);
             if let Some(dir) = settings::webview_data() {
                 std::fs::create_dir_all(&dir).ok();
                 window = window.data_directory(dir);
@@ -149,7 +143,7 @@ fn main() {
         launch::message_box(
             "Scarlet",
             &format!(
-                "{text}\nScarlet needs the Microsoft Edge WebView2 Runtime. Install it from microsoft.com/edge/webview2 and start Scarlet again."
+                "{text}\nIf the Microsoft Edge WebView2 Runtime is not installed, install it and start Scarlet again."
             ),
         );
     }
