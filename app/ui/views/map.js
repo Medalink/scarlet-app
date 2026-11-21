@@ -1,6 +1,6 @@
 // Map: P points per uiMapID as glowing polylines over the map's art (when
 // a `maps` folder holds it) on a dark canvas, with session colours, zoom
-// and pan.
+// and pan. A teleport on the map is a dashed jump between its two points.
 
 import { invoke, el, num, esc, PALETTE, state } from "../lib.js";
 
@@ -139,6 +139,8 @@ export async function render(body) {
     ctx.lineCap = "round";
     for (const p of polys) {
       if (p.pts.length < 2) continue;
+      // A teleport is a dashed jump between its two points.
+      ctx.setLineDash(p.dash ? [8 * devicePixelRatio, 6 * devicePixelRatio] : []);
       ctx.strokeStyle = p.color;
       ctx.beginPath();
       ctx.moveTo(X(p.pts[0][0]), Y(p.pts[0][1]));
@@ -154,6 +156,7 @@ export async function render(body) {
       ctx.stroke();
       ctx.globalAlpha = 1;
     }
+    ctx.setLineDash([]);
   }
 
   canvas.onwheel = (e) => {

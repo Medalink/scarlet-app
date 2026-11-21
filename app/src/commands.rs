@@ -118,7 +118,7 @@ fn map_index(st: &Store) -> HashMap<u32, (String, String)> {
 
 fn maps_of(st: &Store) -> Vec<MapInfo> {
     let mut counts: BTreeMap<u32, u64> = BTreeMap::new();
-    for pl in &st.polylines {
+    for pl in st.polylines.iter().filter(|pl| !pl.dash) {
         *counts.entry(pl.map).or_default() += pl.pts.len() as u64;
     }
     let index = map_index(st);
@@ -603,6 +603,7 @@ pub fn sessions(app: AppHandle, ch: Option<String>) -> Vec<SessionRow> {
 pub struct Poly {
     session: u32,
     pts: Vec<(f32, f32)>,
+    dash: bool,
 }
 
 #[tauri::command]
@@ -623,6 +624,7 @@ pub fn map_data(app: AppHandle, map: u32, ch: Option<String>) -> Vec<Poly> {
             .map(|pl| Poly {
                 session: pl.session,
                 pts: downsample(&pl.pts, 2000),
+                dash: pl.dash,
             })
             .collect()
     })

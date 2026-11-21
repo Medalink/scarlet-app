@@ -197,6 +197,8 @@ pub fn word(code: &str) -> &str {
         "MO" => "mount",
         "WP" => "waypoint",
         "SM" => "summon",
+        "TE" => "teleport",
+        "NP" => "place",
         "TM" => "countdown",
         "IB" => "instanceboot",
         "DF" => "difficulty",
@@ -825,6 +827,31 @@ fn label(kind: char, id: &str, names: &HashMap<String, String>, fallback: &str) 
     }
 }
 
+/// A spot on a map from the `P` units: the map, then the map percent to one decimal.
+fn spot(map: &str, x: &str, y: &str) -> String {
+    if map.is_empty() {
+        return "an unknown place".into();
+    }
+    match (x.parse::<f64>(), y.parse::<f64>()) {
+        (Ok(x), Ok(y)) => format!("map {map} at {:.1},{:.1}", x / 100.0, y / 100.0),
+        _ => format!("map {map}"),
+    }
+}
+
+/// The screenshot moment codes of an `SS` line.
+fn shot_moment(v: &str) -> &str {
+    match v {
+        "lv" => "level up",
+        "de" => "death",
+        "bk" => "boss kill",
+        "ep" => "epic item",
+        "nc" => "new collectible",
+        "dw" => "duel won",
+        "pk" => "PvP kill",
+        other => other,
+    }
+}
+
 fn details(code: &str, f: &[String], names: &HashMap<String, String>) -> String {
     let g = |i: usize| f.get(i).map(String::as_str).unwrap_or("");
     let spell = |i: usize| label('s', g(i), names, "spell");
@@ -1080,6 +1107,12 @@ fn details(code: &str, f: &[String], names: &HashMap<String, String>) -> String 
             if !g(6).is_empty() && g(6) != "0" {
                 s.push_str(&format!(", house cut {}", coin(g(6))));
             }
+            match g(7) {
+                "i" => s.push_str(" (seen in the inbox)"),
+                "o" => s.push_str(" (mail opened)"),
+                "t" => s.push_str(" (taken)"),
+                _ => {}
+            }
             s
         }
         "PV" => if g(0) == "1" { "flagged" } else { "unflagged" }.into(),
@@ -1093,6 +1126,8 @@ fn details(code: &str, f: &[String], names: &HashMap<String, String>) -> String 
         "SS" => {
             if g(0).is_empty() {
                 String::new()
+            } else if !g(2).is_empty() {
+                format!("{} (taken by Scarlet: {})", g(0), shot_moment(g(2)))
             } else if g(1) == "c" {
                 format!("{} (a Screenshot call was seen)", g(0))
             } else {
@@ -1147,7 +1182,75 @@ fn details(code: &str, f: &[String], names: &HashMap<String, String>) -> String 
             if !g(8).is_empty() && g(8) != "0" {
                 s.push_str(&format!(", {}s before death", g(8)));
             }
+            // The killing blow's source, when it was in sight, and the recap's length.
+            let kind = match g(10) {
+                "p" => "a player",
+                "c" => "a creature",
+                _ => "",
+            };
+            if !kind.is_empty() {
+                let mut bits = Vec::new();
+                if g(11) == "-1" {
+                    bits.push("level ??".to_string());
+                } else if !g(11).is_empty() {
+                    bits.push(format!("level {}", g(11)));
+                }
+                if !g(12).is_empty() && g(12) != "normal" {
+                    bits.push(g(12).to_lowercase());
+                }
+                if !g(13).is_empty() {
+                    bits.push(g(13).to_lowercase());
+                }
+                if !g(14).is_empty() {
+                    bits.push(format!("<{}>", g(14)));
+                }
+                s.push_str(&format!(", the killer was {kind}"));
+                if !bits.is_empty() {
+                    s.push_str(&format!(" ({})", bits.join(", ")));
+                }
+            }
+            if !g(15).is_empty() {
+                s.push_str(&format!(", {} hits in the recap", g(15)));
+            }
             s
+        }
+        "TE" => {
+            let by = match g(0) {
+                "m" => "a summon".to_string(),
+                "i" => match (g(2).is_empty(), g(1).is_empty()) {
+                    (false, false) => format!("{} (spell {})", item(2), g(1)),
+                    (false, true) => item(2),
+                    _ => spell(1),
+                },
+                "o" => format!("{} (a spell you do not know, such as a portal)", spell(1)),
+                _ => spell(1),
+            };
+            let mut s = format!(
+                "teleported by {by} from {} to {}",
+                spot(g(3), g(4), g(5)),
+                spot(g(6), g(7), g(8))
+            );
+            if !g(9).is_empty() {
+                s.push_str(&format!(", {} yards", g(9)));
+            }
+            if g(11) == "d" {
+                s.push_str(", on the same map");
+            }
+            s
+        }
+        "NP" => {
+            let who = if g(0) == "o" {
+                format!("object {}", g(1))
+            } else {
+                label('n', g(1), names, "npc")
+            };
+            let how = match g(5) {
+                "s" => "seen",
+                "t" => "talked to",
+                "l" => "looted",
+                other => other,
+            };
+            format!("{who} {how} from map {} cell {},{}", g(2), g(3), g(4))
         }
         "CU" => {
             let n = g(1);
@@ -2561,6 +2664,9 @@ fn details(code: &str, f: &[String], names: &HashMap<String, String>) -> String 
                 "w" => s.push_str(" (group changed)"),
                 "r" => s.push_str(" (reset by the client)"),
                 _ => {}
+            }
+            if !g(10).is_empty() {
+                s.push_str(&format!(", loadout {}", g(10)));
             }
             s
         }

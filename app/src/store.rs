@@ -41,6 +41,8 @@ pub struct MapLine {
     pub map: u32,
     pub session: u32,
     pub pts: Vec<(f32, f32)>,
+    /// A teleport on one map: two points drawn as a dashed jump, never merged into a path.
+    pub dash: bool,
 }
 
 pub struct Store {
@@ -142,9 +144,30 @@ impl Store {
                                 map: m,
                                 session: cur_session,
                                 pts: vec![(x as f32 / 100.0, y as f32 / 100.0)],
+                                dash: false,
                             });
                         }
                         continue;
+                    }
+                    // TE fromMap fromX fromY toMap toX toY: a teleport inside one map is a dashed jump.
+                    "TE" => {
+                        if let [_, _, _, fm, fx, fy, tm, tx, ty, ..] = e.fields.as_slice()
+                            && fm == tm
+                            && let (Ok(m), Ok(fx), Ok(fy), Ok(tx), Ok(ty)) = (
+                                fm.parse::<u32>(),
+                                fx.parse::<f32>(),
+                                fy.parse::<f32>(),
+                                tx.parse::<f32>(),
+                                ty.parse::<f32>(),
+                            )
+                        {
+                            polylines.push(MapLine {
+                                map: m,
+                                session: cur_session,
+                                pts: vec![(fx / 100.0, fy / 100.0), (tx / 100.0, ty / 100.0)],
+                                dash: true,
+                            });
+                        }
                     }
                     "S" => {
                         cur_session = sessions.len() as u32;
@@ -206,7 +229,12 @@ impl Store {
         let mut merged: Vec<MapLine> = Vec::new();
         for pl in polylines {
             match merged.last_mut() {
-                Some(last) if last.map == pl.map && last.session == pl.session => {
+                Some(last)
+                    if !last.dash
+                        && !pl.dash
+                        && last.map == pl.map
+                        && last.session == pl.session =>
+                {
                     last.pts.extend(pl.pts);
                 }
                 _ => merged.push(pl),
