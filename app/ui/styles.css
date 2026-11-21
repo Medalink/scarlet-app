@@ -574,3 +574,19 @@ ul, ol { list-style: none; }
 .notes-all summary { cursor: pointer; color: var(--fg); }
 .addon-list { margin-top: 14px; }
 .section-title + .kv, .section-title + .field { margin-top: 0; }
+
+/* Settings pages ----------------------------------------------------------- */
+
+.subnav { display: flex; gap: 22px; margin-bottom: 22px; border-bottom: 1px solid var(--line); }
+.subnav a {
+  padding: 0 0 10px;
+  margin-bottom: -1px;
+  color: var(--text);
+  font-size: 16px;
+  text-decoration: none;
+  border-bottom: 2px solid transparent;
+}
+.subnav a:hover { color: var(--fg); border-bottom-color: var(--line2); }
+.subnav a[aria-selected="true"] { color: var(--fg); font-weight: 700; border-bottom-color: var(--accent); }
+.subnav a:focus-visible { outline-offset: 3px; }
+#missing:not([hidden]) { margin: 0 0 18px; line-height: 1.5; }

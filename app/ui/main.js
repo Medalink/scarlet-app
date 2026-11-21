@@ -29,6 +29,9 @@ const VIEWS = {
 
 let current = "overview";
 
+// A route is a view key with an optional page after a slash: "settings/updates".
+const routeKey = (route) => route.split("/")[0];
+
 function buildNav() {
   const nav = $("#nav");
   for (const [key, [label]] of Object.entries(VIEWS)) {
@@ -64,12 +67,13 @@ function setView() {
   const mine = ++navSeq;
   const run = navTail.then(async () => {
     if (mine !== navSeq) return;
-    const key = (location.hash || "#overview").slice(1);
+    const route = (location.hash || "#overview").slice(1);
+    const [key, sub] = route.split("/");
     current = VIEWS[key] ? key : "overview";
     document.querySelectorAll("#nav .item").forEach((i) => i.classList.toggle("active", i.dataset.key === current));
     $("#pagetitle").textContent = VIEWS[current][0];
-    await VIEWS[current][1].render($("#body"));
-    if (mine === navSeq) invoke("save_view", { view: current });
+    await VIEWS[current][1].render($("#body"), VIEWS[key] ? sub : undefined);
+    if (mine === navSeq) invoke("save_view", { view: VIEWS[key] ? route : current });
   });
   navTail = run.catch(() => {});
   return run;
@@ -115,7 +119,7 @@ async function boot() {
   // Restore the last view before the first render, so save_view in setView
   // does not overwrite it with "overview". Asked together with the app state.
   const [, s] = await Promise.all([loadState(), location.hash ? null : invoke("get_settings")]);
-  if (s?.last_view && VIEWS[s.last_view]) location.hash = s.last_view;
+  if (s?.last_view && VIEWS[routeKey(s.last_view)]) location.hash = s.last_view;
   await refreshCharSelector();
   headStats();
   $("#char").onchange = async (e) => {
@@ -127,7 +131,7 @@ async function boot() {
   window.addEventListener("hashchange", setView);
 
   const { listen } = window.__TAURI__.event;
-  $("#upd").onclick = () => (location.hash = "settings");
+  $("#upd").onclick = () => (location.hash = "settings/updates");
   await listen("update-changed", (e) => showVersion(e.payload));
   await listen("store-changed", async () => {
     await loadState();

@@ -1,28 +1,52 @@
-// Settings: WoW folder and data folder, what is missing on this PC, and where they are stored.
+// Settings: one page per topic, chosen by the tabs at the top and by the hash (#settings/updates).
 
 import { invoke, el, openmapMissing } from "../lib.js";
 import { renderUpload } from "./upload.js";
-import { renderUpdates } from "./updates.js";
+import { renderUpdates, renderAddon, watchProblems, refreshProblems } from "./updates.js";
 
-export async function render(body) {
+const PAGES = [
+  ["general", "General", general],
+  ["map", "Map", mapArt],
+  ["updates", "Updates", renderUpdates],
+  ["addon", "Addon", renderAddon],
+  ["website", "Website", renderUpload],
+];
+
+export async function render(body, sub) {
+  const key = PAGES.some(([k]) => k === sub) ? sub : "general";
+  body.innerHTML = "";
+  const tabs = el("div", "subnav");
+  tabs.setAttribute("role", "tablist");
+  for (const [k, name] of PAGES) {
+    const a = el("a", "", name);
+    a.href = k === "general" ? "#settings" : `#settings/${k}`;
+    a.setAttribute("role", "tab");
+    a.setAttribute("aria-selected", String(k === key));
+    tabs.appendChild(a);
+  }
+  // What is missing on this PC shows on every page, so a player who lands on one still sees it.
+  const missing = el("div", "status err");
+  missing.id = "missing";
+  missing.hidden = true;
+  const page = el("div");
+  body.append(tabs, missing, page);
+  await refreshProblems();
+  await PAGES.find(([k]) => k === key)[2](page);
+}
+
+// WoW folder and data folder, what is missing on this PC, where they are stored, and starting with WoW.
+async function general(body) {
   body.innerHTML = "";
   const s = await invoke("get_settings");
+  watchProblems();
 
   const form = el("div");
   form.innerHTML = `
-    <div class="status err" id="missing"></div>
     <div class="field"><label>WoW folder</label></div>
     <div class="field"><label>Data folder</label></div>
     <button class="btn primary" id="save">Save</button>
     <div class="status" id="st"></div>
     <div class="note" id="where"></div>`;
-  const missing = form.querySelector("#missing");
-  for (const p of s.problems) {
-    const line = el("div");
-    line.textContent = p;
-    missing.appendChild(line);
-  }
-  missing.hidden = s.problems.length === 0;
   form.querySelector("#where").textContent = s.keep_off_c
     ? `Settings are in ${s.file}. The data folder must not be on C:.`
     : `Settings are in ${s.file}.`;
@@ -48,7 +72,8 @@ export async function render(body) {
       const picked = await invoke("browse_wow");
       if (picked === null) return;
       await invoke("set_settings", { wow: picked, data: dataIn.value });
-      await render(body);
+      await general(body);
+      await refreshProblems();
       const done = body.querySelector("#st");
       done.className = "status ok";
       done.textContent = "Saved.";
@@ -76,9 +101,28 @@ export async function render(body) {
   };
   body.append(sw, swSt);
 
-  // Map art: Scarlet's own dark sheets, or the real map art read from the player's OpenMap addon.
+  form.querySelector("#save").onclick = async () => {
+    const st = form.querySelector("#st");
+    st.className = "status";
+    st.textContent = "Saving…";
+    try {
+      await invoke("set_settings", { wow: wowIn.value, data: dataIn.value });
+      await general(body);
+      await refreshProblems();
+      const done = body.querySelector("#st");
+      done.className = "status ok";
+      done.textContent = "Saved.";
+    } catch (e) {
+      st.className = "status err";
+      st.textContent = String(e);
+    }
+  };
+}
+
+// Map art: Scarlet's own dark sheets, or the real map art read from the player's OpenMap addon.
+async function mapArt(body) {
+  const s = await invoke("get_settings");
   const artField = el("div", "field");
-  artField.style.marginTop = "24px";
   artField.innerHTML = `<label>Map art</label>`;
   const artSeg = el("div", "seg");
   artSeg.setAttribute("role", "group");
@@ -118,22 +162,4 @@ export async function render(body) {
   artField.appendChild(artSeg);
   body.append(artField, artNote);
   showArt(s.map_art || "dark");
-  await renderUpdates(body);
-  renderUpload(body);
-
-  form.querySelector("#save").onclick = async () => {
-    const st = form.querySelector("#st");
-    st.className = "status";
-    st.textContent = "Saving…";
-    try {
-      await invoke("set_settings", { wow: wowIn.value, data: dataIn.value });
-      await render(body);
-      const done = body.querySelector("#st");
-      done.className = "status ok";
-      done.textContent = "Saved.";
-    } catch (e) {
-      st.className = "status err";
-      st.textContent = String(e);
-    }
-  };
 }

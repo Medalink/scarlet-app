@@ -1,5 +1,5 @@
-// Settings > Updates: the version, the Release or Beta choice, the offered update with its notes, the
-// recent releases, and the state of the Scarlet addon in the WoW folder.
+// Settings > Updates and Settings > Addon: the version, the Release or Beta choice, the offered update
+// with its notes and the recent releases; and the state of the Scarlet addon in the WoW folder.
 
 import { invoke, el, bytes } from "../lib.js";
 
@@ -97,7 +97,6 @@ function notesList(parent, info) {
 }
 
 function addonBlock(parent, a, onChange) {
-  parent.appendChild(text("div", "section-title", "Scarlet addon"));
   const sw = el("span", "switch");
   sw.innerHTML = `<span class="track"><span class="knob"></span></span><span class="lab">Keep the addon up to date</span>`;
   sw.classList.toggle("on", a.keep);
@@ -123,8 +122,8 @@ function addonBlock(parent, a, onChange) {
   }
 }
 
-// The red lines at the top of Settings were read when the page opened; the app may have installed the addon since.
-async function refreshProblems() {
+// The red lines at the top of General were read when the page opened; the app may have installed the addon since.
+export async function refreshProblems() {
   const missing = document.querySelector("#missing");
   if (!missing) return;
   const s = await invoke("get_settings");
@@ -133,21 +132,24 @@ async function refreshProblems() {
   missing.hidden = s.problems.length === 0;
 }
 
+export async function watchProblems() {
+  await listenOnce();
+  redraw = refreshProblems;
+}
+
 export async function renderUpdates(body) {
   const box = el("div");
-  box.style.marginTop = "32px";
   body.appendChild(box);
   await listenOnce();
 
   const draw = async () => {
-    const [info, addon] = await Promise.all([invoke("update_info"), invoke("addon_status")]);
+    const info = await invoke("update_info");
     if (!box.isConnected) {
       if (redraw === draw) redraw = null;
       return;
     }
     refreshProblems();
     box.textContent = "";
-    box.appendChild(text("div", "section-title", "Updates"));
     line(box, "Version", label(info));
 
     const track = el("div", "field");
@@ -209,6 +211,24 @@ export async function renderUpdates(body) {
       box.appendChild(text("pre", "notes", info.offered.notes || "No notes."));
     }
     notesList(box, info);
+  };
+  redraw = draw;
+  await draw();
+}
+
+export async function renderAddon(body) {
+  const box = el("div");
+  body.appendChild(box);
+  await listenOnce();
+
+  const draw = async () => {
+    const addon = await invoke("addon_status");
+    if (!box.isConnected) {
+      if (redraw === draw) redraw = null;
+      return;
+    }
+    refreshProblems();
+    box.textContent = "";
     addonBlock(box, addon, draw);
   };
   redraw = draw;

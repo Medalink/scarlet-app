@@ -1,4 +1,4 @@
-// Settings > Upload: the master switch, the website address, one switch per sharing group and per
+// Settings > Website: the master switch, the website address, one switch per sharing group and per
 // character, the account link and the removals. Off until the player turns it on.
 
 import { invoke, el, bytes, num } from "../lib.js";
@@ -35,7 +35,6 @@ function sw(label, on, locked) {
 
 export async function renderUpload(body) {
   const box = el("div");
-  box.style.marginTop = "32px";
   body.appendChild(box);
   let v = await invoke("upload_get");
   let asking = null; // a group just switched off that the player must answer for
@@ -61,9 +60,6 @@ export async function renderUpload(body) {
 
   function draw() {
     box.innerHTML = "";
-    const title = el("h3", "section-title", "Upload");
-    box.appendChild(title);
-
     const master = sw("Upload to the Scarlet website", v.enabled);
     master.onclick = () => act(() => invoke("upload_set_enabled", { on: !v.enabled }));
     const sentence = el("div", "note");
