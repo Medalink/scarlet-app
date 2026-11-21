@@ -1,6 +1,7 @@
 //! The three commands: export, watch, logs. Plus SavedVariables discovery
 //! and state.json bookkeeping.
 
+use crate::addons;
 use crate::archive;
 use crate::events;
 use crate::lua::{self, Lua};
@@ -54,15 +55,15 @@ fn state_key(p: &Path) -> String {
     s.strip_prefix(r"\\?\").unwrap_or(&s).to_string()
 }
 
-struct Chunk {
-    q: u64,
-    c: String,
-    t: i64,
-    e: String,
-    z: String,
+pub(crate) struct Chunk {
+    pub(crate) q: u64,
+    pub(crate) c: String,
+    pub(crate) t: i64,
+    pub(crate) e: String,
+    pub(crate) z: String,
 }
 
-fn chunk(l: &Lua) -> Option<Chunk> {
+pub(crate) fn chunk(l: &Lua) -> Option<Chunk> {
     Some(Chunk {
         q: l.get("q")?.as_int()? as u64,
         c: l.get("c")?.as_str()?.to_string(),
@@ -84,7 +85,7 @@ fn inflate(raw: &[u8]) -> Option<String> {
     String::from_utf8(out).ok()
 }
 
-fn decode(e: &str, z: &str) -> Option<String> {
+pub(crate) fn decode(e: &str, z: &str) -> Option<String> {
     use base64::Engine;
     match e {
         "txt" => Some(z.to_string()),
@@ -129,6 +130,7 @@ pub fn export(wow: &Path, out: &Path) -> Result<(), Box<dyn Error>> {
     let mut runs: BTreeMap<String, CharRun> = BTreeMap::new();
     let mut bad: u64 = 0;
     let mut addon: BTreeMap<String, Vec<AddonRow>> = BTreeMap::new();
+    let mut addon_runs: BTreeMap<String, addons::AddonRun> = BTreeMap::new();
 
     for sv in &files {
         let key = state_key(sv);
@@ -140,7 +142,22 @@ pub fn export(wow: &Path, out: &Path) -> Result<(), Box<dyn Error>> {
                 continue;
             }
         };
-        let db = match lua::parse_db(&text) {
+        // The addon stream has its own table, chunk numbers and state key.
+        if text.contains("ScarletAddonsDB") {
+            match lua::parse_named(&text, "ScarletAddonsDB") {
+                Ok(Some(adb)) => {
+                    let akey = format!("{key}#addons");
+                    let alast = state.0.get(&akey).copied().unwrap_or(0);
+                    let newest = addons::collect(&adb, alast, &mut addon_runs, &mut bad);
+                    if newest > alast {
+                        state.0.insert(akey, newest);
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => eprintln!("scarlet: {}: addons: {e}", sv.display()),
+            }
+        }
+        let db = match lua::parse_main(&text) {
             Ok(d) => d,
             Err(e) => {
                 eprintln!("scarlet: skipping {}: {e}", sv.display());
@@ -224,8 +241,16 @@ pub fn export(wow: &Path, out: &Path) -> Result<(), Box<dyn Error>> {
         );
     }
 
+    for (name, run) in &addon_runs {
+        let size = addons::write_run(&out.join(name), name, run)?;
+        println!(
+            "{name}: {} addon chunks, {} addon lines, {size} bytes (.scl)",
+            run.chunks, run.events
+        );
+    }
+
     save_state(&state_path, &state)?;
-    if runs.is_empty() {
+    if runs.is_empty() && addon_runs.is_empty() {
         let fail = if bad > 0 {
             format!(", {bad} chunk(s) failed to decode")
         } else {

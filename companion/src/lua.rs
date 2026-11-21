@@ -71,6 +71,44 @@ pub fn parse_db(text: &str) -> Result<Lua, String> {
     p.value()
 }
 
+/// Parse the value assigned to the global `name`, which WoW writes at the
+/// start of a line (`Name = {`). `Ok(None)` when the file has no such global.
+pub fn parse_named(text: &str, name: &str) -> Result<Option<Lua>, String> {
+    let mut start = 0;
+    loop {
+        let rest = &text[start..];
+        if rest.starts_with(name)
+            && rest[name.len()..]
+                .trim_start_matches([' ', '\t'])
+                .starts_with('=')
+        {
+            let mut p = P {
+                b: text.as_bytes(),
+                i: start + name.len(),
+            };
+            p.expect(b'=')?;
+            return p.value().map(Some);
+        }
+        match rest.find('\n') {
+            Some(n) => start += n + 1,
+            None => return Ok(None),
+        }
+    }
+}
+
+/// The main table, `ScarletDB`. A file that holds both Scarlet globals keeps
+/// the main one apart from `ScarletAddonsDB` whatever order WoW wrote them in;
+/// an older file with a single, differently named global still reads as before.
+pub fn parse_main(text: &str) -> Result<Lua, String> {
+    if let Some(v) = parse_named(text, "ScarletDB")? {
+        return Ok(v);
+    }
+    if text.trim_start().starts_with("ScarletAddonsDB") {
+        return Err("no ScarletDB".into());
+    }
+    parse_db(text)
+}
+
 struct P<'a> {
     b: &'a [u8],
     i: usize,

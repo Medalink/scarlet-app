@@ -10,6 +10,10 @@ records what your character does.
   you travelled on each map, charts, loot tables and how well the recordings compress. It can open itself when WoW
   Forever starts.
 
+Lines Scarlet records from other installed addons come from their own table, `ScarletAddonsDB`, and are kept apart
+from the main recording under `out/<Name-Surname>/addons/` (`addons.txt` and `payloads/`). Their codes are in
+Scarlet's [docs/ADDONS.md](https://github.com/Medalink/scarlet/blob/main/docs/ADDONS.md).
+
 The line format both read is in Scarlet's [docs/FORMAT.md](https://github.com/Medalink/scarlet/blob/main/docs/FORMAT.md),
 and the overview's rows in [docs/OVERVIEW.md](https://github.com/Medalink/scarlet/blob/main/docs/OVERVIEW.md).
 
