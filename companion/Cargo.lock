@@ -525,7 +525,7 @@ dependencies = [
 [[package]]
 name = "scarlet-part"
 version = "0.1.0"
-source = "git+https://github.com/Medalink/scarlet-web?rev=7d390a3b61f8e0dd954d6728b573a02c9ca3bb6e#7d390a3b61f8e0dd954d6728b573a02c9ca3bb6e"
+source = "git+https://github.com/Medalink/scarlet-web?rev=dd67c68fcfa27a08c00209b80196d055bc899b68#dd67c68fcfa27a08c00209b80196d055bc899b68"
 dependencies = [
  "hmac",
  "lexopt",
