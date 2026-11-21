@@ -1,12 +1,35 @@
-//! settings.json next to the exe. Nothing is ever written to C:.
+//! Where Scarlet keeps its settings, and what it assumes about a PC it has never seen.
+//!
+//! Three places, in this order:
+//! - `SCARLET_HOME` set: everything (settings, WebView2 profile, temp, default data
+//!   folder) lives under that folder. For trying the app without touching the profile.
+//! - a `settings.json` next to the exe: the portable copy. Settings, the WebView2
+//!   profile and the log stay beside the exe, temp goes to `E:\Temp`, and the data
+//!   folder may not be on C:. This is how the owner's dev copy runs.
+//! - otherwise the installed app: `%APPDATA%\app.scarlet.desktop\settings.json`
+//!   (the folder Tauri's `app_config_dir` returns), WebView2 in its default
+//!   `%LOCALAPPDATA%` profile, the data folder under Documents.
 
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
+use windows_sys::Win32::Storage::FileSystem::{GetDriveTypeW, GetLogicalDrives};
+use windows_sys::Win32::System::Com::CoTaskMemFree;
+use windows_sys::Win32::System::Registry::{
+    HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RegGetValueW,
+};
+use windows_sys::Win32::UI::Shell::{
+    FOLDERID_Documents, FOLDERID_RoamingAppData, SHGetKnownFolderPath,
+};
+use windows_sys::core::{GUID, PWSTR};
 
 /// Serialises load-modify-save within this process.
 static WRITE: Mutex<()> = Mutex::new(());
+
+/// The bundle identifier in tauri.conf.json; Tauri's config folder is named after it.
+const IDENTIFIER: &str = "app.scarlet.desktop";
+const DRIVE_FIXED: u32 = 3;
 
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Settings {
@@ -26,32 +49,221 @@ pub fn exe_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-/// `E:\wow\Scarlet\out` when it exists, else `<exe dir>\data`.
+fn wide(s: &str) -> Vec<u16> {
+    s.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+/// `SCARLET_HOME`, when set and not empty.
+fn home_override() -> Option<PathBuf> {
+    std::env::var_os("SCARLET_HOME")
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+}
+
+/// True for a copy that keeps `settings.json` beside the exe (and no `SCARLET_HOME`).
+pub fn portable() -> bool {
+    static CELL: OnceLock<bool> = OnceLock::new();
+    *CELL.get_or_init(|| home_override().is_none() && exe_dir().join("settings.json").is_file())
+}
+
+fn known_folder(id: &GUID) -> Option<PathBuf> {
+    let mut p: PWSTR = std::ptr::null_mut();
+    // SAFETY: SHGetKnownFolderPath fills `p` with a CoTaskMem string that we free below.
+    let hr = unsafe { SHGetKnownFolderPath(id, 0, std::ptr::null_mut(), &mut p) };
+    if p.is_null() {
+        return None;
+    }
+    let text = if hr >= 0 {
+        // SAFETY: on success `p` is a NUL-terminated UTF-16 string.
+        let units = unsafe {
+            let mut n = 0;
+            while *p.add(n) != 0 {
+                n += 1;
+            }
+            std::slice::from_raw_parts(p, n)
+        };
+        Some(String::from_utf16_lossy(units))
+    } else {
+        None
+    };
+    unsafe { CoTaskMemFree(p.cast()) };
+    text.map(PathBuf::from)
+}
+
+/// The user's Documents folder, wherever Windows (or OneDrive) put it.
+fn documents() -> PathBuf {
+    known_folder(&FOLDERID_Documents).unwrap_or_else(|| {
+        PathBuf::from(std::env::var_os("USERPROFILE").unwrap_or_default()).join("Documents")
+    })
+}
+
+/// The folder holding settings.json.
+pub fn config_dir() -> PathBuf {
+    if let Some(h) = home_override() {
+        return h;
+    }
+    if portable() {
+        return exe_dir();
+    }
+    known_folder(&FOLDERID_RoamingAppData)
+        .unwrap_or_else(|| PathBuf::from(std::env::var_os("APPDATA").unwrap_or_default()))
+        .join(IDENTIFIER)
+}
+
+pub fn path() -> PathBuf {
+    config_dir().join("settings.json")
+}
+
+/// Where the window process writes a startup failure (no console in release builds).
+pub fn log_path() -> PathBuf {
+    config_dir().join("scarlet.log")
+}
+
+/// A WebView2 profile folder to force, or None to leave WebView2 its default.
+pub fn webview_data() -> Option<PathBuf> {
+    if let Some(h) = home_override() {
+        return Some(h.join("webview-data"));
+    }
+    portable().then(|| exe_dir().join("webview-data"))
+}
+
+/// A temp folder to force, or None to leave the user's own.
+pub fn temp_dir() -> Option<PathBuf> {
+    if let Some(h) = home_override() {
+        return Some(h.join("temp"));
+    }
+    portable().then(|| PathBuf::from(r"E:\Temp"))
+}
+
+/// `SCARLET_OUT`, else (portable) `E:\wow\Scarlet\out` when it exists or `<exe dir>\data`,
+/// else `Scarlet\out` under Documents (under `SCARLET_HOME` when that is set).
 fn default_data() -> PathBuf {
     if let Ok(v) = std::env::var("SCARLET_OUT")
         && !v.is_empty()
     {
         return PathBuf::from(v);
     }
-    let wow_out = PathBuf::from(r"E:\wow\Scarlet\out");
-    if wow_out.is_dir() {
-        return wow_out;
+    if let Some(h) = home_override() {
+        return h.join("Scarlet").join("out");
     }
-    exe_dir().join("data")
+    if portable() {
+        let wow_out = PathBuf::from(r"E:\wow\Scarlet\out");
+        if wow_out.is_dir() {
+            return wow_out;
+        }
+        return exe_dir().join("data");
+    }
+    documents().join("Scarlet").join("out")
 }
 
-pub fn path() -> PathBuf {
-    exe_dir().join("settings.json")
+fn reg_string(root: HKEY, sub: &str, name: &str) -> Option<String> {
+    let sub = wide(sub);
+    let name = wide(name);
+    let mut bytes = 0u32;
+    // SAFETY: a size query, then a read into a buffer of the size it reported.
+    let rc = unsafe {
+        RegGetValueW(
+            root,
+            sub.as_ptr(),
+            name.as_ptr(),
+            RRF_RT_REG_SZ,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut bytes,
+        )
+    };
+    if rc != 0 || bytes == 0 {
+        return None;
+    }
+    let mut buf = vec![0u16; bytes as usize / 2 + 2];
+    let mut got = (buf.len() * 2) as u32;
+    let rc = unsafe {
+        RegGetValueW(
+            root,
+            sub.as_ptr(),
+            name.as_ptr(),
+            RRF_RT_REG_SZ,
+            std::ptr::null_mut(),
+            buf.as_mut_ptr().cast(),
+            &mut got,
+        )
+    };
+    if rc != 0 {
+        return None;
+    }
+    let end = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+    let text = String::from_utf16_lossy(&buf[..end]);
+    (!text.trim().is_empty()).then_some(text)
+}
+
+/// A folder is the WoW Forever install when it holds the `_forever_` client.
+fn is_wow_forever(p: &Path) -> bool {
+    let f = p.join("_forever_");
+    f.join("Wow.exe").is_file() || f.join("WTF").is_dir()
+}
+
+/// Finds the folder that holds `_forever_`: the install location Battle.net registered
+/// for World of Warcraft, then the usual folders on every fixed drive.
+pub fn detect_wow() -> Option<PathBuf> {
+    const UNINSTALL: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall";
+    const UNINSTALL_32: &str = r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall";
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    for root in [HKEY_LOCAL_MACHINE, HKEY_CURRENT_USER] {
+        for base in [UNINSTALL, UNINSTALL_32] {
+            for product in ["World of Warcraft", "World of Warcraft Public Test"] {
+                if let Some(v) = reg_string(root, &format!(r"{base}\{product}"), "InstallLocation")
+                {
+                    candidates.push(PathBuf::from(v.trim_end_matches('\\')));
+                }
+            }
+        }
+    }
+    // SAFETY: plain Win32 queries.
+    let mask = unsafe { GetLogicalDrives() };
+    for i in 0..26u32 {
+        if mask & (1 << i) == 0 {
+            continue;
+        }
+        let root = format!("{}:\\", (b'A' + i as u8) as char);
+        if unsafe { GetDriveTypeW(wide(&root).as_ptr()) } != DRIVE_FIXED {
+            continue;
+        }
+        for rel in [
+            r"Program Files (x86)\World of Warcraft",
+            r"Program Files\World of Warcraft",
+            r"Games\World of Warcraft",
+            r"World of Warcraft",
+            r"Blizzard\World of Warcraft",
+        ] {
+            candidates.push(Path::new(&root).join(rel));
+        }
+    }
+    candidates.into_iter().find(|p| is_wow_forever(p))
+}
+
+fn fallback() -> Settings {
+    if portable() {
+        return Settings {
+            wow: PathBuf::from(scarlet::DEFAULT_WOW),
+            data: default_data(),
+            watch: false,
+            last_view: "overview".into(),
+            open_with_wow: false,
+        };
+    }
+    let wow = detect_wow();
+    Settings {
+        // Exporting is what fills the app; start it only when there is a folder to read.
+        watch: wow.is_some(),
+        wow: wow.unwrap_or_default(),
+        data: default_data(),
+        last_view: "overview".into(),
+        open_with_wow: false,
+    }
 }
 
 pub fn load() -> Settings {
-    let fallback = Settings {
-        wow: PathBuf::from(scarlet::DEFAULT_WOW),
-        data: default_data(),
-        watch: false,
-        last_view: "overview".into(),
-        open_with_wow: false,
-    };
+    let fallback = fallback();
     let Ok(text) = fs::read_to_string(path()) else {
         return fallback;
     };
@@ -74,10 +286,20 @@ pub fn try_load() -> Option<Settings> {
 /// Written beside the file and renamed over it, so a reader never sees half a file.
 pub fn save(s: &Settings) -> Result<(), String> {
     let p = path();
+    if let Some(dir) = p.parent() {
+        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
     let tmp = p.with_extension("json.tmp");
     let json = serde_json::to_string_pretty(s).map_err(|e| e.to_string())?;
     fs::write(&tmp, json + "\n").map_err(|e| e.to_string())?;
     fs::rename(&tmp, &p).map_err(|e| e.to_string())
+}
+
+/// First run on this PC: write what was found, so the sign-in watcher can read it too.
+pub fn ensure_saved() {
+    if !path().exists() {
+        let _ = save(&load());
+    }
 }
 
 /// Load, change and save under one lock.
@@ -89,13 +311,48 @@ pub fn update(f: impl FnOnce(&mut Settings)) -> Result<Settings, String> {
     Ok(cur)
 }
 
-/// `<exe dir>\webview-data`, so WebView2 never touches %LOCALAPPDATA%.
-pub fn webview_data() -> PathBuf {
-    exe_dir().join("webview-data")
-}
-
-pub fn temp_dir() -> PathBuf {
-    PathBuf::from(r"E:\Temp")
+/// What is missing, in plain words. Empty when Scarlet can read a recording.
+pub fn problems(s: &Settings) -> Vec<String> {
+    let mut out = Vec::new();
+    if s.wow.as_os_str().is_empty() {
+        out.push(
+            "Scarlet could not find World of Warcraft on this PC. Enter the folder that \
+             contains _forever_."
+                .into(),
+        );
+        return out;
+    }
+    if !s.wow.is_dir() {
+        out.push(format!("The folder {} does not exist.", s.wow.display()));
+        return out;
+    }
+    if !s.wow.join("_forever_").is_dir() {
+        out.push(format!(
+            "There is no _forever_ folder inside {}. WoW Forever keeps its client there; \
+             enter the folder that contains it.",
+            s.wow.display()
+        ));
+        return out;
+    }
+    let addon = s
+        .wow
+        .join("_forever_")
+        .join("Interface")
+        .join("AddOns")
+        .join("Scarlet");
+    if !addon.is_dir() {
+        out.push(format!(
+            "The Scarlet addon is not installed. Copy its Scarlet folder to {}.",
+            addon.parent().unwrap_or(&addon).display()
+        ));
+    } else if scarlet::export::find_sv(&s.wow).is_ok_and(|v| v.is_empty()) {
+        out.push(
+            "Scarlet has not saved a recording yet. Play with the addon on, then log out or \
+             type /reload so WoW writes it."
+                .into(),
+        );
+    }
+    out
 }
 
 /// True when the path is absolute and on a drive other than C:. Verbatim

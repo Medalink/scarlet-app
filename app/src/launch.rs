@@ -102,6 +102,13 @@ pub fn claim_app() -> bool {
 /// Brings the open Scarlet window to the front (restoring it when minimized).
 pub fn focus_existing() {
     let title = wide("Scarlet");
+    let own_exe_suffix = exe()
+        .ok()
+        .and_then(|p| {
+            p.file_name()
+                .map(|n| format!("\\{}", n.to_string_lossy().to_lowercase()))
+        })
+        .unwrap_or_else(|| "\\scarlet-app.exe".into());
     let mut prev = std::ptr::null_mut();
     for _ in 0..50 {
         let w =
@@ -111,7 +118,8 @@ pub fn focus_existing() {
         }
         let mut pid = 0u32;
         unsafe { GetWindowThreadProcessId(w, &mut pid) };
-        let ours = image_path(pid).is_some_and(|p| p.to_lowercase().ends_with("\\scarlet-app.exe"));
+        // The installer may name the exe differently from the cargo binary, so match our own name.
+        let ours = image_path(pid).is_some_and(|p| p.to_lowercase().ends_with(&own_exe_suffix));
         if ours {
             unsafe {
                 if IsIconic(w) != 0 {

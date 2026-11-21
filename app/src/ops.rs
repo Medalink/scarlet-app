@@ -65,6 +65,9 @@ fn run_export(app: &AppHandle) -> String {
         let st = s.settings.lock().unwrap();
         (st.wow.clone(), st.data.clone())
     };
+    if !wow.join("_forever_").is_dir() {
+        return "export skipped: the WoW folder in Settings has no _forever_ folder".into();
+    }
     let before = std::time::Instant::now();
     match scarlet::export::export(&wow, &out) {
         Ok(()) => {
@@ -99,20 +102,37 @@ pub fn toggle_watch(app: AppHandle, on: bool) -> bool {
     WATCH_ON.load(Ordering::Relaxed)
 }
 
+/// The settings, where they are stored and what is missing on this PC.
+#[derive(Serialize)]
+pub struct SettingsView {
+    #[serde(flatten)]
+    settings: Settings,
+    file: String,
+    /// True for a copy that must keep its data off C: (the owner's dev copy).
+    keep_off_c: bool,
+    problems: Vec<String>,
+}
+
 #[tauri::command]
-pub fn get_settings() -> Settings {
-    settings::load()
+pub fn get_settings() -> SettingsView {
+    let settings = settings::load();
+    SettingsView {
+        problems: settings::problems(&settings),
+        file: settings::path().display().to_string(),
+        keep_off_c: settings::portable(),
+        settings,
+    }
 }
 
 #[tauri::command]
 pub fn set_settings(app: AppHandle, wow: String, data: String) -> Result<Settings, String> {
-    let wow_p = PathBuf::from(&wow);
-    let data_p = PathBuf::from(&data);
-    if !crate::settings::not_on_c(&data_p) {
-        return Err("the data folder may not be on C:".into());
+    let wow_p = PathBuf::from(wow.trim());
+    let data_p = PathBuf::from(data.trim());
+    if data_p.as_os_str().is_empty() {
+        return Err("Enter a data folder.".into());
     }
-    if !crate::settings::not_on_c(&settings::webview_data()) {
-        return Err("webview data may not be on C:".into());
+    if settings::portable() && !settings::not_on_c(&data_p) {
+        return Err("the data folder may not be on C:".into());
     }
     let cur = settings::update(|c| {
         c.wow = wow_p;

@@ -1,4 +1,4 @@
-// Settings: WoW folder and data folder, stored next to the exe.
+// Settings: WoW folder and data folder, what is missing on this PC, and where they are stored.
 
 import { invoke, el } from "../lib.js";
 
@@ -8,14 +8,22 @@ export async function render(body) {
 
   const form = el("div");
   form.innerHTML = `
+    <div class="status err" id="missing"></div>
     <div class="field"><label>WoW folder</label></div>
     <div class="field"><label>Data folder</label></div>
     <button class="btn primary" id="save">Save</button>
     <div class="status" id="st"></div>
-    <div class="note">Settings live in settings.json beside the exe. The data
-    folder holds the exported text, payloads and compressed combat logs; it
-    must not be on C:. The WebView2 profile lives beside the exe too, so
-    nothing lands in %LOCALAPPDATA%.</div>`;
+    <div class="note" id="where"></div>`;
+  const missing = form.querySelector("#missing");
+  for (const p of s.problems) {
+    const line = el("div");
+    line.textContent = p;
+    missing.appendChild(line);
+  }
+  missing.hidden = s.problems.length === 0;
+  form.querySelector("#where").textContent = s.keep_off_c
+    ? `Settings are in ${s.file}. The data folder must not be on C:.`
+    : `Settings are in ${s.file}.`;
   const [wow, data] = form.querySelectorAll(".field");
   const wowIn = el("input");
   wowIn.value = s.wow;
@@ -48,9 +56,11 @@ export async function render(body) {
     st.className = "status";
     st.textContent = "Saving…";
     try {
-      const ns = await invoke("set_settings", { wow: wowIn.value, data: dataIn.value });
-      st.className = "status ok";
-      st.textContent = `Saved. Data folder: ${ns.data}`;
+      await invoke("set_settings", { wow: wowIn.value, data: dataIn.value });
+      await render(body);
+      const done = body.querySelector("#st");
+      done.className = "status ok";
+      done.textContent = "Saved.";
     } catch (e) {
       st.className = "status err";
       st.textContent = String(e);
