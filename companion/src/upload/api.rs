@@ -210,7 +210,12 @@ impl Client {
                         let wait = retry_after
                             .or_else(|| json.pointer("/error/retry_after").and_then(Value::as_u64))
                             .unwrap_or(5)
-                            .clamp(1, MAX_WAIT);
+                            .max(1);
+                        // A longer wait than this is the hourly or daily limit: say so now
+                        // instead of sitting silent and failing anyway.
+                        if wait > MAX_WAIT {
+                            return Err(api_error(status, &json));
+                        }
                         std::thread::sleep(Duration::from_secs(wait));
                     } else {
                         return Err(api_error(status, &json));
