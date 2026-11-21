@@ -20,6 +20,7 @@ impl Identity {
         Ok(Identity { seed, name_key })
     }
 
+    #[cfg(windows)]
     fn to_blob(&self) -> [u8; 64] {
         let mut b = [0u8; 64];
         b[..32].copy_from_slice(&self.seed);
@@ -27,6 +28,7 @@ impl Identity {
         b
     }
 
+    #[cfg(windows)]
     fn from_blob(b: &[u8]) -> Option<Identity> {
         if b.len() != 64 {
             return None;
