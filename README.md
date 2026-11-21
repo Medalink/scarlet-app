@@ -36,6 +36,11 @@ Game map look, read from the player's own copy of the OpenMap addon
 (https://github.com/openmap-world/openmap) in `<WoW folder>\_forever_\Interface\AddOns\OpenMap`.
 Nothing of OpenMap's is copied into this repository or written back to its folder.
 
+The Survey look's base sheets ship with the app: `app/maps-dark/` holds 54 sheets (zones, continents, the
+world and the six capital cities), carried as `dark\` beside the exe by the installer, the release build and a
+plain `cargo build --release`. A map the pack lacks is drawn from the `maps` folder in the data folder, then
+from OpenMap's art.
+
 OpenMap bakes every zone's art into 512 px world tiles (`Data\Forever\ZoneArt.lua` lists them,
 `Media\Textures\Forever\MapZones\<i>_<j>.blp` holds them). The app decodes the BLP files (DXT) and cuts
 one WebP per map into `<data folder>\openmap\<OpenMap version>-<cut version>`, the first time a map

@@ -17,6 +17,7 @@
     "active": true,
     "targets": ["nsis"],
     "icon": ["icons/icon.ico"],
+    "resources": { "maps-dark/*.webp": "dark/" },
     "windows": {
       "nsis": {
         "installMode": "currentUser",
