@@ -30,9 +30,32 @@ export async function render(body) {
   wowIn.value = s.wow;
   const dataIn = el("input");
   dataIn.value = s.data;
-  wow.appendChild(wowIn);
+  const wowRow = el("div", "row");
+  const browse = el("button", "btn", "Browse…");
+  browse.type = "button";
+  wowRow.append(wowIn, browse);
+  wow.appendChild(wowRow);
   data.appendChild(dataIn);
   body.appendChild(form);
+
+  // The picker blocks until it closes. A folder without _forever_ is not saved; the line says why.
+  browse.onclick = async () => {
+    const st = form.querySelector("#st");
+    st.className = "status";
+    st.textContent = "";
+    try {
+      const picked = await invoke("browse_wow");
+      if (picked === null) return;
+      await invoke("set_settings", { wow: picked, data: dataIn.value });
+      await render(body);
+      const done = body.querySelector("#st");
+      done.className = "status ok";
+      done.textContent = "Saved.";
+    } catch (e) {
+      st.className = "status err";
+      st.textContent = String(e);
+    }
+  };
 
   const sw = el("span", "switch");
   sw.innerHTML = `<span class="track"><span class="knob"></span></span><span class="lab">Open when WoW Forever starts</span>`;

@@ -4,6 +4,7 @@
 
 mod addons;
 mod agg;
+mod browse;
 mod commands;
 mod discover;
 mod launch;
@@ -80,6 +81,7 @@ fn main() {
             ops::sizes,
             ops::get_settings,
             ops::set_settings,
+            browse::browse_wow,
             ops::save_view,
             ops::set_open_with_wow,
             upload::upload_get,
