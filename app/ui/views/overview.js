@@ -6,7 +6,7 @@
 
 import { invoke, esc, num, dur, moneyHtml, dateStr, SERIES, state } from "../lib.js";
 
-const CLASS_COLOR = {
+export const CLASS_COLOR = {
   DEATHKNIGHT: "#C41E3A",
   DEMONHUNTER: "#A330C9",
   DRUID: "#FF7C0A",
@@ -46,17 +46,17 @@ let histAll = false;
 let xpPinned = null;
 let current = null;
 
-const className = (c) => CLASS_NAME[c] || (c ? c[0] + c.slice(1).toLowerCase() : "");
-const raceName = (r) => RACE_NAME[r] || String(r || "").replace(/([a-z])([A-Z])/g, "$1 $2");
-const plural = (n, one, many) => `${num(n)} ${n === 1 ? one : many}`;
-const day = (ms) => {
+export const className = (c) => CLASS_NAME[c] || (c ? c[0] + c.slice(1).toLowerCase() : "");
+export const raceName = (r) => RACE_NAME[r] || String(r || "").replace(/([a-z])([A-Z])/g, "$1 $2");
+export const plural = (n, one, many) => `${num(n)} ${n === 1 ? one : many}`;
+export const day = (ms) => {
   const d = new Date(ms);
   return `${WD[d.getDay()]} ${d.getDate()} ${MO[d.getMonth()]}`;
 };
-const hm = (ms) => new Date(ms).toTimeString().slice(0, 5);
+export const hm = (ms) => new Date(ms).toTimeString().slice(0, 5);
 const net = (s) => (s.g || 0) - (s.s || 0);
 
-function longDur(secs) {
+export function longDur(secs) {
   secs = Math.max(0, Math.floor(secs));
   const d = Math.floor(secs / 86400);
   if (d > 0) return `${d}d ${Math.floor(secs / 3600) % 24}h`;
@@ -64,17 +64,17 @@ function longDur(secs) {
 }
 
 // A play time as "2h 05m" or "33m", like the site.
-function playTime(secs) {
+export function playTime(secs) {
   const m = Math.round(secs / 60);
   if (m < 60) return `${m}m`;
   return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
 }
 
-const signed = (c) => (c ? `<span class="${c > 0 ? "pos" : "neg"}">${moneyHtml(c, true)}</span>` : `<span class="neg">${moneyHtml(0)}</span>`);
+export const signed = (c) => (c ? `<span class="${c > 0 ? "pos" : "neg"}">${moneyHtml(c, true)}</span>` : `<span class="neg">${moneyHtml(0)}</span>`);
 
-const empty = (text) => `<div class="empty">${esc(text)}</div>`;
+export const empty = (text) => `<div class="empty">${esc(text)}</div>`;
 
-function mod(cls, title, inner, head = "") {
+export function mod(cls, title, inner, head = "") {
   const h = head ? `<div class="mod-head"><h2>${esc(title)}</h2>${head}</div>` : `<h2>${esc(title)}</h2>`;
   return `<section class="mod ${cls}">${h}${inner}</section>`;
 }
@@ -131,7 +131,7 @@ function header(ov, name, eta) {
 
 // This week -----------------------------------------------------------------
 
-function mondayOf(now) {
+export function mondayOf(now) {
   const m = new Date(now);
   m.setHours(0, 0, 0, 0);
   m.setDate(m.getDate() - ((m.getDay() + 6) % 7));
@@ -179,7 +179,7 @@ function axisXp(v) {
   return v >= 2000 ? `${Math.round(v / 1000)}k XP` : `${num(v)} XP`;
 }
 
-function axisTime(secs) {
+export function axisTime(secs) {
   const h = secs / 3600;
   return h >= 1 ? `${h >= 10 ? Math.round(h) : h.toFixed(1)}h` : `${Math.max(1, Math.round(secs / 60))}m`;
 }

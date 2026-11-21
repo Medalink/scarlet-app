@@ -14,6 +14,7 @@ mod loot;
 mod mapart;
 mod openmap;
 mod ops;
+mod roster;
 mod settings;
 mod store;
 mod updater;
@@ -86,6 +87,7 @@ fn main() {
             commands::app_state,
             addons::addons,
             commands::overview,
+            roster::roster,
             commands::stats,
             commands::heatmap,
             commands::timeline,

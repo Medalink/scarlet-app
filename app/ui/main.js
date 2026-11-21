@@ -2,6 +2,7 @@
 
 import { invoke, el, $, num, esc, state } from "./lib.js";
 import * as overview from "./views/overview.js";
+import * as roster from "./views/roster.js";
 import * as stats from "./views/stats.js";
 import * as heatmap from "./views/heatmap.js";
 import * as timeline from "./views/timeline.js";
@@ -14,7 +15,7 @@ import * as compress from "./views/compress.js";
 import * as settings from "./views/settings.js";
 
 const VIEWS = {
-  overview: ["Overview", overview],
+  overview: [() => (state.ch ? "Overview" : "Characters"), { render: (body, sub) => (state.ch ? overview : roster).render(body, sub) }],
   stats: ["Stats", stats],
   heatmap: ["Activity", heatmap],
   timeline: ["Timeline", timeline],
@@ -32,12 +33,14 @@ let current = "overview";
 // A route is a view key with an optional page after a slash: "settings/updates".
 const routeKey = (route) => route.split("/")[0];
 
+const labelOf = (key) => (typeof VIEWS[key][0] === "function" ? VIEWS[key][0]() : VIEWS[key][0]);
+
 function buildNav() {
   const nav = $("#nav");
-  for (const [key, [label]] of Object.entries(VIEWS)) {
+  for (const key of Object.keys(VIEWS)) {
     const item = el("div", "item");
     item.dataset.key = key;
-    item.innerHTML = `<span>${label}</span>`;
+    item.innerHTML = `<span>${labelOf(key)}</span>`;
     item.onclick = () => {
       location.hash = key;
     };
@@ -73,8 +76,11 @@ function setView() {
     const route = (location.hash || "#overview").slice(1);
     const [key, sub] = route.split("/");
     current = VIEWS[key] ? key : "overview";
-    document.querySelectorAll("#nav .item").forEach((i) => i.classList.toggle("active", i.dataset.key === current));
-    $("#pagetitle").textContent = VIEWS[current][0];
+    document.querySelectorAll("#nav .item").forEach((i) => {
+      i.classList.toggle("active", i.dataset.key === current);
+      i.firstElementChild.textContent = labelOf(i.dataset.key);
+    });
+    $("#pagetitle").textContent = labelOf(current);
     await VIEWS[current][1].render($("#body"), VIEWS[key] ? sub : undefined);
     if (mine === navSeq) invoke("save_view", { view: VIEWS[key] ? route : current });
   });
