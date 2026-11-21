@@ -173,7 +173,8 @@ pub fn save_view(app: AppHandle, view: String) {
         }
         st.last_view = view.clone();
     }
-    // The file as written, not `update`: that looks for the WoW install on every call.
+    // The file as written, not `update`: a missing or half-written file stays as it is
+    // instead of being replaced by defaults.
     if let Some(mut s) = settings::try_load() {
         s.last_view = view;
         let _ = settings::save(&s);

@@ -277,19 +277,20 @@ fn fallback() -> Settings {
     }
 }
 
+/// The saved settings. The WoW install is searched for only when there is no usable file; a
+/// folder the file names stays as written (`discover` replaces one that is gone at startup).
 pub fn load() -> Settings {
-    let fallback = fallback();
-    let Ok(text) = fs::read_to_string(path()) else {
-        return fallback;
-    };
-    match serde_json::from_str::<Settings>(&text) {
-        Ok(mut s) => {
-            if !s.data.is_dir() && !s.data.exists() && s.data.as_os_str().is_empty() {
-                s.data = fallback.data;
+    let saved = fs::read_to_string(path())
+        .ok()
+        .and_then(|text| serde_json::from_str::<Settings>(&text).ok());
+    match saved {
+        Some(mut s) => {
+            if s.data.as_os_str().is_empty() {
+                s.data = default_data();
             }
             s
         }
-        Err(_) => fallback,
+        None => fallback(),
     }
 }
 
@@ -326,6 +327,22 @@ pub fn update(f: impl FnOnce(&mut Settings)) -> Result<Settings, String> {
     Ok(cur)
 }
 
+/// Why a non-empty `wow` cannot be read, in plain words; None when it holds a game folder
+/// (found the way the rest of the app finds it, `gamedir::game_dir`).
+pub fn folder_problem(wow: &Path) -> Option<String> {
+    if !wow.is_dir() {
+        return Some(format!("The folder {} does not exist.", wow.display()));
+    }
+    if !scarlet::gamedir::game_dir(wow).is_dir() {
+        return Some(format!(
+            "There is no _forever_ folder inside {}. WoW Forever keeps its client there; \
+             enter the folder that contains it.",
+            wow.display()
+        ));
+    }
+    None
+}
+
 /// What is missing, in plain words. Empty when Scarlet can read a recording.
 pub fn problems(s: &Settings) -> Vec<String> {
     let mut out = Vec::new();
@@ -337,21 +354,11 @@ pub fn problems(s: &Settings) -> Vec<String> {
         );
         return out;
     }
-    if !s.wow.is_dir() {
-        out.push(format!("The folder {} does not exist.", s.wow.display()));
+    if let Some(p) = folder_problem(&s.wow) {
+        out.push(p);
         return out;
     }
-    if !s.wow.join("_forever_").is_dir() {
-        out.push(format!(
-            "There is no _forever_ folder inside {}. WoW Forever keeps its client there; \
-             enter the folder that contains it.",
-            s.wow.display()
-        ));
-        return out;
-    }
-    let addon = s
-        .wow
-        .join("_forever_")
+    let addon = scarlet::gamedir::game_dir(&s.wow)
         .join("Interface")
         .join("AddOns")
         .join("Scarlet");
