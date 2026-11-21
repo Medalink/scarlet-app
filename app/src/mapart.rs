@@ -15,28 +15,27 @@ pub struct ArtStatus {
     art: String,
     /// OpenMap's files were found in the WoW folder from Settings.
     installed: bool,
+    /// When not: "no-wow" (no WoW folder), "no-forever" (no `_forever_` in it), "no-addon" (no
+    /// OpenMap in its AddOns), "broken-addon" (OpenMap there without its map files).
+    reason: Option<&'static str>,
     version: Option<String>,
     wow: String,
-}
-
-fn install(app: &AppHandle) -> Option<Install> {
-    let wow = state(app).settings.lock().unwrap().wow.clone();
-    Install::find(&wow)
 }
 
 #[tauri::command(async)]
 pub fn map_art_status(app: AppHandle) -> ArtStatus {
     let s = state(&app).settings.lock().unwrap().clone();
-    let found = Install::find(&s.wow);
+    let found = Install::probe(&s.wow);
     ArtStatus {
         art: s.map_art,
-        installed: found.is_some(),
-        version: found.map(|i| i.version),
+        installed: found.is_ok(),
+        reason: found.as_ref().err().copied(),
+        version: found.ok().map(|i| i.version),
         wow: s.wow.display().to_string(),
     }
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn set_map_art(app: AppHandle, art: String) -> Result<String, String> {
     if art != "dark" && art != "openmap" {
         return Err("Map art is dark or openmap.".into());
@@ -50,10 +49,13 @@ pub fn set_map_art(app: AppHandle, art: String) -> Result<String, String> {
 /// does not have the map. The first cut of a map takes about a tenth of a second and is cached.
 #[tauri::command]
 pub async fn map_image_openmap(app: AppHandle, map: u32) -> tauri::ipc::Response {
-    let data = state(&app).settings.lock().unwrap().data.clone();
-    let inst = install(&app);
+    let (wow, data) = {
+        let s = state(&app).settings.lock().unwrap();
+        (s.wow.clone(), s.data.clone())
+    };
+    // Finding the install reads files too, so it runs on the blocking thread with the cut.
     let bytes = tauri::async_runtime::spawn_blocking(move || {
-        inst.and_then(|i| openmap::image(&i, &data, map))
+        Install::find(&wow).and_then(|i| openmap::image(&i, &data, map))
     })
     .await
     .ok()
@@ -75,8 +77,11 @@ pub fn map_image_dark(app: AppHandle, map: u32) -> tauri::ipc::Response {
 }
 
 /// Opens OpenMap's page in the default browser. Takes no address, so the page cannot open anything else.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn open_openmap_page() -> Result<(), String> {
+    use windows_sys::Win32::System::Com::{
+        COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, CoInitializeEx, CoUninitialize,
+    };
     use windows_sys::Win32::UI::Shell::ShellExecuteW;
     use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
     let wide = |s: &str| {
@@ -84,6 +89,16 @@ pub fn open_openmap_page() -> Result<(), String> {
             .chain(std::iter::once(0))
             .collect::<Vec<u16>>()
     };
+    // ShellExecute wants COM on the calling thread, and a command that runs off the window thread
+    // has none. A success code (S_OK, or S_FALSE when the thread already had it) is paired with an
+    // uninitialize; a thread that already holds COM in another mode needs neither.
+    // SAFETY: the reserved argument must be null; the thread is the one that calls Uninitialize.
+    let com = unsafe {
+        CoInitializeEx(
+            std::ptr::null(),
+            (COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE) as u32,
+        )
+    } >= 0;
     // SAFETY: both strings are NUL-terminated and outlive the call; the other arguments are null.
     let rc = unsafe {
         ShellExecuteW(
@@ -95,6 +110,10 @@ pub fn open_openmap_page() -> Result<(), String> {
             SW_SHOWNORMAL,
         )
     } as usize;
+    if com {
+        // SAFETY: pairs the successful CoInitializeEx above, on the same thread.
+        unsafe { CoUninitialize() };
+    }
     // ShellExecute reports success with a value above 32.
     if rc > 32 {
         Ok(())

@@ -17,6 +17,21 @@ export const el = (tag, cls, html) => {
 
 export const $ = (sel) => document.querySelector(sel);
 
+// Appends to `into` why OpenMap's art is not there, from `map_art_status`: the WoW folder, then
+// _forever_ in it, then OpenMap in its AddOns; the addon's page is linked where installing it helps.
+export function openmapMissing(into, st) {
+  const link = () => {
+    const a = el("button", "linkbtn", "github.com/openmap-world/openmap");
+    a.type = "button";
+    a.onclick = () => invoke("open_openmap_page").catch(() => {});
+    return a;
+  };
+  if (st.reason === "no-wow") into.append("OpenMap needs the WoW folder: set it above.");
+  else if (st.reason === "no-forever") into.append("The WoW folder has no _forever_ folder, so OpenMap is not there.");
+  else if (st.reason === "broken-addon") into.append("OpenMap is in AddOns without its map files. Reinstall it from ", link());
+  else into.append("OpenMap is not installed. Get it at ", link());
+}
+
 export function num(n) {
   return Math.round(n)
     .toString()

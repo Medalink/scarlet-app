@@ -1,6 +1,6 @@
 // Settings: WoW folder and data folder, what is missing on this PC, and where they are stored.
 
-import { invoke, el } from "../lib.js";
+import { invoke, el, openmapMissing } from "../lib.js";
 
 export async function render(body) {
   body.innerHTML = "";
@@ -64,13 +64,7 @@ export async function render(body) {
     artNote.className = "status";
     artNote.textContent = "";
     const st = await invoke("map_art_status");
-    if (art === "openmap" && !st.installed) {
-      artNote.append("OpenMap is not installed. Get it at ");
-      const a = el("button", "linkbtn", "github.com/openmap-world/openmap");
-      a.type = "button";
-      a.onclick = () => invoke("open_openmap_page").catch(() => {});
-      artNote.appendChild(a);
-    }
+    if (art === "openmap" && !st.installed) openmapMissing(artNote, st);
   };
   for (const [art, label] of [["dark", "Scarlet dark"], ["openmap", "OpenMap"]]) {
     const b = el("button", "", label);

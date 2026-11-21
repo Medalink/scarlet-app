@@ -5,10 +5,9 @@
 // a teleport as a dashed jump. The survey look draws the paths in one colour with place names and the
 // layers the buttons switch.
 
-import { invoke, el, num, esc, PALETTE, state } from "../lib.js";
+import { invoke, el, num, esc, PALETTE, state, openmapMissing } from "../lib.js";
 import { P, styleMap, mergeLabels, drawLabels, drawLayers, drawMark, LAYERS } from "./mapstyle.js";
 
-const OPENMAP_URL = "github.com/openmap-world/openmap";
 const CREDIT = "Map art © Blizzard Entertainment, read from your OpenMap install";
 // Art from OpenMap is drawn without the strokes copied from it, like the shipped sheets.
 const OPENMAP_STYLE = { ...P, ink: "off" };
@@ -225,13 +224,8 @@ export async function render(body) {
     note.textContent = "";
     note.hidden = false;
     if (art?.source === "openmap") note.textContent = CREDIT;
-    else if (status.art === "openmap" && !status.installed) {
-      note.append("OpenMap is not installed. Get it at ");
-      const a = el("button", "linkbtn", OPENMAP_URL);
-      a.type = "button";
-      a.onclick = () => invoke("open_openmap_page").catch(() => {});
-      note.appendChild(a);
-    } else note.hidden = true;
+    else if (status.art === "openmap" && !status.installed) openmapMissing(note, status);
+    else note.hidden = true;
   }
 
   function resize() {
