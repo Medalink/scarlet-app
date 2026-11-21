@@ -137,7 +137,9 @@ async function boot() {
     await loadState();
     headStats();
     await refreshCharSelector();
-    await setView();
+    // Settings draws itself after a save; redrawing it here would wipe "Saved." and whatever
+    // the player is typing when an export lands.
+    if (!location.hash.startsWith("#settings")) await setView();
   });
 }
 

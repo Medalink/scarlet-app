@@ -76,7 +76,7 @@ pub fn wide(s: &str) -> Vec<u16> {
 }
 
 /// `SCARLET_HOME`, when set and not empty.
-fn home_override() -> Option<PathBuf> {
+pub fn home_override() -> Option<PathBuf> {
     std::env::var_os("SCARLET_HOME")
         .filter(|v| !v.is_empty())
         .map(PathBuf::from)
@@ -225,8 +225,13 @@ fn is_wow_forever(p: &Path) -> bool {
 }
 
 /// Finds the folder that holds `_forever_`: the install location Battle.net registered
-/// for World of Warcraft, then the usual folders on every fixed drive.
+/// for World of Warcraft, then the usual folders on every fixed drive. A `SCARLET_HOME` copy
+/// never searches: it is a trial copy, and the folder it found would be the PC's real game,
+/// whose addon folder it then writes `Digest.lua` into.
 pub fn detect_wow() -> Option<PathBuf> {
+    if home_override().is_some() {
+        return None;
+    }
     const UNINSTALL: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall";
     const UNINSTALL_32: &str = r"SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall";
     let mut candidates: Vec<PathBuf> = Vec::new();

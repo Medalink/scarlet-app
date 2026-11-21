@@ -5,8 +5,12 @@ use crate::{commands, launch, settings, watch};
 use std::path::PathBuf;
 use tauri::AppHandle;
 
-/// The World of Warcraft folder of a running game, else the first one found on a drive.
+/// The World of Warcraft folder of a running game, else the first one found on a drive. None for
+/// a `SCARLET_HOME` copy (see `settings::detect_wow`).
 fn find() -> Option<PathBuf> {
+    if settings::home_override().is_some() {
+        return None;
+    }
     // Wow.exe sits in the game folder (`_forever_`), one level below the WoW folder.
     for exe in launch::wow_paths() {
         if let Some(root) = exe.parent().and_then(|game| game.parent())
