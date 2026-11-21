@@ -39,6 +39,13 @@ pub struct LevelShare {
     pub dd: i64,
     #[serde(skip_serializing_if = "is_zero")]
     pub q: i64,
+    /// Copper earned and spent, and dungeon and raid runs started, on this level.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub g: i64,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub s: i64,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub r: i64,
 }
 
 impl LevelShare {
@@ -52,6 +59,9 @@ impl LevelShare {
         self.k += o.k;
         self.dd += o.dd;
         self.q += o.q;
+        self.g += o.g;
+        self.s += o.s;
+        self.r += o.r;
     }
 
     fn xp_slot(&mut self, source: &str, dungeon: bool) -> &mut i64 {
@@ -175,6 +185,46 @@ pub struct GoldPoint {
     pub m: i64,
 }
 
+/// One dungeon or raid at the level cap: runs started, time spent inside, bosses killed.
+#[derive(Serialize, Deserialize, Default, Clone, Debug)]
+#[serde(default)]
+pub struct CapRun {
+    pub name: String,
+    pub n: i64,
+    pub p: i64,
+    pub b: i64,
+}
+
+/// What a character at the level cap has done there, from lines the per-level shares do not hold
+/// (docs/OVERVIEW.md, "Max level"). Present once a session reported the cap (`S` field 14).
+/// `level` is the cap; the rest is zero or empty until the character reaches it.
+#[derive(Serialize, Deserialize, Default, Clone, Debug)]
+#[serde(default)]
+pub struct CapBlock {
+    pub level: i64,
+    /// When the character reached the cap (epoch seconds); 0 when before recording.
+    pub reached: i64,
+    /// Played seconds at the cap: the larger of the cap level's share and the client's last `/played`
+    /// seconds on that level.
+    pub p: i64,
+    pub bosses: i64,
+    pub loot: i64,
+    pub honor: i64,
+    pub hks: i64,
+    pub skillups: i64,
+    /// Legacy Challenges done and in all, and the Legacy points: the latest `AP` line.
+    pub ldone: i64,
+    pub ltotal: i64,
+    pub lpoints: i64,
+    /// The latest average item level.
+    pub ilvl: i64,
+    /// Reputation gained by faction, killers and death zones at the cap, top few of each.
+    pub rep: Vec<NameCount>,
+    pub runs: Vec<CapRun>,
+    pub killers: Vec<NameCount>,
+    pub dz: Vec<NameCount>,
+}
+
 /// Totals over the sessions the addon did not record itself (history brought in
 /// from elsewhere): what its own counters, which start at install, lack. The keys
 /// are the in-game Stats cards that history can fill.
@@ -221,6 +271,26 @@ pub struct Overview {
     /// Absent when every session was recorded by the addon.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub before: Option<Before>,
+    /// Absent until a session reported the level cap.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cap: Option<CapBlock>,
+}
+
+/// Played seconds at the level cap before the overview leads with max level data.
+pub const CAP_FOCUS_SECONDS: i64 = 3600;
+
+impl Overview {
+    /// The cap level reported by the addon, when known.
+    pub fn cap_level(&self) -> Option<i64> {
+        self.cap.as_ref().map(|c| c.level).filter(|c| *c > 0)
+    }
+
+    /// At the cap, with an hour played there: the overview leads with max level data.
+    pub fn max_focus(&self) -> bool {
+        self.cap
+            .as_ref()
+            .is_some_and(|c| c.level > 0 && self.level >= c.level && c.p >= CAP_FOCUS_SECONDS)
+    }
 }
 
 const MAX_ZONES: usize = 40;
@@ -357,7 +427,53 @@ struct MateAcc {
     last_sess: usize,
 }
 
+/// Time, runs and bosses of one dungeon or raid at the cap.
+#[derive(Default)]
+struct CapRunAcc {
+    n: i64,
+    p_ms: i64,
+    b: i64,
+}
+
+/// The lines at the level cap that the per-level shares do not hold.
+#[derive(Default)]
+struct CapAcc {
+    bosses: i64,
+    loot: i64,
+    honor: i64,
+    hks: i64,
+    skillups: i64,
+    ldone: i64,
+    ltotal: i64,
+    lpoints: i64,
+    ilvl: i64,
+    rep: HashMap<String, i64>,
+    runs: HashMap<String, CapRunAcc>,
+    killers: HashMap<String, i64>,
+    dz: HashMap<String, i64>,
+}
+
+/// Names and how often, most first, at most `n`.
+fn top_counts(m: HashMap<String, i64>, n: usize) -> Vec<NameCount> {
+    let mut rows: Vec<NameCount> = m
+        .into_iter()
+        .filter(|(_, n)| *n > 0)
+        .map(|(name, n)| NameCount { name, n })
+        .collect();
+    rows.sort_by(|a, b| b.n.cmp(&a.n).then(a.name.cmp(&b.name)));
+    rows.truncate(n);
+    rows
+}
+
+/// Each of the cap block's lists keeps this many rows.
+const MAX_CAP_ROWS: usize = 5;
+
 struct Builder {
+    /// The level cap the addon last reported (`S` field 14).
+    cap: Option<i64>,
+    /// The client's seconds on the current level from its latest `/played` read at the cap.
+    cap_tp: i64,
+    acc: CapAcc,
     me: String,
     bal: Vec<Option<i64>>,
     sessions: Vec<SessionRow>,
@@ -390,6 +506,9 @@ struct Builder {
 impl Builder {
     fn new(me: &str, bal: Vec<Option<i64>>) -> Self {
         Self {
+            cap: None,
+            cap_tp: 0,
+            acc: CapAcc::default(),
             me: me.to_string(),
             bal,
             sessions: Vec::new(),
@@ -431,6 +550,10 @@ impl Builder {
         if let (Some(x), Some(m)) = (num(f, 10), num(f, 11)) {
             self.xp = x;
             self.xp_max = m;
+        }
+        // Newer addons report the client's level cap in field 14; older lines have none.
+        if let Some(c) = num(f, 13).filter(|c| *c > 0) {
+            self.cap = Some(c);
         }
         self.n_sess += 1;
         let level = self.level;
@@ -514,11 +637,15 @@ impl Builder {
     /// Charge the time since the last charge to the level and zone that were
     /// current during it.
     fn charge(&mut self, ms: i64) {
+        let cap = self.cap;
         let Some(o) = self.open.as_mut() else { return };
         let dt = (ms - o.charged_ms).max(0);
         o.charged_ms = o.charged_ms.max(ms);
         if dt == 0 {
             return;
+        }
+        if o.dungeon && !o.zone.is_empty() && cap.is_some_and(|c| i64::from(o.level) >= c) {
+            self.acc.runs.entry(o.zone.clone()).or_default().p_ms += dt;
         }
         if let Some(l) = o.lv() {
             l.p += dt;
@@ -603,6 +730,7 @@ impl Builder {
         if !name.is_empty() {
             self.zone = name.clone();
         }
+        let cap = self.cap;
         let Some(o) = self.open.as_mut() else { return };
         o.dungeon = party;
         if !name.is_empty() {
@@ -628,6 +756,12 @@ impl Builder {
             return;
         }
         o.row.r += 1;
+        if let Some(l) = o.lv() {
+            l.r += 1;
+        }
+        if !name.is_empty() && cap.is_some_and(|c| i64::from(o.level) >= c) {
+            self.acc.runs.entry(name.clone()).or_default().n += 1;
+        }
         self.runs_total += 1;
         let run = self.runs.entry(id).or_default();
         run.n += 1;
@@ -652,6 +786,12 @@ impl Builder {
                     self.tp = Some(v);
                     self.played_read(ms, v);
                 }
+                // The client's seconds on the current level, read while at the cap, are the time there.
+                if let (Some(secs), Some(c)) = (num(f, 1), self.cap)
+                    && i64::from(self.level) >= c
+                {
+                    self.cap_tp = self.cap_tp.max(secs);
+                }
                 return;
             }
             "DP" => {
@@ -668,9 +808,45 @@ impl Builder {
         let Some(o) = self.open.as_mut() else { return };
         o.end_ms = o.end_ms.max(ms);
         o.end_idx = i;
+        let at_cap = self.cap.is_some_and(|c| i64::from(o.level) >= c);
+        let acc = &mut self.acc;
         match code {
-            "B" => o.bosses += 1,
-            "O" => o.loot += num(f, 1).unwrap_or(1).max(1),
+            "B" => {
+                o.bosses += 1;
+                if at_cap {
+                    acc.bosses += 1;
+                    if o.dungeon && !o.zone.is_empty() {
+                        acc.runs.entry(o.zone.clone()).or_default().b += 1;
+                    }
+                }
+            }
+            "O" => {
+                let n = num(f, 1).unwrap_or(1).max(1);
+                o.loot += n;
+                if at_cap {
+                    acc.loot += n;
+                }
+            }
+            "RP" if at_cap => {
+                if let (Some(faction), Some(n)) = (f.first().filter(|s| !s.is_empty()), num(f, 1))
+                    && n > 0
+                {
+                    *acc.rep.entry(faction.clone()).or_default() += n;
+                }
+            }
+            "SK" if at_cap => acc.skillups += 1,
+            "HN" if at_cap => acc.honor += num(f, 0).unwrap_or(0).max(0),
+            "HK" if at_cap => acc.hks += num(f, 1).unwrap_or(0).max(0),
+            // Latest values, at any level: Legacy points and challenges, and the item level.
+            "AP" => {
+                acc.lpoints = num(f, 0).unwrap_or(acc.lpoints);
+                acc.ldone = num(f, 1).unwrap_or(acc.ldone);
+                acc.ltotal = num(f, 2).unwrap_or(acc.ltotal);
+            }
+            "SX" if f.get(1).map(String::as_str) == Some("ilvlall") => {
+                acc.ilvl = num(f, 2).unwrap_or(acc.ilvl);
+            }
+            "ST" => acc.ilvl = num(f, 10).filter(|v| *v > 0).unwrap_or(acc.ilvl),
             _ => {}
         }
         if !matches!(
@@ -680,7 +856,9 @@ impl Builder {
             return;
         }
         self.charge(ms);
+        let cap = self.cap;
         let Some(o) = self.open.as_mut() else { return };
+        let at_cap = cap.is_some_and(|c| i64::from(o.level) >= c);
         match code {
             "ES" => self.close(),
             "Z" => self.zone_changed(ms, f),
@@ -738,6 +916,9 @@ impl Builder {
                 }
                 if !o.zone.is_empty() {
                     *self.death_zones.entry(o.zone.clone()).or_default() += 1;
+                    if at_cap {
+                        *self.acc.dz.entry(o.zone.clone()).or_default() += 1;
+                    }
                 }
             }
             "Q" => {
@@ -752,8 +933,14 @@ impl Builder {
                 let net = num(f, 0).unwrap_or(0) - num(f, 1).unwrap_or(0);
                 if net > 0 {
                     o.row.g += net;
+                    if let Some(l) = o.lv() {
+                        l.g += net;
+                    }
                 } else {
                     o.row.s += -net;
+                    if let Some(l) = o.lv() {
+                        l.s += -net;
+                    }
                 }
             }
             "GM" => self.mate(ms, f),
@@ -762,6 +949,9 @@ impl Builder {
                     && let Some(src) = f.get(2).filter(|s| !s.is_empty() && *s != "?")
                 {
                     *self.killers.entry(src.clone()).or_default() += 1;
+                    if at_cap {
+                        *self.acc.killers.entry(src.clone()).or_default() += 1;
+                    }
                 }
             }
             _ => {}
@@ -817,6 +1007,45 @@ impl Builder {
                 .map(|(name, _)| name.clone())
                 .unwrap_or_default();
         }
+
+        // At the cap: what the shares do not hold, and the time there.
+        let cap_block = self.cap.map(|c| {
+            let at = u32::try_from(c).ok();
+            let share_p = at.and_then(|k| levels.get(&k)).map_or(0, |t| t.share.p);
+            let reached = at.and_then(|k| self.reached.get(&k)).copied().unwrap_or(0);
+            let acc = std::mem::take(&mut self.acc);
+            let mut runs: Vec<CapRun> = acc
+                .runs
+                .into_iter()
+                .filter(|(_, r)| r.n > 0)
+                .map(|(name, r)| CapRun {
+                    name,
+                    n: r.n,
+                    p: round_s(r.p_ms),
+                    b: r.b,
+                })
+                .collect();
+            runs.sort_by(|a, b| b.n.cmp(&a.n).then(b.p.cmp(&a.p)).then(a.name.cmp(&b.name)));
+            runs.truncate(MAX_CAP_ROWS);
+            CapBlock {
+                level: c,
+                reached,
+                p: share_p.max(self.cap_tp),
+                bosses: acc.bosses,
+                loot: acc.loot,
+                honor: acc.honor,
+                hks: acc.hks,
+                skillups: acc.skillups,
+                ldone: acc.ldone,
+                ltotal: acc.ltotal,
+                lpoints: acc.lpoints,
+                ilvl: acc.ilvl,
+                rep: top_counts(acc.rep, MAX_CAP_ROWS),
+                runs,
+                killers: top_counts(acc.killers, MAX_CAP_ROWS),
+                dz: top_counts(acc.dz, MAX_CAP_ROWS),
+            }
+        });
 
         let mut zone_rows: Vec<ZoneRow> = zones
             .into_iter()
@@ -883,6 +1112,13 @@ impl Builder {
         sessions.reverse();
         let through = sessions.first().map_or(0, |s| s.t);
         let level = sessions.first().map_or(0, |s| s.l1);
+        // At the cap the client has no experience bar: whatever the bar last held is stale.
+        let at_cap = self.cap.is_some_and(|c| level >= c);
+        let (xp, xp_max) = if at_cap {
+            (0, 0)
+        } else {
+            (self.xp, self.xp_max)
+        };
 
         Overview {
             through,
@@ -890,8 +1126,8 @@ impl Builder {
             race: self.race,
             faction: self.faction,
             level,
-            xp: self.xp,
-            xp_max: self.xp_max,
+            xp,
+            xp_max,
             zone: self.zone,
             played: played_end.map_or_else(|| self.tp.unwrap_or(sum_played), round_s),
             money,
@@ -905,6 +1141,7 @@ impl Builder {
             death_zones: counted(self.death_zones),
             gold,
             before: self.imported.then_some(self.before),
+            cap: cap_block,
         }
     }
 }
@@ -932,7 +1169,8 @@ const MIN_LEVEL_PLAYED: i64 = 900;
 const MAX_GROWTH: f64 = 1.05;
 const DAY_WINDOW: i64 = 14;
 const MAX_DAYS: f64 = 3650.0;
-const MAX_LEVEL: i64 = 60;
+/// The cap used when no session reported one. `NEED` ends at level 60 whatever the cap.
+const FALLBACK_CAP: i64 = 60;
 /// `NEED[n - 1]` is the XP level `n` needs to reach level `n + 1`.
 const NEED: [i64; 59] = [
     400, 900, 1400, 2100, 2800, 3600, 4500, 5400, 6500, 7600, 8800, 10100, 11400, 12900, 14400,
@@ -1031,9 +1269,9 @@ fn date_text(ts: i64, now: i64) -> String {
     text
 }
 
-/// Time to the next level, the next multiple of 10 and level 60 from the
+/// Time to the next level, the next multiple of 10 and the level cap from the
 /// level-weighted pace in `levels`, for a character at `level` with `xp` of
-/// `xp_max` on the bar. `rows` (newest first, the merged history) give the
+/// `xp_max` on the bar (`bar`). `rows` (newest first, the merged history) give the
 /// days played; `first` is the start of the oldest recorded session. Same
 /// rule as Overview.lua.
 pub fn level_eta(
@@ -1041,12 +1279,15 @@ pub fn level_eta(
     rows: &[RecentRow],
     first: i64,
     level: i64,
-    xp: i64,
-    xp_max: i64,
+    bar: (i64, i64),
     now: i64,
+    cap: i64,
 ) -> Eta {
     let mut eta = Eta::default();
-    if !(1..MAX_LEVEL).contains(&level) || xp_max <= 0 {
+    // NEED ends at level 60: a longer climb is not estimated past it.
+    let (xp, xp_max) = bar;
+    let cap = cap.min(NEED.len() as i64 + 1);
+    if !(1..cap).contains(&level) || xp_max <= 0 {
         return eta;
     }
     let day_start = now - DAY_WINDOW * 86_400;
@@ -1065,11 +1306,11 @@ pub fn level_eta(
 
     let mut targets = vec![level + 1];
     let major = (level / 10 + 1) * 10;
-    if major != level + 1 && major < MAX_LEVEL {
+    if major != level + 1 && major < cap {
         targets.push(major);
     }
-    if level + 1 != MAX_LEVEL {
-        targets.push(MAX_LEVEL);
+    if level + 1 != cap {
+        targets.push(cap);
     }
     for target in targets {
         let mut secs = (xp_max - xp).max(0) as f64 / pace.rate(level);
@@ -1199,9 +1440,9 @@ impl Overview {
             &recent_rows(&self.sessions, now),
             self.first_session(),
             self.level,
-            self.xp,
-            self.xp_max,
+            (self.xp, self.xp_max),
             now,
+            self.cap_level().unwrap_or(FALLBACK_CAP),
         )
     }
 }

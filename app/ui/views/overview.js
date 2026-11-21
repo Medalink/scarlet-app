@@ -111,8 +111,9 @@ function header(ov, name, eta) {
   const color = CLASS_COLOR[ov.class] || "#ff2d55";
   const identity = [ov.level ? `Level ${ov.level}` : "", raceName(ov.race), className(ov.class)].filter(Boolean).join(" ");
   const bits = [identity, ov.faction, ov.zone ? `in ${ov.zone}` : "", ov.played ? `${longDur(ov.played)} played` : ""].filter(Boolean);
-  let bar = `<p class="ch-note" style="text-align:left;margin-top:14px">No experience bar recorded</p>`;
-  if (ov.xpMax > 0) {
+  const atCap = ov.cap && ov.cap.level > 0 && ov.level >= ov.cap.level;
+  let bar = atCap ? "" : `<p class="ch-note" style="text-align:left;margin-top:14px">No experience bar recorded</p>`;
+  if (ov.xpMax > 0 && !atCap) {
     const pct = Math.min(100, Math.floor((ov.xp / ov.xpMax) * 100));
     bar = `<div class="lvl"><div class="lvl-bar"><i style="width:${pct}%"></i></div>
       <p>${pct}% to level ${ov.level + 1} · ${num(Math.max(0, ov.xpMax - ov.xp))} XP to go</p>${etaRows(eta)}</div>`;
@@ -199,10 +200,13 @@ function levelRead(level, l, last) {
   return `${head} · ${num(total)} XP · ${parts.join(" · ")}`;
 }
 
-function levelsChart(ov) {
+// Below the cap the chart sits beside Gold; with max level focus it is the Levelling section.
+function levelsChart(ov, focus = false) {
   const head = segButtons([["xp", "XP sources"], ["time", "Time per level"]], xpMode, "xp");
   const levels = levelRows(ov);
-  if (!levels.length) return mod("w8 first", "Experience by level", empty("No experience recorded"), head);
+  const cls = focus ? "w12 first last" : "w8 first";
+  const title = focus ? "Levelling" : "Experience by level";
+  if (!levels.length) return mod(cls, title, empty("No experience recorded"), head);
   const total = (l) => (xpMode === "xp" ? levelXp(l) : l.p);
   const max = Math.max(...levels.map(([, l]) => total(l)), 1);
   const bars = levels
@@ -233,8 +237,8 @@ function levelsChart(ov) {
       ? `<ul class="key">${XP_PARTS.map(([, name, c]) => `<li><i style="background:${c}"></i>${name}</li>`).join("")}</ul>`
       : "";
   return mod(
-    "w8 first",
-    "Experience by level",
+    cls,
+    title,
     `<div class="xp">
       <div class="xp-plot">
         <div class="xp-y"><span>${yTop}</span><span>${yMid}</span><span>0</span></div>
@@ -284,11 +288,18 @@ function wireLevels(body, ov) {
 
 // Gold -------------------------------------------------------------------------
 
-function goldMod(ov) {
-  if (ov.money === undefined) return mod("last", "Gold", empty("No balance recorded"));
+function goldMod(ov, cls = "last", focus = false) {
+  if (ov.money === undefined) return mod(cls, "Gold", empty("No balance recorded"));
   const recent = ov.sessions.slice(0, 7);
   const change = recent.reduce((a, s) => a + net(s), 0);
-  const sub = recent.length ? `<p class="sub">${signed(change)} over the last ${plural(recent.length, "session", "sessions")}</p>` : "";
+  let sub = recent.length ? `<p class="sub">${signed(change)} over the last ${plural(recent.length, "session", "sessions")}</p>` : "";
+  if (focus) {
+    const a = capShare(ov);
+    sub =
+      `<p class="sub">${moneyHtml(a.g)} earned and ${moneyHtml(a.s)} spent at max level</p>` +
+      `<p class="sub">${signed(a.perHour)} an hour</p>` +
+      sub;
+  }
   const pts = ov.gold.slice(-GOLD_POINTS);
   let plot = "";
   if (pts.length > 1) {
@@ -298,7 +309,7 @@ function goldMod(ov) {
       </div>
       <p class="readout" id="g-out"></p>`;
   }
-  return mod("last", "Gold", `<p class="big">${moneyHtml(ov.money)}</p>${sub}${plot}`);
+  return mod(cls, "Gold", `<p class="big">${moneyHtml(ov.money)}</p>${sub}${plot}`);
 }
 
 function wireGold(body, ov) {
@@ -331,6 +342,78 @@ function wireGold(body, ov) {
   rest();
 }
 
+// Max level ---------------------------------------------------------------------------
+// With an hour at the cap the page leads with what the character does there (docs/OVERVIEW.md,
+// "Max level"). The cap level's share of `levels` holds time, gold, runs, kills, deaths and
+// quests; `ov.cap` holds the rest.
+
+function capShare(ov) {
+  const l = (ov.cap && ov.levels[ov.cap.level]) || {};
+  const p = Math.max(l.p || 0, (ov.cap && ov.cap.p) || 0);
+  const hours = Math.max(p / 3600, 1);
+  const g = l.g || 0;
+  const s = l.s || 0;
+  return { g, s, r: l.r || 0, k: l.k || 0, dd: l.dd || 0, q: l.q || 0, p, perHour: Math.round((g - s) / hours), hours };
+}
+
+function capStrip(ov) {
+  const c = ov.cap;
+  const a = capShare(ov);
+  const since = c.reached ? `since ${day(c.reached * 1000)}` : "before recording";
+  const cells = [
+    ["Time at max level", playTime(a.p)],
+    ["Gold an hour", signed(a.perHour)],
+    ["Dungeons and raids", num(a.r)],
+    ["Deaths", num(a.dd)],
+    ["Item level", c.ilvl ? num(c.ilvl) : "–"],
+    ["Items looted", num(c.loot)],
+  ];
+  return `<section class="week cap-strip"><div><h2>At max level</h2><p>${esc(since)}</p></div>${cells
+    .map(([l, v]) => `<div><dt>${l}</dt><dd>${v}</dd></div>`)
+    .join("")}</section>`;
+}
+
+function capRunsMod(ov) {
+  const c = ov.cap;
+  const a = capShare(ov);
+  if (!c.runs.length) return mod("", "Dungeons and raids", empty("No dungeon or raid runs at max level"));
+  const rows = c.runs.map((r) => ({
+    who: r.name,
+    v: r.n,
+    val: `${plural(r.n, "run", "runs")} · ${dur(r.p)} · ${plural(r.b, "boss", "bosses")}`,
+  }));
+  return mod("", "Dungeons and raids", `${rank(rows)}<p class="total">${plural(a.r, "run", "runs")} and ${plural(c.bosses, "boss kill", "boss kills")} at max level.</p>`);
+}
+
+function capDeathsMod(ov) {
+  const c = ov.cap;
+  const a = capShare(ov);
+  if (!a.dd) return mod("last", "Deaths", empty("No deaths at max level"));
+  const rows = c.dz.slice(0, 4).map((z) => ({ who: z.name, v: z.n, val: num(z.n) }));
+  const k = c.killers[0];
+  const killer = k ? ` Killed most by <span class="who">${esc(k.name)}</span>, ${plural(k.n, "time", "times")}.` : "";
+  return mod("last", "Deaths", `${rows.length ? rank(rows) : ""}<p class="total">${plural(a.dd, "death", "deaths")}, ${(a.dd / a.hours).toFixed(1)} an hour.${killer}</p>`);
+}
+
+function capRepMod(ov) {
+  const c = ov.cap;
+  const rows = c.rep.slice(0, 5).map((r) => ({ who: r.name, v: r.n, val: `+${num(r.n)}` }));
+  const skills = `<p class="total">${plural(c.skillups, "skill-up", "skill-ups")} at max level.</p>`;
+  if (!rows.length) return mod("first", "Reputation and professions", empty("No reputation gained at max level") + skills);
+  return mod("first", "Reputation and professions", rank(rows) + skills);
+}
+
+function capLegacyMod(ov) {
+  const c = ov.cap;
+  const rows = [
+    ["Legacy Challenges", c.ltotal ? `${num(c.ldone)} of ${num(c.ltotal)}` : num(c.ldone)],
+    ["Legacy points", num(c.lpoints)],
+    ["Honorable kills", num(c.hks)],
+    ["Honor", num(c.honor)],
+  ];
+  return mod("", "Legacy and PvP", `<div class="cap-list">${rows.map(([l, v]) => `<p><span>${l}</span><b>${v}</b></p>`).join("")}</div>`);
+}
+
 // Dungeons, people, deaths --------------------------------------------------------
 
 function runsMod(ov) {
@@ -339,15 +422,15 @@ function runsMod(ov) {
   return mod("first", "Dungeons and raids", `${rank(rows)}<p class="total">${plural(ov.runsTotal, "run", "runs")} in total</p>`);
 }
 
-function matesMod(ov) {
-  if (!ov.mates.length) return mod("", "Played with", empty("No group members recorded"));
+function matesMod(ov, cls = "") {
+  if (!ov.mates.length) return mod(cls, "Played with", empty("No group members recorded"));
   const rows = ov.mates.slice(0, 4).map((m) => ({
     who: m.name,
     v: m.p,
     val: `${dur(m.p)} · ${plural(m.n, "session", "sessions")}`,
     color: CLASS_COLOR[m.class] || "",
   }));
-  return mod("", "Played with", `${rank(rows)}<p class="total">Time grouped together, from the lines written when a player joins or leaves your group.</p>`);
+  return mod(cls, "Played with", `${rank(rows)}<p class="total">Time grouped together, from the lines written when a player joins or leaves your group.</p>`);
 }
 
 function deathsMod(ov) {
@@ -514,12 +597,14 @@ function draw(body) {
     body.innerHTML = `<section class="panel"><h3>Overview</h3>${empty("No characters recorded yet")}</section>`;
     return;
   }
-  const { name, ov, eta } = current;
-  body.insertAdjacentHTML(
-    "beforeend",
-    `${header(ov, name, eta)}${week(ov)}
-    <div class="sheet">${levelsChart(ov)}${goldMod(ov)}${runsMod(ov)}${matesMod(ov)}${deathsMod(ov)}${heatMod(ov)}${zonesMod(ov)}${historyMod(ov)}</div>`
-  );
+  const { name, ov, eta, focus } = current;
+  // An hour at the cap: max level data first, the levelling content in its own section below.
+  const layout = focus
+    ? `${header(ov, name, eta)}${capStrip(ov)}
+    <div class="sheet">${goldMod(ov, "first", true)}${capRunsMod(ov)}${capDeathsMod(ov)}${capRepMod(ov)}${capLegacyMod(ov)}${matesMod(ov, "last")}${heatMod(ov)}${zonesMod(ov)}${levelsChart(ov, true)}${historyMod(ov)}</div>`
+    : `${header(ov, name, eta)}${week(ov)}
+    <div class="sheet">${levelsChart(ov)}${goldMod(ov)}${runsMod(ov)}${matesMod(ov)}${deathsMod(ov)}${heatMod(ov)}${zonesMod(ov)}${historyMod(ov)}</div>`;
+  body.insertAdjacentHTML("beforeend", layout);
   wireLevels(body, ov);
   wireGold(body, ov);
   wireHeat(body, ov);

@@ -602,3 +602,11 @@ ul, ol { list-style: none; }
 .subnav a[aria-selected="true"] { color: var(--fg); font-weight: 700; border-bottom-color: var(--accent); }
 .subnav a:focus-visible { outline-offset: 3px; }
 #missing:not([hidden]) { margin: 0 0 18px; line-height: 1.5; }
+
+/* Max level: the strip has one more cell than This week, and Legacy and PvP is a plain list. */
+.week.cap-strip { grid-template-columns: minmax(0, 1.25fr) repeat(6, minmax(0, 1fr)); }
+.week.cap-strip dd { font-size: 34px; }
+.cap-list { margin-top: 12px; }
+.cap-list p { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 15px; }
+.cap-list span { color: var(--text); }
+.cap-list b { color: var(--fg); font-weight: 650; }

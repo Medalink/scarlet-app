@@ -404,6 +404,9 @@ pub struct CharOverview {
     /// Time to the next level, the next tens level and level 60, computed
     /// once in the companion (docs/OVERVIEW.md, "Level estimates").
     eta: scarlet::overview::Eta,
+    /// An hour played at the level cap: the page leads with max level data and the
+    /// levelling content moves down (docs/OVERVIEW.md, "Max level").
+    focus: bool,
 }
 
 /// The character overview for the chosen character; with none chosen, the
@@ -434,7 +437,13 @@ pub fn overview(app: AppHandle, ch: Option<String>) -> Option<CharOverview> {
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs() as i64);
         let eta = ov.eta(now);
-        Some(CharOverview { name, ov, eta })
+        let focus = ov.max_focus();
+        Some(CharOverview {
+            name,
+            ov,
+            eta,
+            focus,
+        })
     })
 }
 
