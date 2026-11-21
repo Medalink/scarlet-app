@@ -121,6 +121,23 @@ fn status(a: &Args) -> Result<()> {
             bytes(c.total_sent)
         );
     }
+    for e in st.log.iter().rev().take(10) {
+        let what = match (&e.error, e.parts) {
+            (Some(err), _) => format!("failed: {err}"),
+            (None, 0) => "nothing new".into(),
+            (None, p) => format!(
+                "sent {p} parts of {} sessions for {} characters",
+                e.sessions,
+                e.characters.len()
+            ),
+        };
+        let again = if e.repeats > 0 {
+            format!(" ({} more times)", e.repeats)
+        } else {
+            String::new()
+        };
+        println!("upload at {}: {what}, {}{again}", e.at, bytes(e.sent));
+    }
     if cfg.server_problem().is_some() {
         return Ok(());
     }

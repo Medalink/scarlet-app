@@ -572,6 +572,8 @@ ul, ol { list-style: none; }
 .kv { display: flex; gap: 14px; font-size: 14px; line-height: 1.6; margin-bottom: 4px; max-width: 90ch; }
 .kv .k { flex: none; width: 110px; color: var(--muted); }
 .kv .v { color: var(--fg); }
+.uplog .kv .k { width: 170px; }
+.uplog .kv .v.err { color: var(--accent); }
 .when { color: var(--muted); }
 .notes { margin-top: 8px; padding: 10px 12px; max-width: 90ch; max-height: 260px; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 3px; font: 12px/1.55 "Martian Mono", Consolas, monospace; color: var(--text); white-space: pre-wrap; word-break: break-word; }
 .note-head { margin-top: 16px; font-size: 14px; color: var(--fg); }

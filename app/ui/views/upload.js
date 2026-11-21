@@ -123,6 +123,28 @@ export async function renderUpload(body) {
     if (!msg.text && v.error) st.className = "status err";
     box.appendChild(st);
 
+    box.appendChild(el("h3", "section-title", "Recent uploads"));
+    const log = el("div", "uplog");
+    if (!v.log.length) log.appendChild(el("div", "note", "Nothing uploaded from this PC yet."));
+    for (const e of v.log) {
+      const row = el("div", "kv");
+      const k = el("div", "k");
+      k.textContent = when(e.at);
+      const val = el("div", "v");
+      let text;
+      if (e.error) text = `Failed: ${e.error}`;
+      else if (!e.parts) text = "Nothing new";
+      else
+        text = `Sent ${num(e.parts)} ${e.parts === 1 ? "part" : "parts"} of ${num(e.sessions)} ${e.sessions === 1 ? "session" : "sessions"} for ${e.characters.join(", ")}`;
+      text += `. ${bytes(e.sent)}`;
+      if (e.repeats) text += `, checked ${num(e.repeats + 1)} times`;
+      val.textContent = text + ".";
+      if (e.error) val.classList.add("err");
+      row.append(k, val);
+      log.appendChild(row);
+    }
+    box.appendChild(log);
+
     const gl = el("div");
     gl.style.marginTop = "20px";
     for (const g of v.groups) {

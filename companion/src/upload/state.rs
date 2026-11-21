@@ -38,6 +38,69 @@ pub struct UploadState {
     pub installs: BTreeMap<String, String>,
     #[serde(default)]
     pub characters: BTreeMap<String, CharState>,
+    /// The last uploads, oldest first, at most `LOG_KEEP`.
+    #[serde(default)]
+    pub log: Vec<LogEntry>,
+}
+
+/// Uploads kept in the log.
+pub const LOG_KEEP: usize = 50;
+
+/// One upload run: what it sent, or why it stopped.
+#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
+pub struct LogEntry {
+    /// Epoch seconds the run ended.
+    pub at: u64,
+    #[serde(default)]
+    pub parts: u64,
+    #[serde(default)]
+    pub sessions: u64,
+    /// Bytes sent, requests included.
+    #[serde(default)]
+    pub sent: u64,
+    /// The characters that sent parts.
+    #[serde(default)]
+    pub characters: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// Later runs folded into this one because they sent nothing and ended the same way.
+    #[serde(default)]
+    pub repeats: u32,
+}
+
+impl UploadState {
+    /// Add a run to the log. A run that sent nothing and ended like the one before it moves that
+    /// entry's time forward instead of adding a line.
+    pub fn log(&mut self, e: LogEntry) {
+        if let Some(last) = self.log.last_mut()
+            && last.parts == 0
+            && e.parts == 0
+            && last.error == e.error
+        {
+            last.at = e.at;
+            last.sent += e.sent;
+            last.repeats += 1;
+            return;
+        }
+        self.log.push(e);
+        let n = self.log.len();
+        if n > LOG_KEEP {
+            self.log.drain(..n - LOG_KEEP);
+        }
+    }
+}
+
+/// Add a run to the log on disk, for a run that stopped before it had a session.
+pub fn record(out: &Path, e: LogEntry) -> Result<()> {
+    let mut s = load(out);
+    s.log(e);
+    save(out, &s)
+}
+
+pub fn now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs())
 }
 
 pub fn path(out: &Path) -> PathBuf {

@@ -56,6 +56,8 @@ pub struct UploadView {
     busy: bool,
     error: Option<String>,
     note: Option<String>,
+    /// The last uploads, newest first.
+    log: Vec<ustate::LogEntry>,
 }
 
 fn view() -> UploadView {
@@ -97,6 +99,7 @@ fn view() -> UploadView {
         busy: BUSY.load(Ordering::Relaxed),
         error: LAST_ERROR.lock().ok().and_then(|e| e.clone()),
         note: LAST_NOTE.lock().ok().and_then(|e| e.clone()),
+        log: st.log.iter().rev().take(20).cloned().collect(),
     }
 }
 
@@ -119,8 +122,9 @@ fn set_note(n: Option<String>) {
     }
 }
 
-/// Called after an export wrote new lines: uploads in the background when uploading is on.
-pub fn after_export(app: &AppHandle) {
+/// Uploads in the background when uploading is on: after an export wrote new lines, when the app
+/// opens, and when uploading is switched on.
+pub fn start_if_on(app: &AppHandle) {
     let cfg = settings::load().upload;
     if cfg.enabled && cfg.server_problem().is_none() {
         start(app);
@@ -154,7 +158,17 @@ fn run_once(app: &AppHandle) {
     let mut sess = match Session::open(&cfg, &s.data, keys::system_store().as_ref(), true) {
         Ok(Some(sess)) => sess,
         Ok(None) => return,
-        Err(e) => return set_error(Some(e.to_string())),
+        Err(e) => {
+            let _ = ustate::record(
+                &s.data,
+                ustate::LogEntry {
+                    at: ustate::now(),
+                    error: Some(e.to_string()),
+                    ..Default::default()
+                },
+            );
+            return set_error(Some(e.to_string()));
+        }
     };
     let reports = sess.sync_all(None);
     let mut refused: Vec<String> = Vec::new();
@@ -191,6 +205,9 @@ pub fn upload_set_enabled(app: AppHandle, on: bool) -> Result<UploadView, String
     change(&app, |c| c.enabled = on)?;
     set_error(None);
     set_note(None);
+    if on {
+        start_if_on(&app);
+    }
     Ok(view())
 }
 

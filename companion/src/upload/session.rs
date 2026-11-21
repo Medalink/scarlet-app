@@ -4,7 +4,7 @@
 use super::api::{Client, Hit, Reply};
 use super::config::{self, UploadConfig};
 use super::keys::{self, KeyStore};
-use super::state::{self, CharState, UploadState};
+use super::state::{self, CharState, LogEntry, UploadState, now};
 use super::{Error, Result};
 use scarlet_part::build::{Built, Options, build_parts};
 use scarlet_part::load::load_dir;
@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 use std::collections::{BTreeSet, HashMap};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
 const MANIFEST_TYPE: &str = "application/vnd.scarlet.manifest+zstd";
 const PARTS_TYPE: &str = "application/vnd.scarlet.parts+zstd";
@@ -59,12 +59,6 @@ pub struct Session {
     client: Client,
     name_key: [u8; 32],
     state: UploadState,
-}
-
-pub fn now() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_secs())
 }
 
 /// Character folders under the data folder: those with a `payloads` folder.
@@ -219,6 +213,20 @@ impl Session {
             }
             reports.push(r);
         }
+        let sent: Vec<&CharReport> = reports.iter().filter(|r| r.parts_sent > 0).collect();
+        self.state.log(LogEntry {
+            at: now(),
+            parts: sent.iter().map(|r| r.parts_sent as u64).sum(),
+            sessions: sent.iter().map(|r| r.sessions_sent as u64).sum(),
+            sent: reports.iter().map(|r| r.sent).sum(),
+            characters: sent.iter().map(|r| r.name.clone()).collect(),
+            error: reports
+                .iter()
+                .find(|r| r.failed)
+                .and_then(|r| r.note.clone()),
+            repeats: 0,
+        });
+        let _ = state::save(&self.out, &self.state);
         reports
     }
 
