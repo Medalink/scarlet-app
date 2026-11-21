@@ -9,6 +9,8 @@ Builds, signs and publishes Scarlet (the Windows app and the addon zip) to GitHu
                                               rebuild the SAME two commits as that beta (default: the newest beta
                                               for the next version) at <x> and publish the latest release v<x>
   -DryRun                                     build and sign into <Root>\<version>; publish nothing
+  -Stores auto|yes|no                         after publishing, upload the addon zip to CurseForge and Wago with
+                                              publish-stores.ps1: auto does it for the release lane only (default)
 
 Versions come from tags only; no committed file holds one. The app version is passed to tauri with --config at
 build time and the addon version is stamped into the TOC inside the zip. The next version is the latest stable tag
@@ -34,6 +36,7 @@ param(
     [string]$From,
     [string]$Version,
     [switch]$DryRun,
+    [ValidateSet('auto', 'yes', 'no')][string]$Stores = 'auto',
     [string]$Root = 'E:\Dev\scratch\scarlet-release',
     [string]$AppRepo = 'Medalink/scarlet-app',
     [string]$AddonRepo = 'Medalink/scarlet',
@@ -610,6 +613,12 @@ try {
     Write-Step 'Done'
     Write-Host "https://github.com/$AppRepo/releases/tag/$($plan.Tag)"
     if ($Lane -eq 'beta') { Write-Host "Promote: pwsh scripts/release.ps1 -Lane release -From $($plan.Tag)" }
+
+    if ($Stores -eq 'yes' -or ($Stores -eq 'auto' -and $Lane -eq 'release')) {
+        Write-Step 'Publishing the addon to CurseForge and Wago'
+        & pwsh -NoProfile -File (Join-Path $PSScriptRoot 'publish-stores.ps1') -Version $plan.Version -Root $Root -AppRepo $AppRepo -AddonRepo $AddonRepo
+        if ($LASTEXITCODE -ne 0) { throw "$($plan.Tag) is published, but the store upload failed. Fix the cause and run: pwsh scripts/publish-stores.ps1 -Version $($plan.Version)" }
+    }
 }
 finally {
     if (Test-Path -LiteralPath $work) { Remove-Item -LiteralPath $work -Recurse -Force -ErrorAction SilentlyContinue }

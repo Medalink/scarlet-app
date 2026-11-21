@@ -39,6 +39,35 @@ It rebuilds the same two commits the beta was built from (read from the beta's n
 tag) at version `<x>` and publishes `v<x>` as the latest release. The binary is rebuilt, not copied, so it carries
 `<x>` and a fresh signature. It stops if `v<x>` already exists.
 
+## Publish the addon to CurseForge and Wago
+
+```
+pwsh scripts/publish-stores.ps1 -Version 1.0.0
+pwsh scripts/publish-stores.ps1 -Version 1.0.0 -DryRun
+```
+
+`scripts/publish-stores.ps1` uploads the addon zip of an already published release. The release lane runs it right
+after publishing (`-Stores auto`); a beta is uploaded only with `-Stores yes`, `-Stores no` skips it. A failed upload
+leaves the GitHub release published and the lane ends with the command to rerun. The same command also works alone
+for any published version.
+
+- The zip is downloaded from the release and checked against `SHA256SUMS.txt`, so the stores get the file the app
+  installs. Release type: `v<x>` is a release (Wago: stable), `v<x>-beta.N` a beta.
+- Game version: the zip's `## Interface` (16001 is Forever 1.60.1). CurseForge's id for it is looked up with the
+  token (`/api/game/wow/versions`, type 88568 = Forever) and Wago's patch is checked against
+  `https://addons.wago.io/api/data/game`.
+- Changelog: the "Addon changes" section of the release notes, without the commit hashes. `-Changelog <file>` uploads
+  that file's text instead.
+- Project IDs come from `addon/Scarlet/Scarlet.toc` on `main` of `Medalink/scarlet` (`## X-Curse-Project-ID:` and
+  `## X-Wago-ID:`; both lines are commented out until the projects exist). `-CurseProjectId` and `-WagoId` override
+  them. The zip itself never carries them.
+- Tokens: `CF_API_KEY` and `WAGO_API_TOKEN`, or one-line files `E:\Dev\secrets\scarlet-addon-stores\curseforge-token`
+  and `wago-token`. They are never printed or logged.
+- A store without an ID or a token is skipped with one line. A store that already got the version from this PC is
+  skipped too: neither store has an API that lists files, so the record is `<Root>\stores.json`. `-Force` uploads again.
+- `-DryRun` prints the URL and the exact metadata JSON per store and uploads nothing. Without a CurseForge token,
+  `gameVersions` stays empty in the output. `-Store curseforge` or `-Store wago` limits it to one store.
+
 ## Versions
 
 Versions come from tags only. No committed file holds one:
