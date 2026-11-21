@@ -185,6 +185,17 @@ pub struct GoldPoint {
     pub m: i64,
 }
 
+/// The rested XP a character logged out with: the XP, what its level needs, whether it was
+/// resting, and when (epoch seconds).
+#[derive(Serialize, Deserialize, Default, Clone, Debug)]
+#[serde(default)]
+pub struct Rested {
+    pub x: i64,
+    pub m: i64,
+    pub r: bool,
+    pub t: i64,
+}
+
 /// One dungeon or raid at the level cap: runs started, time spent inside, bosses killed.
 #[derive(Serialize, Deserialize, Default, Clone, Debug)]
 #[serde(default)]
@@ -274,6 +285,9 @@ pub struct Overview {
     /// Absent until a session reported the level cap.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cap: Option<CapBlock>,
+    /// The latest `RO` line; absent before one was recorded and at the level cap.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rested: Option<Rested>,
 }
 
 /// Played seconds at the level cap before the overview leads with max level data.
@@ -502,6 +516,7 @@ struct Builder {
     killers: HashMap<String, i64>,
     death_zones: HashMap<String, i64>,
     moved: HashMap<usize, i64>,
+    rested: Option<Rested>,
 }
 
 impl Builder {
@@ -538,6 +553,7 @@ impl Builder {
             killers: HashMap::new(),
             death_zones: HashMap::new(),
             moved: HashMap::new(),
+            rested: None,
         }
     }
 
@@ -840,6 +856,17 @@ impl Builder {
             "HN" if at_cap => acc.honor += num(f, 0).unwrap_or(0).max(0),
             "HK" if at_cap => acc.hks += num(f, 1).unwrap_or(0).max(0),
             // Latest values, at any level: Legacy points and challenges, and the item level.
+            "RO" => {
+                self.rested = match (num(f, 0), num(f, 1)) {
+                    (Some(x), Some(m)) if m > 0 => Some(Rested {
+                        x,
+                        m,
+                        r: num(f, 2) == Some(1),
+                        t: ms.div_euclid(1000),
+                    }),
+                    _ => None,
+                };
+            }
             "AP" => {
                 acc.lpoints = num(f, 0).unwrap_or(acc.lpoints);
                 acc.ldone = num(f, 1).unwrap_or(acc.ldone);
@@ -1147,6 +1174,7 @@ impl Builder {
             gold,
             before: self.imported.then_some(self.before),
             cap: cap_block,
+            rested: if at_cap { None } else { self.rested },
         }
     }
 }

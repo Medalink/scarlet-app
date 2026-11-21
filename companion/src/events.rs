@@ -73,6 +73,7 @@ pub fn word(code: &str) -> &str {
         "CI" => "interrupt",
         "AFK" => "afk",
         "RX" => "rested",
+        "RO" => "restedlogout",
         "GP" => "group",
         "GM" => "member",
         "WD" => "said",
@@ -934,6 +935,12 @@ fn details(code: &str, f: &[String], names: &HashMap<String, String>) -> String 
                 "no rested xp".into()
             }
         }
+        "RO" => format!(
+            "{} rested xp of {}{}",
+            g(0),
+            g(1),
+            if g(2) == "1" { ", resting" } else { "" }
+        ),
         "GP" => {
             if g(0) == "1" {
                 format!("joined a group of {}", g(1))
