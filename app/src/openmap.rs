@@ -79,29 +79,88 @@ pub fn maps() -> &'static [Entry] {
 pub struct Install {
     dir: PathBuf,
     pub version: String,
+    /// Version, sizes and times of the files the cuts read; see `key`.
+    key: std::sync::OnceLock<String>,
 }
+
+/// Why OpenMap was not found, as the words the Map view and Settings switch on.
+pub const NO_WOW: &str = "no-wow";
+pub const NO_FOREVER: &str = "no-forever";
+pub const NO_ADDON: &str = "no-addon";
+pub const BROKEN_ADDON: &str = "broken-addon";
 
 impl Install {
     /// OpenMap inside a WoW Forever install, when its files are all there.
     pub fn find(wow: &Path) -> Option<Install> {
-        let dir = wow
-            .join("_forever_")
-            .join("Interface")
-            .join("AddOns")
-            .join("OpenMap");
-        let toc = fs::read_to_string(dir.join("OpenMap.toc")).ok()?;
+        Install::probe(wow).ok()
+    }
+
+    /// Like `find`, and says which part is missing when OpenMap is not usable.
+    pub fn probe(wow: &Path) -> Result<Install, &'static str> {
+        // An empty path would join onto the working folder.
+        if wow.as_os_str().is_empty() || !wow.is_dir() {
+            return Err(NO_WOW);
+        }
+        let forever = wow.join("_forever_");
+        if !forever.is_dir() {
+            return Err(NO_FOREVER);
+        }
+        let dir = forever.join("Interface").join("AddOns").join("OpenMap");
+        let toc = fs::read(dir.join("OpenMap.toc")).map_err(|_| NO_ADDON)?;
         if !dir.join("Data/Forever/ZoneArt.lua").is_file()
             || !dir.join("Media/Textures/Forever/MapZones").is_dir()
         {
-            return None;
+            return Err(BROKEN_ADDON);
         }
-        let version = toc
+        let version = String::from_utf8_lossy(&toc)
             .lines()
-            .find_map(|l| l.strip_prefix("## Version:"))
+            .find_map(|l| l.trim_start_matches('\u{feff}').strip_prefix("## Version:"))
             .map(|v| v.trim().to_string())
             .filter(|v| !v.is_empty())
             .unwrap_or_else(|| "unknown".into());
-        Some(Install { dir, version })
+        Ok(Install {
+            dir,
+            version,
+            key: Default::default(),
+        })
+    }
+
+    /// Names what the pictures are cut from: the version, and the size and time of ZoneArt.lua and of
+    /// every tile (and land mask). A development build whose version never changes, or art replaced
+    /// in place, gets a new key, so the old pictures and decoded tiles are not reused.
+    fn key(&self) -> &str {
+        self.key.get_or_init(|| {
+            let mut h: u64 = 0xcbf29ce484222325;
+            let mut eat = |bytes: &[u8]| {
+                for b in bytes {
+                    h = (h ^ *b as u64).wrapping_mul(0x100000001b3);
+                }
+            };
+            eat(self.version.as_bytes());
+            let mut files = vec![self.dir.join("Data/Forever/ZoneArt.lua")];
+            for sub in ["MapZones", "MapZoneLand"] {
+                let folder = self.dir.join("Media/Textures/Forever").join(sub);
+                if let Ok(rd) = fs::read_dir(folder) {
+                    files.extend(rd.flatten().map(|e| e.path()));
+                }
+            }
+            files.sort();
+            for f in files {
+                let Ok(m) = fs::metadata(&f) else { continue };
+                if !m.is_file() {
+                    continue;
+                }
+                let t = m
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map_or(0, |d| d.as_nanos());
+                eat(f.file_name().unwrap_or_default().as_encoded_bytes());
+                eat(&m.len().to_le_bytes());
+                eat(&t.to_le_bytes());
+            }
+            format!("{:012x}", h & 0xffff_ffff_ffff)
+        })
     }
 
     fn zone_art(&self) -> Result<ZoneArt, String> {
@@ -129,7 +188,8 @@ impl Install {
                 }
             })
             .collect();
-        data.join(CACHE).join(format!("{version}-{CUT}"))
+        data.join(CACHE)
+            .join(format!("{version}-{}-{CUT}", self.key()))
     }
 }
 
@@ -208,7 +268,11 @@ pub fn decode_blp(file: &[u8], level: u32) -> Result<Image, String> {
     if file.get(..4) != Some(b"BLP2") || u32_at(file, 4) != Some(1) {
         return Err("not a BLP2 file".into());
     }
-    let (encoding, alpha_depth, alpha_type) = (file[8], file[9], file[10]);
+    let Some(head) = file.get(8..11) else {
+        return Err("short BLP".into());
+    };
+    // Encoding, alpha bits (not needed: the alpha type says how the blocks are laid out), alpha type.
+    let (encoding, alpha_type) = (head[0], head[2]);
     if encoding != 2 {
         return Err(format!("BLP encoding {encoding} is not DXT"));
     }
@@ -227,7 +291,13 @@ pub fn decode_blp(file: &[u8], level: u32) -> Result<Image, String> {
     let data = file
         .get(offset..offset + size)
         .ok_or("BLP mip is past the end of the file")?;
-    let block = if alpha_depth == 0 { 8 } else { 16 };
+    // The alpha type picks the compression: 0 is DXT1 (8-byte blocks, with a 1-bit alpha when the
+    // colours say so), 1 is DXT3 and 7 is DXT5 (16-byte blocks).
+    let block = match alpha_type {
+        0 => 8,
+        1 | 7 => 16,
+        t => return Err(format!("BLP alpha type {t} is not DXT1, DXT3 or DXT5")),
+    };
     let (bw, bh) = (mw.div_ceil(4), mh.div_ceil(4));
     if data.len() < bw * bh * block {
         return Err("BLP mip is short".into());
@@ -324,11 +394,27 @@ pub fn decode_blp(file: &[u8], level: u32) -> Result<Image, String> {
 /// Tiles decoded so far, so the neighbouring maps of one run do not decode them again.
 #[derive(Default)]
 pub struct Tiles {
-    root: Option<PathBuf>,
-    cache: HashMap<(u32, u32), Option<Arc<Image>>>,
+    /// `Install::key` of the files the decoded tiles came from.
+    key: Option<String>,
+    /// Only tiles that decoded are kept: a failed read is tried again by the next cut.
+    cache: HashMap<(u32, u32), Arc<Image>>,
+    /// Tiles the art lists but that would not read or decode, in the cut under way.
+    bad: HashSet<(u32, u32)>,
+    /// A tile the art lists was missing from the cut under way, so its picture has a hole.
+    failed: bool,
 }
 
 impl Tiles {
+    /// Starts a cut: forgets the decoded tiles when the install's files are not the ones they came from.
+    fn begin(&mut self, inst: &Install) {
+        if self.key.as_deref() != Some(inst.key()) {
+            self.key = Some(inst.key().to_string());
+            self.cache.clear();
+        }
+        self.bad.clear();
+        self.failed = false;
+    }
+
     fn get(
         &mut self,
         inst: &Install,
@@ -337,26 +423,36 @@ impl Tiles {
         j: u32,
         level: u32,
     ) -> Option<Arc<Image>> {
-        if self.root.as_deref() != Some(inst.dir.as_path()) {
-            self.root = Some(inst.dir.clone());
-            self.cache.clear();
-        }
         let key = (i * 256 + j, level);
+        // A tile the art does not list is open sea: no art, not a failure.
         if !art.tiles.contains(&key.0) {
             return None;
         }
         if let Some(hit) = self.cache.get(&key) {
-            return hit.clone();
+            return Some(hit.clone());
         }
-        if self.cache.len() >= KEEP {
-            self.cache.clear();
+        if self.bad.contains(&key) {
+            self.failed = true;
+            return None;
         }
         let img = fs::read(inst.tile_path(i, j))
-            .ok()
-            .and_then(|f| decode_blp(&f, level).ok())
-            .map(Arc::new);
-        self.cache.insert(key, img.clone());
-        img
+            .map_err(|e| e.to_string())
+            .and_then(|f| decode_blp(&f, level));
+        match img {
+            Ok(img) => {
+                if self.cache.len() >= KEEP {
+                    self.cache.clear();
+                }
+                let img = Arc::new(img);
+                self.cache.insert(key, img.clone());
+                Some(img)
+            }
+            Err(_) => {
+                self.bad.insert(key);
+                self.failed = true;
+                None
+            }
+        }
     }
 }
 
@@ -387,9 +483,17 @@ fn placement(e: &Entry) -> Option<((f64, f64), (f64, f64))> {
 
 /// One map as RGB, `e.w` by `e.h`, bilinear from the tiles (premultiplied, so a tile's clear
 /// edge does not bleed) with four taps a pixel, over the sea colour where there is no art.
-fn cut_rgb(inst: &Install, art: &ZoneArt, e: &Entry, tiles: &mut Tiles) -> Result<Vec<u8>, String> {
+///
+/// The flag is false when a tile the art lists would not load: the picture then has a hole where it was.
+fn cut_rgb(
+    inst: &Install,
+    art: &ZoneArt,
+    e: &Entry,
+    tiles: &mut Tiles,
+) -> Result<(Vec<u8>, bool), String> {
     let ((u0, du), (v0, dv)) =
         placement(e).ok_or("the map is not on a continent the world map shows")?;
+    tiles.begin(inst);
     let (w, h) = (e.w as usize, e.h as usize);
     let (ww, wh) = (table().world.w * art.px, table().world.h * art.px);
     // World pixels an output pixel spans: picks the mip, so a continent is not a sieve of single texels.
@@ -439,7 +543,7 @@ fn cut_rgb(inst: &Install, art: &ZoneArt, e: &Entry, tiles: &mut Tiles) -> Resul
             }
         }
     }
-    Ok(out)
+    Ok((out, !tiles.failed))
 }
 
 fn encode(rgb: &[u8], w: u32, h: u32) -> Vec<u8> {
@@ -458,34 +562,82 @@ pub fn image(inst: &Install, data: &Path, id: u32) -> Option<Vec<u8>> {
     let e = maps().iter().find(|m| m.id == id && !m.city)?;
     let dir = inst.cache_dir(data);
     let file = dir.join(format!("{id}.webp"));
-    if let Ok(bytes) = fs::read(&file) {
+    if let Some(bytes) = cached(&file) {
         return Some(bytes);
     }
     let art = inst.zone_art().ok()?;
-    let rgb = {
-        let mut t = tiles().lock().unwrap_or_else(|p| p.into_inner());
-        cut_rgb(inst, &art, e, &mut t).ok()?
-    };
+    let mut t = tiles().lock().unwrap_or_else(|p| p.into_inner());
+    // Another cut of this map may have finished while this one waited for the lock.
+    if let Some(bytes) = cached(&file) {
+        return Some(bytes);
+    }
+    let (rgb, complete) = cut_rgb(inst, &art, e, &mut t).ok()?;
     let bytes = encode(&rgb, e.w, e.h);
-    store(&dir, &file, &bytes);
+    // A picture with a hole in it is shown this once, not kept.
+    if complete {
+        store(&dir, &file, &bytes);
+    }
     Some(bytes)
 }
 
-/// Writes a cached picture without leaving half a file, and removes the pictures of older versions.
+/// A cached picture, when the file is a whole WebP: a half-written file or junk is a miss.
+fn cached(file: &Path) -> Option<Vec<u8>> {
+    let bytes = fs::read(file).ok()?;
+    let whole = bytes.len() > 12
+        && &bytes[..4] == b"RIFF"
+        && &bytes[8..12] == b"WEBP"
+        && u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]) as usize == bytes.len() - 8;
+    whole.then_some(bytes)
+}
+
+/// Writes `file` whole or not at all: to a temp name of its own (so two writers never share one),
+/// flushed to disk, then renamed over it.
+fn write_whole(file: &Path, bytes: &[u8]) -> Result<(), String> {
+    use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static N: AtomicU64 = AtomicU64::new(0);
+    let name = file.file_name().unwrap_or_default().to_string_lossy();
+    let tmp = file.with_file_name(format!(
+        "{name}.{}.{}.tmp",
+        std::process::id(),
+        N.fetch_add(1, Ordering::Relaxed)
+    ));
+    let put = (|| {
+        let mut f = fs::File::create(&tmp)?;
+        f.write_all(bytes)?;
+        f.sync_all()?;
+        drop(f);
+        fs::rename(&tmp, file)
+    })();
+    if let Err(e) = put {
+        let _ = fs::remove_file(&tmp);
+        return Err(format!("{}: {e}", file.display()));
+    }
+    Ok(())
+}
+
+/// Caches a picture, and removes the pictures of older versions.
 fn store(dir: &Path, file: &Path, bytes: &[u8]) {
     if fs::create_dir_all(dir).is_err() {
         return;
     }
-    let tmp = file.with_extension("tmp");
-    if fs::write(&tmp, bytes).is_ok() && fs::rename(&tmp, file).is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
+    let _ = write_whole(file, bytes);
     prune(dir);
 }
 
 /// Deletes the other versions' folders next to `keep`: `<version>-<number>` folders holding only
 /// pictures this module wrote.
 fn prune(keep: &Path) {
+    // Temp files a crashed write left here; a writer still going has had far less than an hour.
+    for f in fs::read_dir(keep).into_iter().flatten().flatten() {
+        let old = f.metadata().and_then(|m| m.modified()).is_ok_and(|t| {
+            t.elapsed()
+                .is_ok_and(|age| age > std::time::Duration::from_secs(3600))
+        });
+        if old && f.path().extension().is_some_and(|x| x == "tmp") {
+            let _ = fs::remove_file(f.path());
+        }
+    }
     let Some(parent) = keep.parent() else { return };
     let Ok(entries) = fs::read_dir(parent) else {
         return;
@@ -529,14 +681,12 @@ pub fn build_all(
     let mut t = Tiles::default();
     for e in maps().iter().filter(|m| !m.city) {
         let rgb = match cut_rgb(inst, &art, e, &mut t) {
-            Ok(rgb) => rgb,
+            Ok((rgb, true)) => rgb,
+            Ok((_, false)) => return Err(format!("a tile of {} would not load", e.name)),
             Err(_) => continue,
         };
         let bytes = encode(&rgb, e.w, e.h);
-        let file = dir.join(format!("{}.webp", e.id));
-        let tmp = file.with_extension("tmp");
-        fs::write(&tmp, &bytes).map_err(|e| e.to_string())?;
-        fs::rename(&tmp, &file).map_err(|e| e.to_string())?;
+        write_whole(&dir.join(format!("{}.webp", e.id)), &bytes)?;
         each(e.id, bytes.len());
     }
     Ok(())
