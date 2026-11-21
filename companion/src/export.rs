@@ -249,6 +249,12 @@ pub fn export_new_all(wows: &[PathBuf], out: &Path) -> Result<bool, Box<dyn Erro
         }
     }
 
+    let mut own = roster(out);
+    for name in runs.keys() {
+        if !own.contains(name) {
+            own.push(name.clone());
+        }
+    }
     for (name, run) in &runs {
         let dir = out.join(name);
         fs::create_dir_all(dir.join("payloads"))?;
@@ -276,7 +282,7 @@ pub fn export_new_all(wows: &[PathBuf], out: &Path) -> Result<bool, Box<dyn Erro
         if let Err(e) = tables::write_char_tables(&evs, name, &dir.join("tables")) {
             eprintln!("scarlet: {name}: tables: {e}");
         }
-        let ov = build_overview(name, &evs);
+        let ov = build_overview(name, &evs, &own);
         if let Err(e) = write_overview(&dir, &ov) {
             eprintln!("scarlet: {name}: overview: {e}");
         }
@@ -331,12 +337,36 @@ fn load_events(dir: &Path, name: &str) -> std::io::Result<Vec<archive::Event>> {
     Ok(evs)
 }
 
-fn build_overview(name: &str, evs: &[archive::Event]) -> Overview {
-    overview::build(
+fn build_overview(name: &str, evs: &[archive::Event], own: &[String]) -> Overview {
+    overview::build_among(
         name,
         evs.iter()
             .map(|e| (e.ms, e.code.as_str(), e.fields.as_slice())),
+        own,
     )
+}
+
+fn roster(out: &Path) -> Vec<String> {
+    let mut names: Vec<String> = fs::read_dir(out)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().join("payloads").is_dir())
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+const OVERVIEW_REV: &str = "2";
+
+fn overview_rev_stale(out: &Path) -> bool {
+    let file = out.join("overview.rev");
+    let stale = fs::read_to_string(&file).map_or(true, |t| t.trim() != OVERVIEW_REV);
+    if stale && let Err(e) = fs::write(&file, OVERVIEW_REV) {
+        eprintln!("scarlet: {}: {e}", file.display());
+    }
+    stale
 }
 
 fn write_overview(dir: &Path, ov: &Overview) -> Result<(), Box<dyn Error>> {
@@ -468,16 +498,18 @@ fn write_digest(wow: &Path, out: &Path) {
         .filter(|p| p.join("payloads").is_dir())
         .collect();
     dirs.sort();
+    let own = roster(out);
+    let rebuild = overview_rev_stale(out);
     let mut chars: Vec<(String, Overview)> = Vec::new();
     for d in dirs {
         let Some(name) = d.file_name().map(|n| n.to_string_lossy().to_string()) else {
             continue;
         };
         let file = d.join("overview.json");
-        if !file.is_file() || overview_is_stale(&d, &file) {
+        if rebuild || !file.is_file() || overview_is_stale(&d, &file) {
             match load_events(&d, &name) {
                 Ok(evs) if !evs.is_empty() => {
-                    if let Err(e) = write_overview(&d, &build_overview(&name, &evs)) {
+                    if let Err(e) = write_overview(&d, &build_overview(&name, &evs, &own)) {
                         eprintln!("scarlet: {name}: overview: {e}");
                     }
                 }

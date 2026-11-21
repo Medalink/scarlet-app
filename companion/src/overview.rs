@@ -501,6 +501,7 @@ struct Builder {
     mate_class: HashMap<String, String>,
     killers: HashMap<String, i64>,
     death_zones: HashMap<String, i64>,
+    moved: HashMap<usize, i64>,
 }
 
 impl Builder {
@@ -536,6 +537,7 @@ impl Builder {
             mate_class: HashMap::new(),
             killers: HashMap::new(),
             death_zones: HashMap::new(),
+            moved: HashMap::new(),
         }
     }
 
@@ -930,7 +932,10 @@ impl Builder {
                 }
             }
             "M" => {
-                let net = num(f, 0).unwrap_or(0) - num(f, 1).unwrap_or(0);
+                let moved = num(f, 1)
+                    .filter(|t| *t != 0)
+                    .or(self.moved.get(&i).copied());
+                let net = num(f, 0).unwrap_or(0) - moved.unwrap_or(0);
                 if net > 0 {
                     o.row.g += net;
                     if let Some(l) = o.lv() {
@@ -1149,9 +1154,85 @@ impl Builder {
 /// Build one character's overview from their events, in time order. `me` is
 /// the character's own Name-Surname.
 pub fn build<'a>(me: &str, events: impl IntoIterator<Item = Ev<'a>>) -> Overview {
+    build_among(me, events, &[])
+}
+
+const TRANSFER_WINDOW_MS: i64 = 10_000;
+
+fn name_key(name: &str) -> String {
+    name.split_whitespace()
+        .collect::<Vec<_>>()
+        .join("-")
+        .to_lowercase()
+}
+
+fn is_own(who: &str, me: &str, own: &[String]) -> bool {
+    let who = name_key(who);
+    if who.is_empty() || who == name_key(me) {
+        return false;
+    }
+    own.iter().any(|o| {
+        let o = name_key(o);
+        o == who || o.split('-').next() == Some(who.as_str())
+    })
+}
+
+fn repair_transfers(evs: &[Ev], me: &str, own: &[String]) -> HashMap<usize, i64> {
+    let mut moves: Vec<(i64, i64)> = Vec::new();
+    for &(ms, code, f) in evs {
+        let who = f.get(1).map(String::as_str).unwrap_or("");
+        let copper = match (code, f.first().map(String::as_str)) {
+            ("ML", Some("s")) => num(f, 2).map(|c| -c),
+            ("ML", Some("m")) => num(f, 2),
+            ("TR", Some("0")) if matches!(num(f, 2), Some(1 | 2)) => {
+                Some(num(f, 4).unwrap_or(0) - num(f, 3).unwrap_or(0))
+            }
+            _ => None,
+        };
+        if let Some(c) = copper.filter(|c| *c != 0)
+            && is_own(who, me, own)
+        {
+            moves.push((ms, c));
+        }
+    }
+    let mut out = HashMap::new();
+    if moves.is_empty() {
+        return out;
+    }
+    let mut used = vec![false; moves.len()];
+    for (i, &(ms, code, f)) in evs.iter().enumerate() {
+        if code != "M" || num(f, 1).is_some_and(|t| t != 0) {
+            continue;
+        }
+        let delta = num(f, 0).unwrap_or(0);
+        let best = moves
+            .iter()
+            .enumerate()
+            .filter(|(k, (t, c))| {
+                !used[*k]
+                    && (t - ms).abs() <= TRANSFER_WINDOW_MS
+                    && ((*c < 0 && delta <= *c) || (*c > 0 && delta >= *c))
+            })
+            .min_by_key(|(_, (t, _))| (t - ms).abs());
+        if let Some((k, &(_, c))) = best {
+            used[k] = true;
+            out.insert(i, c);
+        }
+    }
+    out
+}
+
+/// `build`, with the names of the player's other characters: money mailed or traded
+/// between them counts as a transfer, neither earned nor spent.
+pub fn build_among<'a>(
+    me: &str,
+    events: impl IntoIterator<Item = Ev<'a>>,
+    own: &[String],
+) -> Overview {
     let evs: Vec<Ev> = events.into_iter().collect();
     let bal = balances(&evs);
     let mut b = Builder::new(me, bal);
+    b.moved = repair_transfers(&evs, me, own);
     for (i, &(ms, code, f)) in evs.iter().enumerate() {
         b.event(i, ms, code, f);
     }
