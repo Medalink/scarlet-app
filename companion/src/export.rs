@@ -140,14 +140,15 @@ pub fn has_new_all(wows: &[PathBuf], out: &Path) -> bool {
     let done = fs::metadata(out.join("state.json"))
         .and_then(|m| m.modified())
         .ok();
-    find_sv_all(wows).unwrap_or_default().iter().any(|sv| {
-        let t = fs::metadata(sv).and_then(|m| m.modified()).ok();
-        match (t, done) {
-            (Some(t), Some(done)) => t > done,
-            (Some(_), None) => true,
-            _ => false,
-        }
-    })
+    wows.iter().any(|w| data_addon_missing(w))
+        || find_sv_all(wows).unwrap_or_default().iter().any(|sv| {
+            let t = fs::metadata(sv).and_then(|m| m.modified()).ok();
+            match (t, done) {
+                (Some(t), Some(done)) => t > done,
+                (Some(_), None) => true,
+                _ => false,
+            }
+        })
 }
 
 /// Every SavedVariables file with its modification time. Two clients write their own file at
@@ -528,17 +529,16 @@ fn save_accounts(wows: &[PathBuf], out: &Path) -> BTreeMap<String, Vec<String>> 
     known
 }
 
-/// Write Digest.lua into the addon folder from every character's
-/// overview.json (built here for a character that has none yet, or whose
-/// payloads are newer than it). A failure is a note, not an error: the next
-/// export tries again.
+const DATA_ADDON: &str = "ScarletData";
+const DATA_FILES: [&str; 2] = ["Digest.lua", "Items.lua"];
+const FALLBACK_INTERFACE: &str = "16001";
+
 fn write_digest(wow: &Path, out: &Path, accounts: &BTreeMap<String, Vec<String>>) {
-    let addon = crate::gamedir::game_dir(wow)
+    let addons = crate::gamedir::game_dir(wow)
         .join("Interface")
-        .join("AddOns")
-        .join("Scarlet");
-    if !addon.is_dir() {
-        println!("digest: no addon folder at {}", addon.display());
+        .join("AddOns");
+    if !addons.is_dir() {
+        println!("digest: no AddOns folder at {}", addons.display());
         return;
     }
     let mut dirs: Vec<PathBuf> = fs::read_dir(out)
@@ -608,18 +608,14 @@ fn write_digest(wow: &Path, out: &Path, accounts: &BTreeMap<String, Vec<String>>
             .collect();
         println!("eta: {name} {} | {}", targets.join(" | "), eta.basis);
     }
-    write_items(&addon, &chars, out, made);
-    let text = overview::digest_lua_with(&chars, made, &accounts);
-    let tmp = addon.join("Digest.lua.tmp");
-    let dest = addon.join("Digest.lua");
-    if let Err(e) = fs::write(&tmp, &text) {
-        println!(
-            "digest: could not write {}: {e}; the next export tries again",
-            tmp.display()
-        );
+    let data = addons.join(DATA_ADDON);
+    if !prepare_data_dir(&data) {
         return;
     }
-    match fs::rename(&tmp, &dest) {
+    write_items(&data, &chars, out, made);
+    let text = overview::digest_lua_with(&chars, made, &accounts);
+    let dest = data.join("Digest.lua");
+    match write_atomic(&dest, &text) {
         Ok(()) => println!(
             "digest: {} character(s), {} bytes -> {}",
             chars.len(),
@@ -627,13 +623,113 @@ fn write_digest(wow: &Path, out: &Path, accounts: &BTreeMap<String, Vec<String>>
             dest.display()
         ),
         Err(e) => println!(
-            "digest: could not replace {} ({e}); Digest.lua.tmp stays for the next export",
+            "digest: could not write {}: {e}; the next export tries again",
             dest.display()
         ),
     }
+    if DATA_FILES.iter().all(|f| data.join(f).is_file()) {
+        let toc = data.join(format!("{DATA_ADDON}.toc"));
+        let text = data_toc(&addons);
+        if fs::read_to_string(&toc).ok().as_deref() != Some(text.as_str())
+            && let Err(e) = write_atomic(&toc, &text)
+        {
+            println!("digest: could not write {}: {e}", toc.display());
+            return;
+        }
+        remove_old_data(&addons.join("Scarlet"));
+    }
 }
 
-fn write_items(addon: &Path, chars: &[(String, Overview)], out: &Path, made: i64) {
+fn data_addon_missing(wow: &Path) -> bool {
+    let addons = crate::gamedir::game_dir(wow)
+        .join("Interface")
+        .join("AddOns");
+    let data = addons.join(DATA_ADDON);
+    addons.join("Scarlet").is_dir()
+        && !data.join(format!("{DATA_ADDON}.toc")).is_file()
+        && fs::symlink_metadata(&data).map_or(true, |m| m.is_dir() && !is_link(&m))
+        && !data.join(".git").exists()
+}
+
+fn is_link(meta: &fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        meta.file_attributes() & 0x400 != 0 || meta.file_type().is_symlink()
+    }
+    #[cfg(not(windows))]
+    {
+        meta.file_type().is_symlink()
+    }
+}
+
+fn prepare_data_dir(data: &Path) -> bool {
+    match fs::symlink_metadata(data) {
+        Ok(meta) if is_link(&meta) || !meta.is_dir() || data.join(".git").exists() => {
+            println!(
+                "digest: {} is a link, a file or a checkout; left alone",
+                data.display()
+            );
+            false
+        }
+        Ok(_) => true,
+        Err(_) => match fs::create_dir_all(data) {
+            Ok(()) => true,
+            Err(e) => {
+                println!("digest: could not create {}: {e}", data.display());
+                false
+            }
+        },
+    }
+}
+
+fn data_toc(addons: &Path) -> String {
+    let interface = fs::read_to_string(addons.join("Scarlet").join("Scarlet.toc"))
+        .ok()
+        .and_then(|t| {
+            t.lines().find_map(|l| {
+                let v = l.trim().strip_prefix("## Interface:")?.trim();
+                (!v.is_empty() && v.chars().all(|c| c.is_ascii_digit() || c == ','))
+                    .then(|| v.to_string())
+            })
+        })
+        .unwrap_or_else(|| FALLBACK_INTERFACE.to_string());
+    format!(
+        "## Interface: {interface}\n## Title: Scarlet Data\n## Notes: History and item lists the \
+         Scarlet desktop app writes for the Scarlet addon.\n## Author: Medalink\n\n{}\n",
+        DATA_FILES.join("\n")
+    )
+}
+
+fn remove_old_data(scarlet: &Path) {
+    let toc = fs::read_to_string(scarlet.join("Scarlet.toc")).ok();
+    for file in DATA_FILES {
+        let listed = toc
+            .as_deref()
+            .is_none_or(|t| t.lines().any(|l| l.trim().eq_ignore_ascii_case(file)));
+        for (name, keep) in [(file.to_string(), listed), (format!("{file}.tmp"), false)] {
+            let path = scarlet.join(&name);
+            if !keep
+                && fs::symlink_metadata(&path).is_ok_and(|m| m.is_file() && !is_link(&m))
+                && fs::remove_file(&path).is_ok()
+            {
+                println!("digest: removed old {}", path.display());
+            }
+        }
+    }
+}
+
+fn write_atomic(dest: &Path, text: &str) -> std::io::Result<()> {
+    let mut tmp = dest.as_os_str().to_owned();
+    tmp.push(".tmp");
+    let tmp = PathBuf::from(tmp);
+    fs::write(&tmp, text)?;
+    fs::rename(&tmp, dest).inspect_err(|_| {
+        let _ = fs::remove_file(&tmp);
+    })
+}
+
+fn write_items(data: &Path, chars: &[(String, Overview)], out: &Path, made: i64) {
     let list: Vec<(String, Inventory)> = chars
         .iter()
         .filter_map(|(name, _)| {
@@ -642,9 +738,8 @@ fn write_items(addon: &Path, chars: &[(String, Overview)], out: &Path, made: i64
         })
         .collect();
     let text = inventory::items_lua(&list, made);
-    let tmp = addon.join("Items.lua.tmp");
-    let dest = addon.join("Items.lua");
-    if let Err(e) = fs::write(&tmp, &text).and_then(|()| fs::rename(&tmp, &dest)) {
+    let dest = data.join("Items.lua");
+    if let Err(e) = write_atomic(&dest, &text) {
         println!("items: could not write {}: {e}", dest.display());
     }
 }

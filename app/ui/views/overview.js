@@ -1,6 +1,6 @@
 // Overview: one character at a glance (docs/OVERVIEW.md, "The page").
 // The model comes from the `overview` command, the same rows the export
-// writes to Digest.lua for the game. Section order: header, this week,
+// writes to ScarletData\Digest.lua for the game. Section order: header, this week,
 // experience by level and gold, dungeons, played with and deaths, play time
 // by day and by zone, play history.
 

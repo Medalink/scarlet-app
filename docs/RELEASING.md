@@ -23,7 +23,7 @@ pwsh scripts/release.ps1 -Lane beta
    needs no administrator rights.
 2. The installed app puts the addon in place itself (see "Updates inside the app"). To do it by hand, unzip
    `Scarlet-<version>.zip` into `<WoW folder>\_forever_\Interface\AddOns`. The zip holds one `Scarlet`
-   folder; its `.toc` carries `<version>`. `Digest.lua` is left out: the app writes it.
+   folder; its `.toc` carries `<version>`. The app writes the digest into its own `ScarletData` folder, which the zip does not hold.
 3. Open Settings in the app. It lists what it could not find in plain words (the WoW folder, the addon, a first
    recording).
 
@@ -70,7 +70,7 @@ owner's other products.
 | Asset | What it is |
 | --- | --- |
 | `Scarlet_<version>_x64-setup.exe` | The signed NSIS installer for the app (per user). MSI is not built: it rejects text prerelease ids such as `-beta.1`. |
-| `Scarlet-<version>.zip` | The addon: a `Scarlet` folder to unzip into `AddOns`, version stamped in the TOC, no `Digest.lua`. |
+| `Scarlet-<version>.zip` | The addon: a `Scarlet` folder to unzip into `AddOns`, version stamped in the TOC. No `ScarletData` folder: the app writes it. |
 | `SHA256SUMS.txt` | SHA-256 of the two files above. |
 | `latest.json` | The update manifest: the version, the notes, the installer's updater signature and address, and the addon zip with its signature. The app reads it. |
 
@@ -142,7 +142,7 @@ the feed (checking its signature against the same key, and that the signature is
 
 - A folder that is missing or empty is installed. The app writes `.scarlet-app.json` in it, listing the files it wrote.
 - A folder with that file is updated: the zip's files are written and only files the app wrote earlier and the zip no
-  longer has are removed. `Digest.lua`, which the companion writes, is never in either list.
+  longer has are removed. `ScarletData`, which the companion writes (`ScarletData.toc`, `Digest.lua`, `Items.lua`), is never in either list, never offered by the feed and never touched here.
 - Everything else is left alone and Settings says so: a folder without that file (installed by hand), a TOC with
   `X-Curse-Project-ID` (CurseForge) or `X-Wago-ID` (Wago), a folder holding `.git`, and a junction or symlink,
   the folder itself or anything in it.

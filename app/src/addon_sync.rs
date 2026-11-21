@@ -15,8 +15,13 @@
 //! the app manages it from then on. They write the same way and ignore the "keep current" switch.
 //!
 //! An update writes the zip's files and removes only files the previous marker listed and the
-//! zip no longer has. `Digest.lua`, which the companion writes, is in neither, so it stays. The
-//! zip is checked against the updater key (minisign) before a byte of it is written.
+//! zip no longer has. `Digest.lua`, which the companion once wrote here, is in neither, so it
+//! stays until the companion removes it. The zip is checked against the updater key (minisign)
+//! before a byte of it is written.
+//!
+//! `AddOns\ScarletData` belongs to the companion (`export.rs`): it holds the digest and the item
+//! lists the export writes. It is never offered, installed, updated, removed or listed here, and
+//! a zip entry for it is dropped.
 
 use crate::commands::state;
 use crate::settings;
@@ -36,6 +41,7 @@ pub const MARKER: &str = ".scarlet-app.json";
 const MANAGER: &str = "scarlet-app";
 /// The folder the zip carries today; more come from the feed's `addon.folders`.
 const MAIN: &str = "Scarlet";
+const DATA: &str = "ScarletData";
 const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
 const MAX_ZIP: u64 = 16 << 20;
 const MAX_UNPACKED: u64 = 64 << 20;
@@ -274,6 +280,9 @@ fn unpack(zip: &[u8]) -> Result<Packed, String> {
                 }
             }
         }
+        if parts.first().is_some_and(|f| f.eq_ignore_ascii_case(DATA)) {
+            continue;
+        }
         if parts.len() < 2 || !folder_ok(&parts[0]) || parts.iter().any(|p| p.contains(':')) {
             return Err(format!(
                 "The addon zip has {} outside an addon folder.",
@@ -425,7 +434,7 @@ fn say(text: String, error: bool) {
 fn offered_folders(offer: &AddonOffer) -> Vec<String> {
     let mut v = vec![MAIN.to_string()];
     for f in &offer.folders {
-        if folder_ok(f) && !v.contains(f) {
+        if folder_ok(f) && !f.eq_ignore_ascii_case(DATA) && !v.contains(f) {
             v.push(f.clone());
         }
     }
