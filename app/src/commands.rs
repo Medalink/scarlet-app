@@ -396,10 +396,16 @@ pub struct CharOverview {
 #[tauri::command]
 pub fn overview(app: AppHandle, ch: Option<String>) -> Option<CharOverview> {
     with_store(&app, |st| {
-        let c = ch
-            .and_then(|n| st.char_index(&n))
-            .or_else(|| st.sessions.iter().max_by_key(|s| s.end).map(|s| s.ch))
-            .or_else(|| (!st.chars.is_empty()).then_some(0))?;
+        // A named character must exist; "All characters" shows the one played most recently.
+        let c = match ch {
+            Some(n) => st.char_index(&n)?,
+            None => st
+                .sessions
+                .iter()
+                .max_by_key(|s| s.end)
+                .map(|s| s.ch)
+                .or_else(|| (!st.chars.is_empty()).then_some(0))?,
+        };
         let name = st.chars.get(c as usize)?.clone();
         let ov = scarlet::overview::build(
             &name,

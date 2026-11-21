@@ -915,13 +915,20 @@ pub fn digest_lua(chars: &[(String, Overview)], made: i64) -> String {
         .map(|(_, o)| o.sessions.len())
         .max()
         .unwrap_or(0);
+    let mut trimmed = false;
     while text.len() > DIGEST_MAX_BYTES && keep > 3 {
+        trimmed = true;
         keep = if keep > DIGEST_SESSIONS {
             (keep / 2).max(DIGEST_SESSIONS)
         } else {
             keep * 2 / 3
         };
         text = render_digest(chars, made, Some(keep));
+    }
+    if trimmed && keep < DIGEST_SESSIONS {
+        eprintln!(
+            "scarlet: Digest.lua keeps only the newest {keep} sessions per character to stay under 200 KB; the in-game week can come up short"
+        );
     }
     text
 }
