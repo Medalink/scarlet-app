@@ -328,6 +328,7 @@ td {
 
 td:first-child { color: var(--fg); }
 th.num, td.num { text-align: right; padding-right: 0; padding-left: 16px; }
+th.gap, td.gap { padding-left: 28px; }
 tr.click { cursor: pointer; }
 tr.click:hover td { background: rgba(255, 45, 85, 0.06); }
 td.zones { white-space: normal; color: var(--muted); }

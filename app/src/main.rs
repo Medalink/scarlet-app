@@ -8,6 +8,7 @@ mod agg;
 mod browse;
 mod commands;
 mod discover;
+mod items;
 mod launch;
 mod layers;
 mod loot;
@@ -106,6 +107,7 @@ fn main() {
             commands::trends,
             loot::loot,
             talents::talents,
+            items::items,
             ops::compress_export,
             ops::compress_logs,
             ops::toggle_watch,

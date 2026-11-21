@@ -11,6 +11,7 @@ import * as map from "./views/map.js";
 import * as charts from "./views/charts.js";
 import * as loot from "./views/loot.js";
 import * as talents from "./views/talents.js";
+import * as items from "./views/items.js";
 import * as addons from "./views/addons.js";
 import * as compress from "./views/compress.js";
 import * as settings from "./views/settings.js";
@@ -25,6 +26,7 @@ const VIEWS = {
   charts: ["Charts", charts],
   loot: ["Loot", loot],
   talents: ["Talents", talents],
+  items: ["Items", items],
   addons: ["Addons", addons],
   compress: ["Compress", compress],
   settings: ["Settings", settings],
