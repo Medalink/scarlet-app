@@ -175,6 +175,24 @@ pub struct GoldPoint {
     pub m: i64,
 }
 
+/// Totals over the sessions the addon did not record itself (history brought in
+/// from elsewhere): what its own counters, which start at install, lack. The keys
+/// are the in-game Stats cards that history can fill.
+#[derive(Serialize, Deserialize, Default, Clone, Debug)]
+#[serde(default)]
+pub struct Before {
+    pub kills: i64,
+    pub deaths: i64,
+    pub dungeons: i64,
+    pub bosses: i64,
+    pub quests: i64,
+    pub xp: i64,
+    pub earned: i64,
+    pub spent: i64,
+    pub loot: i64,
+    pub tracked: i64,
+}
+
 /// One character's overview: the Digest.lua per-character table.
 #[derive(Serialize, Deserialize, Default, Clone, Debug)]
 #[serde(default, rename_all = "camelCase")]
@@ -200,6 +218,9 @@ pub struct Overview {
     pub killers: Vec<NameCount>,
     pub death_zones: Vec<NameCount>,
     pub gold: Vec<GoldPoint>,
+    /// Absent when every session was recorded by the addon.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before: Option<Before>,
 }
 
 const MAX_ZONES: usize = 40;
@@ -282,6 +303,26 @@ struct Open {
     lv: BTreeMap<u32, LevelShare>,
     zn: BTreeMap<String, ZoneShare>,
     mates_open: HashMap<String, i64>,
+    /// The client's played counter (ms) at the session's start, from its first
+    /// `/played` read: the read's total less the time since the session began.
+    played_start_ms: Option<i64>,
+    /// Its latest read: when (epoch ms) and the total (seconds).
+    last_read: Option<(i64, i64)>,
+    /// The addon recorded this session itself: its `S` line carries a version
+    /// number. Brought-in history carries something else.
+    native: bool,
+    bosses: i64,
+    loot: i64,
+}
+
+/// What the session just closed leaves for the next one: where the client's
+/// counter stood when it ended, and the level and zone its last seconds belong to.
+struct Closed {
+    played_end_ms: Option<i64>,
+    end_ms: i64,
+    level: u32,
+    zone: String,
+    native: bool,
 }
 
 impl Open {
@@ -321,6 +362,7 @@ struct Builder {
     bal: Vec<Option<i64>>,
     sessions: Vec<SessionRow>,
     open: Option<Open>,
+    closed: Option<Closed>,
     n_sess: usize,
     class: String,
     race: String,
@@ -330,6 +372,8 @@ struct Builder {
     xp_max: i64,
     zone: String,
     tp: Option<i64>,
+    before: Before,
+    imported: bool,
     reached: BTreeMap<u32, i64>,
     level_zone_ms: HashMap<u32, HashMap<String, i64>>,
     runs: HashMap<i64, RunAcc>,
@@ -350,6 +394,7 @@ impl Builder {
             bal,
             sessions: Vec::new(),
             open: None,
+            closed: None,
             n_sess: 0,
             class: String::new(),
             race: String::new(),
@@ -359,6 +404,8 @@ impl Builder {
             xp_max: 0,
             zone: String::new(),
             tp: None,
+            before: Before::default(),
+            imported: false,
             reached: BTreeMap::new(),
             level_zone_ms: HashMap::new(),
             runs: HashMap::new(),
@@ -404,7 +451,64 @@ impl Builder {
             lv: BTreeMap::new(),
             zn: BTreeMap::new(),
             mates_open: HashMap::new(),
+            played_start_ms: None,
+            last_read: None,
+            native: !field(5).chars().next().is_some_and(|c| !c.is_ascii_digit()),
+            bosses: 0,
+            loot: 0,
         });
+    }
+
+    /// A `/played` read in the open session. The client keeps counting through
+    /// a reload, which the session rows do not cover: the first read of a session
+    /// gives the counter at its start, and what it stands above where the
+    /// session before it ended is that gap. It is added to that session, to the
+    /// level and the zone it ended in, up to the wall time between the two.
+    fn played_read(&mut self, ms: i64, total_s: i64) {
+        let Some(o) = self.open.as_mut() else { return };
+        o.last_read = Some((ms, total_s));
+        if o.played_start_ms.is_some() {
+            return;
+        }
+        let start = total_s * 1000 - (ms - o.start_ms).max(0);
+        o.played_start_ms = Some(start);
+        let Some(prev) = self.closed.take() else {
+            return;
+        };
+        let Some(end) = prev.played_end_ms else {
+            return;
+        };
+        let wall = (o.start_ms - prev.end_ms).max(0);
+        // Whole seconds of reads on both sides: a difference under 1.5 s is rounding.
+        let gap = start - end;
+        if gap < 1500 {
+            return;
+        }
+        let credit = gap.min(wall + 1500);
+        let secs = round_s(credit);
+        let Some(row) = self.sessions.last_mut() else {
+            return;
+        };
+        row.p += secs;
+        if !prev.native {
+            self.before.tracked += secs;
+        }
+        if prev.level > 0 {
+            row.lv.entry(prev.level).or_default().p += secs;
+        }
+        if !prev.zone.is_empty()
+            && let Some(z) = row.zn.get_mut(&prev.zone)
+        {
+            z.p += secs;
+        }
+        if prev.level > 0 && !prev.zone.is_empty() {
+            *self
+                .level_zone_ms
+                .entry(prev.level)
+                .or_default()
+                .entry(prev.zone)
+                .or_default() += credit;
+        }
     }
 
     /// Charge the time since the last charge to the level and zone that were
@@ -454,8 +558,31 @@ impl Builder {
                 m.n += 1;
             }
         }
+        self.closed = Some(Closed {
+            played_end_ms: o
+                .last_read
+                .map(|(at, total)| total * 1000 + (o.end_ms - at).max(0)),
+            end_ms: o.end_ms,
+            level: o.level,
+            zone: o.zone.clone(),
+            native: o.native,
+        });
         let mut row = o.row;
         row.p = round_s(o.end_ms - o.start_ms);
+        if !o.native {
+            let b = &mut self.before;
+            b.kills += row.k;
+            b.deaths += row.dd;
+            b.dungeons += row.r;
+            b.bosses += o.bosses;
+            b.quests += row.q;
+            b.xp += row.xk + row.xd + row.xq + row.xe + row.xo;
+            b.earned += row.g;
+            b.spent += row.s;
+            b.loot += o.loot;
+            b.tracked += row.p;
+            self.imported = true;
+        }
         row.m = self.bal.get(o.end_idx).copied().flatten();
         row.z = o.zn.len() as i64;
         for l in o.lv.values_mut() {
@@ -523,6 +650,7 @@ impl Builder {
             "TP" => {
                 if let Some(v) = num(f, 0) {
                     self.tp = Some(v);
+                    self.played_read(ms, v);
                 }
                 return;
             }
@@ -540,6 +668,11 @@ impl Builder {
         let Some(o) = self.open.as_mut() else { return };
         o.end_ms = o.end_ms.max(ms);
         o.end_idx = i;
+        match code {
+            "B" => o.bosses += 1,
+            "O" => o.loot += num(f, 1).unwrap_or(1).max(1),
+            _ => {}
+        }
         if !matches!(
             code,
             "ES" | "Z" | "L" | "X" | "K" | "D" | "Q" | "M" | "GM" | "DR"
@@ -745,6 +878,8 @@ impl Builder {
         gold.drain(..gold.len().saturating_sub(MAX_GOLD));
 
         let sum_played: i64 = sessions.iter().map(|s| s.p).sum();
+        // The client's counter when the last session ended, when it was read in it.
+        let played_end = self.closed.as_ref().and_then(|c| c.played_end_ms);
         sessions.reverse();
         let through = sessions.first().map_or(0, |s| s.t);
         let level = sessions.first().map_or(0, |s| s.l1);
@@ -758,7 +893,7 @@ impl Builder {
             xp: self.xp,
             xp_max: self.xp_max,
             zone: self.zone,
-            played: self.tp.unwrap_or(sum_played),
+            played: played_end.map_or_else(|| self.tp.unwrap_or(sum_played), round_s),
             money,
             sessions,
             levels,
@@ -769,6 +904,7 @@ impl Builder {
             killers: counted(self.killers),
             death_zones: counted(self.death_zones),
             gold,
+            before: self.imported.then_some(self.before),
         }
     }
 }
