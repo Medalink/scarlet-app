@@ -2,6 +2,7 @@
 
 import { invoke, el, openmapMissing } from "../lib.js";
 import { renderUpload } from "./upload.js";
+import { renderUpdates } from "./updates.js";
 
 export async function render(body) {
   body.innerHTML = "";
@@ -117,6 +118,7 @@ export async function render(body) {
   artField.appendChild(artSeg);
   body.append(artField, artNote);
   showArt(s.map_art || "dark");
+  await renderUpdates(body);
   renderUpload(body);
 
   form.querySelector("#save").onclick = async () => {

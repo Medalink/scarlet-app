@@ -101,8 +101,17 @@ function headStats() {
   $("#head-stats").textContent = `${num(st.events)} events · ${a} – ${b}`;
 }
 
+// The build's version, and a link to Settings while an update is waiting.
+function showVersion(info) {
+  $("#ver").textContent = info.dev ? "dev" : `v${info.version}`;
+  const upd = $("#upd");
+  upd.hidden = !info.offered;
+  upd.textContent = info.offered ? `Update ${info.offered.version}` : "";
+}
+
 async function boot() {
   buildNav();
+  showVersion(await invoke("update_info"));
   // Restore the last view before the first render, so save_view in setView
   // does not overwrite it with "overview". Asked together with the app state.
   const [, s] = await Promise.all([loadState(), location.hash ? null : invoke("get_settings")]);
@@ -118,6 +127,8 @@ async function boot() {
   window.addEventListener("hashchange", setView);
 
   const { listen } = window.__TAURI__.event;
+  $("#upd").onclick = () => (location.hash = "settings");
+  await listen("update-changed", (e) => showVersion(e.payload));
   await listen("store-changed", async () => {
     await loadState();
     headStats();

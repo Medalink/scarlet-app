@@ -47,6 +47,17 @@ pub struct Settings {
     /// Uploading to the Scarlet website: off until the player turns it on.
     #[serde(default)]
     pub upload: scarlet::upload::config::UploadConfig,
+    /// Which builds the app updates to: "release" or "beta". Unset follows the build that is
+    /// installed (a beta build stays on beta until the player picks Release).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub track: Option<String>,
+    /// Keep the Scarlet addon in the WoW folder up to date (see `addon_sync`).
+    #[serde(default = "default_keep_addon")]
+    pub keep_addon: bool,
+}
+
+fn default_keep_addon() -> bool {
+    true
 }
 
 fn default_map_art() -> String {
@@ -262,6 +273,8 @@ fn fallback() -> Settings {
             open_with_wow: false,
             map_art: default_map_art(),
             upload: Default::default(),
+            track: None,
+            keep_addon: true,
         };
     }
     let wow = detect_wow();
@@ -274,6 +287,8 @@ fn fallback() -> Settings {
         open_with_wow: false,
         map_art: default_map_art(),
         upload: Default::default(),
+        track: None,
+        keep_addon: true,
     }
 }
 

@@ -2,6 +2,7 @@
 //! into memory and serves aggregates to the static UI in ui/.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod addon_sync;
 mod addons;
 mod agg;
 mod browse;
@@ -15,10 +16,35 @@ mod openmap;
 mod ops;
 mod settings;
 mod store;
+mod updater;
 mod upload;
 mod watch;
 
+/// `--home <folder>` (or `--home=<folder>`) as `SCARLET_HOME`: the installer restarts the app after an
+/// update with the arguments it had, but not its environment. Runs before any thread starts.
+fn home_from_args() {
+    if std::env::var_os("SCARLET_HOME").is_some_and(|v| !v.is_empty()) {
+        return;
+    }
+    let mut args = std::env::args_os().skip(1);
+    while let Some(a) = args.next() {
+        let home = if a == "--home" {
+            args.next()
+        } else {
+            a.to_str()
+                .and_then(|s| s.strip_prefix("--home="))
+                .map(std::ffi::OsString::from)
+        };
+        if let Some(h) = home.filter(|h| !h.is_empty()) {
+            // SAFETY: first thing main does, before any thread exists.
+            unsafe { std::env::set_var("SCARLET_HOME", h) };
+            return;
+        }
+    }
+}
+
 fn main() {
+    home_from_args();
     // The background copy that opens Scarlet when WoW Forever starts; no window, no Tauri.
     if std::env::args().any(|a| a == launch::FLAG) {
         launch::watch();
@@ -55,6 +81,7 @@ fn main() {
     });
 
     let run = tauri::Builder::default()
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             commands::app_state,
             addons::addons,
@@ -84,6 +111,13 @@ fn main() {
             browse::browse_wow,
             ops::save_view,
             ops::set_open_with_wow,
+            updater::update_info,
+            updater::update_check,
+            updater::update_install,
+            updater::set_track,
+            updater::release_notes,
+            addon_sync::addon_status,
+            addon_sync::set_keep_addon,
             upload::upload_get,
             upload::upload_set_enabled,
             upload::upload_set_server,
@@ -126,6 +160,7 @@ fn main() {
             if !s.wow.is_dir() {
                 discover::spawn(app.handle().clone());
             }
+            updater::spawn(app.handle().clone());
             // Keeps the startup entry pointing at this exe and the watcher running after
             // a rebuild or a kill.
             if s.open_with_wow {

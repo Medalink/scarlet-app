@@ -560,3 +560,17 @@ ul, ol { list-style: none; }
 ::-webkit-scrollbar-thumb { background: #3a3a43; border: 2px solid var(--bg); border-radius: 5px; }
 ::-webkit-scrollbar-thumb:hover { background: #4a4a54; }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* Updates and the addon ----------------------------------------------------- */
+
+#upd { margin: 5px 0 0; font-size: 13px; color: var(--accent); text-decoration-color: var(--accent); }
+.kv { display: flex; gap: 14px; font-size: 14px; line-height: 1.6; margin-bottom: 4px; max-width: 90ch; }
+.kv .k { flex: none; width: 110px; color: var(--muted); }
+.kv .v { color: var(--fg); }
+.when { color: var(--muted); }
+.notes { margin-top: 8px; padding: 10px 12px; max-width: 90ch; max-height: 260px; overflow: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 3px; font: 12px/1.55 "Martian Mono", Consolas, monospace; color: var(--text); white-space: pre-wrap; word-break: break-word; }
+.note-head { margin-top: 16px; font-size: 14px; color: var(--fg); }
+.notes-all { margin-top: 18px; font-size: 14px; color: var(--text); }
+.notes-all summary { cursor: pointer; color: var(--fg); }
+.addon-list { margin-top: 14px; }
+.section-title + .kv, .section-title + .field { margin-top: 0; }

@@ -135,6 +135,8 @@ pub fn set_settings(app: AppHandle, wow: String, data: String) -> Result<Setting
     reload(&app);
     // The watch thread reads the new folders.
     wake();
+    // The addon may now be missing from the new folder.
+    crate::updater::kick(app.clone());
     Ok(cur)
 }
 
