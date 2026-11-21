@@ -6,11 +6,10 @@ const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 function shade(count, max) {
   if (!max || !count) return "";
-  const t = Math.pow(count / max, 0.6);
-  const r = Math.round(35 + t * 220);
-  const g = Math.round(35 + t * 10);
-  const b = Math.round(40 + t * 45);
-  return `background:rgb(${r},${g},${b})`;
+  // The site's four scarlet steps.
+  const t = count / max;
+  const step = t < 0.25 ? "#4b1626" : t < 0.5 ? "#861a34" : t < 0.75 ? "#cf1f45" : "#ff5d7e";
+  return `background:${step}`;
 }
 
 export async function render(body) {
@@ -40,13 +39,15 @@ export async function render(body) {
         g.appendChild(el("div", "hm-lab", DAYS[d]));
         for (let h = 0; h < 24; h++) {
           const c = data.week[d * 24 + h] || 0;
-          g.appendChild(el("div", "hm-cell", "")).style.cssText = shade(c, data.max_week);
+          const cell = g.appendChild(el("div", "hm-cell", ""));
+          cell.style.cssText = shade(c, data.max_week);
+          cell.title = `${DAYS[d]} ${String(h).padStart(2, "0")}:00 · ${num(c)} events`;
         }
       }
       holder.appendChild(g);
       holder.insertAdjacentHTML(
         "beforeend",
-        `<div class="note">Darker means more events. Peak: ${num(data.max_week)} events in an hour.</div>`
+        `<div class="note">Brighter means more events. Peak: ${num(data.max_week)} events in an hour.</div>`
       );
     } else {
       if (!data.days.length) {

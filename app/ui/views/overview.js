@@ -1,8 +1,10 @@
 // Overview: one character at a glance (docs/OVERVIEW.md, "The page").
 // The model comes from the `overview` command, the same rows the export
-// writes to Digest.lua for the game.
+// writes to Digest.lua for the game. Section order: header, this week,
+// experience by level and gold, dungeons, played with and deaths, play time
+// by day and by zone, play history.
 
-import { invoke, el, esc, num, dur, money, dateStr, state } from "../lib.js";
+import { invoke, esc, num, dur, moneyHtml, dateStr, SERIES, state } from "../lib.js";
 
 const CLASS_COLOR = {
   DEATHKNIGHT: "#C41E3A",
@@ -24,22 +26,35 @@ const RACE_NAME = { Scourge: "Undead" };
 
 // XP sources in stacking order, bottom first.
 const XP_PARTS = [
-  ["xk", "Kills", "#ff2d55"],
-  ["xd", "Dungeon kills", "#8a2540"],
-  ["xq", "Quests", "#e8c27a"],
-  ["xe", "Exploring", "#5fb3a1"],
-  ["xo", "Other", "#8a8a93"],
+  ["xk", "Kills", SERIES[0]],
+  ["xd", "Dungeon kills", SERIES[1]],
+  ["xq", "Quests", SERIES[2]],
+  ["xe", "Exploring", SERIES[3]],
+  ["xo", "Other", SERIES[4]],
 ];
 
-const WEEK_ZERO = { p: 0, r: 0, q: 0, gold: 0 };
+const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MO = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const HEAT_WEEKS = 20;
+const GOLD_POINTS = 30;
+const HISTORY_ROWS = 10;
+const HISTORY_MAX = 200;
 
 let xpMode = "xp";
 let histMode = "sessions";
+let histAll = false;
+let xpPinned = null;
 let current = null;
 
 const className = (c) => CLASS_NAME[c] || (c ? c[0] + c.slice(1).toLowerCase() : "");
 const raceName = (r) => RACE_NAME[r] || String(r || "").replace(/([a-z])([A-Z])/g, "$1 $2");
 const plural = (n, one, many) => `${num(n)} ${n === 1 ? one : many}`;
+const day = (ms) => {
+  const d = new Date(ms);
+  return `${WD[d.getDay()]} ${d.getDate()} ${MO[d.getMonth()]}`;
+};
+const hm = (ms) => new Date(ms).toTimeString().slice(0, 5);
+const net = (s) => (s.g || 0) - (s.s || 0);
 
 function longDur(secs) {
   secs = Math.max(0, Math.floor(secs));
@@ -48,218 +63,402 @@ function longDur(secs) {
   return dur(secs);
 }
 
-// A copper change with its sign: "+6g 40s", "-2g 80s".
-function signed(c) {
-  if (!c) return `<span>0c</span>`;
-  return c > 0 ? `<span class="pos">+${money(c)}</span>` : `<span class="neg">${money(c)}</span>`;
+// A play time as "2h 05m" or "33m", like the site.
+function playTime(secs) {
+  const m = Math.round(secs / 60);
+  if (m < 60) return `${m}m`;
+  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
 }
 
-const net = (s) => (s.g || 0) - (s.s || 0);
+const signed = (c) => (c ? `<span class="${c > 0 ? "pos" : "neg"}">${moneyHtml(c, true)}</span>` : `<span class="neg">${moneyHtml(0)}</span>`);
 
-function empty(text) {
-  return `<div class="empty">${esc(text)}</div>`;
+const empty = (text) => `<div class="empty">${esc(text)}</div>`;
+
+function mod(cls, title, inner, head = "") {
+  const h = head ? `<div class="mod-head"><h2>${esc(title)}</h2>${head}</div>` : `<h2>${esc(title)}</h2>`;
+  return `<section class="mod ${cls}">${h}${inner}</section>`;
 }
 
-function panel(title, html) {
-  const p = el("div", "panel", `<h3>${esc(title)}</h3>${html}`);
-  return p;
-}
-
-function seg(options, active, key) {
-  return `<div class="ov-seg">${options
-    .map(([k, label]) => `<span class="chip${k === active ? " active" : ""}" data-${key}="${k}">${esc(label)}</span>`)
+function segButtons(options, active, key) {
+  return `<div class="seg" role="group">${options
+    .map(([k, label]) => `<button type="button" data-${key}="${k}" aria-pressed="${k === active}">${esc(label)}</button>`)
     .join("")}</div>`;
 }
 
-function hero(ov, name) {
+function rank(rows) {
+  const top = Math.max(...rows.map((r) => r.v), 1);
+  return `<ol class="rank">${rows
+    .map(
+      (r) => `<li><span class="who"${r.color ? ` style="color:${r.color}"` : ""} title="${esc(r.who)}">${esc(r.who)}</span>
+        <span class="val">${r.val}</span><div class="track"><i style="width:${Math.max(1, (r.v / top) * 100)}%"></i></div></li>`
+    )
+    .join("")}</ol>`;
+}
+
+// Header ------------------------------------------------------------------
+
+function header(ov, name) {
   const color = CLASS_COLOR[ov.class] || "#ff2d55";
-  const bits = [];
   const identity = [ov.level ? `Level ${ov.level}` : "", raceName(ov.race), className(ov.class)].filter(Boolean).join(" ");
-  if (identity) bits.push(identity);
-  if (ov.faction) bits.push(ov.faction);
-  if (ov.zone) bits.push(`in ${ov.zone}`);
-  if (ov.played) bits.push(`${longDur(ov.played)} played`);
-  let bar = `<div class="empty">No experience bar recorded</div>`;
+  const bits = [identity, ov.faction, ov.zone ? `in ${ov.zone}` : "", ov.played ? `${longDur(ov.played)} played` : ""].filter(Boolean);
+  let bar = `<p class="ch-note" style="text-align:left;margin-top:14px">No experience bar recorded</p>`;
   if (ov.xpMax > 0) {
     const pct = Math.min(100, Math.floor((ov.xp / ov.xpMax) * 100));
-    bar = `<div class="ov-bar"><div style="width:${pct}%"></div></div>
-      <div class="ov-note">${pct}% to level ${ov.level + 1} · ${num(Math.max(0, ov.xpMax - ov.xp))} XP to go</div>`;
+    bar = `<div class="lvl"><div class="lvl-bar"><i style="width:${pct}%"></i></div>
+      <p>${pct}% to level ${ov.level + 1} · ${num(Math.max(0, ov.xpMax - ov.xp))} XP to go</p></div>`;
   }
-  return `<div class="panel ov-hero" style="--cls:${color}">
-    <div class="ov-ring">${ov.level || "?"}</div>
-    <div class="ov-hero-main">
-      <div class="ov-name">${esc(name)}</div>
-      <div class="ov-sub">${esc(bits.join(" · "))}</div>
+  const last = ov.through ? `<p class="ch-note">Last session ${day(ov.through * 1000)} ${hm(ov.through * 1000)}</p>` : "";
+  return `<section class="ch-head" style="--cls:${color}">
+    <div>
+      <h1 class="ch-name">${esc(name)}</h1>
+      <p class="ch-sub"><i class="dot"></i>${bits.map((b) => `<span>${esc(b)}</span>`).join("")}</p>
       ${bar}
     </div>
-  </div>`;
+    ${last}
+  </section>`;
 }
 
-function sparkline(points) {
-  if (points.length < 2) return "";
-  const lo = Math.min(...points);
-  const hi = Math.max(...points);
-  const pts = points
-    .map((v, i) => {
-      const x = (i / (points.length - 1)) * 100;
-      const y = hi === lo ? 18 : 33 - ((v - lo) / (hi - lo)) * 30;
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(" ");
-  return `<svg class="ov-spark" viewBox="0 0 100 36" preserveAspectRatio="none">
-    <polyline fill="none" stroke="#ff6b8e" stroke-width="2" vector-effect="non-scaling-stroke" points="${pts}"/></svg>`;
+// This week -----------------------------------------------------------------
+
+function mondayOf(now) {
+  const m = new Date(now);
+  m.setHours(0, 0, 0, 0);
+  m.setDate(m.getDate() - ((m.getDay() + 6) % 7));
+  return m;
 }
 
-function goldCard(ov) {
-  if (ov.money === undefined) return panel("Gold", empty("No balance recorded"));
-  const recent = ov.sessions.slice(0, 7);
-  const change = recent.reduce((a, s) => a + net(s), 0);
-  const change7 = recent.length
-    ? `<div class="ov-note">${signed(change)} over the last ${plural(recent.length, "session", "sessions")}</div>`
-    : "";
-  return panel(
-    "Gold",
-    `<div class="ov-big">${esc(money(ov.money))}</div>${change7}${sparkline(ov.gold.map((g) => g.m))}`
-  );
-}
-
-function runsCard(ov) {
-  if (!ov.runs.length) return panel("Dungeons and raids", empty("No dungeon or raid runs recorded"));
-  const rows = ov.runs
-    .slice(0, 5)
-    .map((r) => `<div class="ov-row"><span>${esc(r.name)}</span><span>${plural(r.n, "run", "runs")}</span></div>`)
-    .join("");
-  return panel("Dungeons and raids", `${rows}<div class="ov-note">${num(ov.runsTotal)} in total</div>`);
-}
-
-function matesCard(ov) {
-  if (!ov.mates.length) return panel("Played with", empty("No group members recorded"));
-  const top = ov.mates.slice(0, 3);
-  const max = Math.max(...top.map((m) => m.p), 1);
-  const rows = top
-    .map((m) => {
-      const color = CLASS_COLOR[m.class] || "";
-      return `<div class="ov-row"><span${color ? ` style="color:${color}"` : ""}>${esc(m.name)}</span>
-        <span>${dur(m.p)} · ${plural(m.n, "session", "sessions")}</span></div>
-        <div class="ov-bar slim"><div style="width:${Math.max(2, (m.p / max) * 100)}%"></div></div>`;
-    })
-    .join("");
-  return panel("Played with", rows);
-}
-
-function deathsCard(ov) {
-  if (!ov.deathZones.length) return panel("Deaths", empty("No deaths recorded"));
-  const rows = ov.deathZones
-    .slice(0, 3)
-    .map((z) => `<div class="ov-row"><span>${esc(z.name)}</span><span>${num(z.n)}</span></div>`)
-    .join("");
-  const k = ov.killers[0];
-  const killer = k
-    ? `<div class="ov-row"><span>Killed most by</span><span>${esc(k.name)} (${num(k.n)})</span></div>`
-    : "";
-  return panel("Deaths", rows + killer);
-}
-
-// Monday 00:00 local time to now.
-function weekCard(ov) {
-  const monday = new Date();
-  monday.setHours(0, 0, 0, 0);
-  monday.setDate(monday.getDate() - ((monday.getDay() + 6) % 7));
+function week(ov) {
+  const monday = mondayOf(new Date());
   const sunday = new Date(monday);
   sunday.setDate(monday.getDate() + 6);
-  const fmt = (d) => d.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
-  const title = `This week · ${fmt(monday)} – ${fmt(sunday)}`;
-  const week = ov.sessions.filter((s) => s.t * 1000 >= monday.getTime());
-  if (!week.length) return panel(title, empty("No sessions this week"));
-  const sum = week.reduce(
+  const from = monday.getMonth() === sunday.getMonth() ? "" : ` ${MO[monday.getMonth()]}`;
+  const range = `Mon ${monday.getDate()}${from} to Sun ${sunday.getDate()} ${MO[sunday.getMonth()]}`;
+  const rows = ov.sessions.filter((s) => s.t * 1000 >= monday.getTime());
+  const sum = rows.reduce(
     (a, s) => ({ p: a.p + (s.p || 0), r: a.r + (s.r || 0), q: a.q + (s.q || 0), gold: a.gold + net(s) }),
-    WEEK_ZERO
+    { p: 0, r: 0, q: 0, gold: 0 }
   );
-  const zones = new Set(week.flatMap((s) => Object.keys(s.zn || {})));
-  const tiles = [
-    [dur(sum.p), "Played"],
-    [num(sum.r), "Dungeons"],
-    [num(sum.q), "Quests"],
-    [signed(sum.gold), "Gold"],
-    [num(zones.size), "Zones"],
+  const zones = new Set(rows.flatMap((s) => Object.keys(s.zn || {})));
+  const cells = [
+    ["Played", playTime(sum.p)],
+    ["Dungeons", num(sum.r)],
+    ["Quests", num(sum.q)],
+    ["Gold", signed(sum.gold)],
+    ["Zones", num(zones.size)],
   ];
-  return panel(
-    title,
-    `<div class="ov-tiles">${tiles.map(([v, l]) => `<div class="ov-tile"><b>${v}</b><small>${l}</small></div>`).join("")}</div>`
-  );
+  return `<section class="week"><div><h2>This week</h2><p>${range}</p></div>${cells
+    .map(([l, v]) => `<div><dt>${l}</dt><dd>${v}</dd></div>`)
+    .join("")}</section>`;
 }
+
+// Experience by level --------------------------------------------------------
 
 function levelXp(l) {
   return XP_PARTS.reduce((a, [k]) => a + (l[k] || 0), 0);
 }
 
-function levelsChart(ov) {
-  const levels = Object.entries(ov.levels)
+function levelRows(ov) {
+  return Object.entries(ov.levels)
     .map(([lv, l]) => [Number(lv), l])
     .sort((a, b) => a[0] - b[0])
     .filter(([, l]) => (xpMode === "xp" ? levelXp(l) : l.p) > 0);
-  const head = seg([["xp", "XP sources"], ["time", "Time per level"]], xpMode, "xp");
-  if (!levels.length) return panel("Experience by level", head + empty("No experience recorded"));
+}
+
+function axisXp(v) {
+  return v >= 2000 ? `${Math.round(v / 1000)}k XP` : `${num(v)} XP`;
+}
+
+function axisTime(secs) {
+  const h = secs / 3600;
+  return h >= 1 ? `${h >= 10 ? Math.round(h) : h.toFixed(1)}h` : `${Math.max(1, Math.round(secs / 60))}m`;
+}
+
+function levelRead(level, l, last) {
+  const head = `<b>Level ${level}${last ? " so far" : ""}</b>`;
+  if (xpMode === "time") {
+    const bits = [dur(l.p || 0)];
+    if (l.at) bits.push(`reached ${day(l.at * 1000)}`);
+    if (l.zone) bits.push(`mostly in ${l.zone}`);
+    bits.push(plural(l.k || 0, "kill", "kills"), plural(l.q || 0, "quest", "quests"), plural(l.dd || 0, "death", "deaths"));
+    return `${head} · ${bits.map(esc).join(" · ")}`;
+  }
+  const total = levelXp(l) || 1;
+  const parts = XP_PARTS.filter(([k]) => (l[k] || 0) / total >= 0.005).map(
+    ([k, name]) => `${name.toLowerCase()} ${Math.round((l[k] / total) * 100)}%`
+  );
+  return `${head} · ${num(total)} XP · ${parts.join(" · ")}`;
+}
+
+function levelsChart(ov) {
+  const head = segButtons([["xp", "XP sources"], ["time", "Time per level"]], xpMode, "xp");
+  const levels = levelRows(ov);
+  if (!levels.length) return mod("w8 first", "Experience by level", empty("No experience recorded"), head);
   const total = (l) => (xpMode === "xp" ? levelXp(l) : l.p);
   const max = Math.max(...levels.map(([, l]) => total(l)), 1);
-  const cols = levels
-    .map(([lv, l]) => {
-      const tip = xpMode === "xp"
-        ? `Level ${lv}: ${XP_PARTS.filter(([k]) => l[k]).map(([k, name]) => `${name} ${num(l[k])}`).join(", ")}`
-        : `Level ${lv}: ${dur(l.p)}`;
-      const segs = xpMode === "xp"
-        ? XP_PARTS.filter(([k]) => l[k])
-            .map(([k, , c]) => `<i style="height:${(l[k] / max) * 100}%;background:${c}"></i>`)
-            .join("")
-        : `<i style="height:${(l.p / max) * 100}%;background:#ff2d55"></i>`;
-      return `<div class="ov-col" title="${esc(tip)}">${segs}</div>`;
+  const bars = levels
+    .map(([, l]) => {
+      const segs =
+        xpMode === "xp"
+          ? XP_PARTS.filter(([k]) => l[k])
+              .map(([k, , c]) => `<i style="height:${(l[k] / max) * 100}%;background:${c}"></i>`)
+              .join("")
+          : `<i class="c-time" style="height:${(l.p / max) * 100}%"></i>`;
+      return `<div class="xp-bar">${segs}</div>`;
     })
     .join("");
-  const range = levels.length > 1 ? `Levels ${levels[0][0]} to ${levels[levels.length - 1][0]}` : `Level ${levels[0][0]}`;
-  const legend = xpMode === "xp"
-    ? XP_PARTS.map(([, name, c]) => `<span><i style="background:${c}"></i>${name}</span>`).join("")
-    : "";
-  return panel(
+  const many = levels.length > 14;
+  let lastTick = -9;
+  const ticks = levels
+    .map(([lv], i) => {
+      // Past 14 bars, label every fifth level and the last one if it has room.
+      const show = many ? lv % 5 === 0 || i === 0 || (i === levels.length - 1 && lv - lastTick >= 3) : true;
+      if (show) lastTick = lv;
+      return `<span>${show ? lv : ""}</span>`;
+    })
+    .join("");
+  const yTop = xpMode === "xp" ? axisXp(max) : axisTime(max);
+  const yMid = xpMode === "xp" ? axisXp(max / 2) : axisTime(max / 2);
+  const key =
+    xpMode === "xp"
+      ? `<ul class="key">${XP_PARTS.map(([, name, c]) => `<li><i style="background:${c}"></i>${name}</li>`).join("")}</ul>`
+      : "";
+  return mod(
+    "w8 first",
     "Experience by level",
-    `${head}<div class="ov-chart">${cols}</div><div class="legend"><span>${range}</span>${legend}</div>`
+    `<div class="xp">
+      <div class="xp-plot">
+        <div class="xp-y"><span>${yTop}</span><span>${yMid}</span><span>0</span></div>
+        <div class="xp-bars" id="xp-bars" tabindex="0">${bars}</div>
+        <div class="xp-x">${ticks}</div>
+      </div>
+      ${key}
+      <p class="readout" id="xp-out"></p>
+    </div>`,
+    head
   );
 }
 
-const HISTORY_ROWS = 60;
-
-function th(label, cls = "") {
-  return `<th${cls ? ` class="${cls}"` : ""}>${label}</th>`;
+function wireLevels(body, ov) {
+  const bars = body.querySelector("#xp-bars");
+  if (!bars) return;
+  const levels = levelRows(ov);
+  const out = body.querySelector("#xp-out");
+  const lastIdx = levels.length - 1;
+  let pinned = xpPinned === null || xpPinned > lastIdx ? lastIdx : xpPinned;
+  const read = (i, live) => {
+    const [lv, l] = levels[i];
+    [...bars.children].forEach((b, k) => b.classList.toggle("on", k === i));
+    bars.classList.toggle("has-on", !!live);
+    out.innerHTML = levelRead(lv, l, lv === ov.level);
+  };
+  const at = (e) => {
+    const r = bars.getBoundingClientRect();
+    return Math.max(0, Math.min(lastIdx, Math.floor(((e.clientX - r.left) / r.width) * levels.length)));
+  };
+  bars.addEventListener("pointermove", (e) => read(at(e), true));
+  bars.addEventListener("pointerleave", () => read(pinned));
+  bars.addEventListener("click", (e) => {
+    pinned = xpPinned = at(e);
+    read(pinned, true);
+  });
+  bars.addEventListener("blur", () => read(pinned));
+  bars.addEventListener("keydown", (e) => {
+    const step = e.key === "ArrowLeft" ? -1 : e.key === "ArrowRight" ? 1 : 0;
+    if (!step) return;
+    e.preventDefault();
+    pinned = xpPinned = Math.max(0, Math.min(lastIdx, pinned + step));
+    read(pinned, true);
+  });
+  read(pinned);
 }
+
+// Gold -------------------------------------------------------------------------
+
+function goldMod(ov) {
+  if (ov.money === undefined) return mod("last", "Gold", empty("No balance recorded"));
+  const recent = ov.sessions.slice(0, 7);
+  const change = recent.reduce((a, s) => a + net(s), 0);
+  const sub = recent.length ? `<p class="sub">${signed(change)} over the last ${plural(recent.length, "session", "sessions")}</p>` : "";
+  const pts = ov.gold.slice(-GOLD_POINTS);
+  let plot = "";
+  if (pts.length > 1) {
+    plot = `<div class="gold-plot">
+        <svg id="g-svg" viewBox="0 0 300 100" preserveAspectRatio="none"></svg>
+        <div class="gold-axis"><span>${day(pts[0].t * 1000)}</span><span>${day(pts[pts.length - 1].t * 1000)}</span></div>
+      </div>
+      <p class="readout" id="g-out"></p>`;
+  }
+  return mod("last", "Gold", `<p class="big">${moneyHtml(ov.money)}</p>${sub}${plot}`);
+}
+
+function wireGold(body, ov) {
+  const svg = body.querySelector("#g-svg");
+  if (!svg) return;
+  const out = body.querySelector("#g-out");
+  const pts = ov.gold.slice(-GOLD_POINTS);
+  const lo = Math.min(...pts.map((p) => p.m));
+  const hi = Math.max(...pts.map((p) => p.m));
+  const gx = (i) => (i / (pts.length - 1)) * 300;
+  const gy = (m) => 94 - ((m - lo) / (hi - lo || 1)) * 86;
+  const line = pts.map((p, i) => `${i ? "L" : "M"}${gx(i).toFixed(1)} ${gy(p.m).toFixed(1)}`).join("");
+  svg.innerHTML = `<path d="${line}L300 100L0 100Z" fill="rgba(217,178,95,0.1)"/>
+    <path d="${line}" fill="none" stroke="#d9b25f" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
+    <line id="g-x" y1="0" y2="100" stroke="rgba(240,241,243,0.5)" stroke-width="1" vector-effect="non-scaling-stroke" visibility="hidden"/>`;
+  const rest = () => {
+    out.innerHTML = `Between ${moneyHtml(lo)} and ${moneyHtml(hi)} over the last ${plural(pts.length, "session", "sessions")}`;
+    svg.querySelector("#g-x").setAttribute("visibility", "hidden");
+  };
+  svg.addEventListener("pointermove", (e) => {
+    const r = svg.getBoundingClientRect();
+    const i = Math.max(0, Math.min(pts.length - 1, Math.round(((e.clientX - r.left) / r.width) * (pts.length - 1))));
+    const cross = svg.querySelector("#g-x");
+    cross.setAttribute("x1", gx(i));
+    cross.setAttribute("x2", gx(i));
+    cross.setAttribute("visibility", "visible");
+    out.innerHTML = `<b>${day(pts[i].t * 1000)} ${hm(pts[i].t * 1000)}</b> · ${moneyHtml(pts[i].m)}`;
+  });
+  svg.addEventListener("pointerleave", rest);
+  rest();
+}
+
+// Dungeons, people, deaths --------------------------------------------------------
+
+function runsMod(ov) {
+  if (!ov.runs.length) return mod("first", "Dungeons and raids", empty("No dungeon or raid runs recorded"));
+  const rows = ov.runs.slice(0, 5).map((r) => ({ who: r.name, v: r.n, val: plural(r.n, "run", "runs") }));
+  return mod("first", "Dungeons and raids", `${rank(rows)}<p class="total">${plural(ov.runsTotal, "run", "runs")} in total</p>`);
+}
+
+function matesMod(ov) {
+  if (!ov.mates.length) return mod("", "Played with", empty("No group members recorded"));
+  const rows = ov.mates.slice(0, 4).map((m) => ({
+    who: m.name,
+    v: m.p,
+    val: `${dur(m.p)} · ${plural(m.n, "session", "sessions")}`,
+    color: CLASS_COLOR[m.class] || "",
+  }));
+  return mod("", "Played with", `${rank(rows)}<p class="total">Time grouped together, from the lines written when a player joins or leaves your group.</p>`);
+}
+
+function deathsMod(ov) {
+  if (!ov.deathZones.length) return mod("last", "Deaths", empty("No deaths recorded"));
+  const rows = ov.deathZones.slice(0, 4).map((z) => ({ who: z.name, v: z.n, val: num(z.n) }));
+  const all = ov.deathZones.reduce((a, z) => a + z.n, 0);
+  const k = ov.killers[0];
+  const killer = k ? ` Killed most by <span class="who">${esc(k.name)}</span>, ${plural(k.n, "time", "times")}.` : "";
+  return mod("last", "Deaths", `${rank(rows)}<p class="total">${plural(all, "death", "deaths")}.${killer}</p>`);
+}
+
+// Play time by day and by zone -----------------------------------------------------
+
+function heatDays(ov) {
+  const byDay = new Map();
+  for (const s of ov.sessions) {
+    const key = dateStr(s.t * 1000);
+    const d = byDay.get(key) || { p: 0, n: 0 };
+    d.p += s.p || 0;
+    d.n += 1;
+    byDay.set(key, d);
+  }
+  const start = mondayOf(new Date());
+  start.setDate(start.getDate() - (HEAT_WEEKS - 1) * 7);
+  const today = Date.now();
+  const days = [];
+  for (let i = 0; i < HEAT_WEEKS * 7; i++) {
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    const hit = byDay.get(dateStr(d.getTime())) || { p: 0, n: 0 };
+    days.push({ t: d.getTime(), p: hit.p, n: hit.n, future: d.getTime() > today });
+  }
+  return days;
+}
+
+const heatLevel = (p) => (p <= 0 ? 0 : p < 3600 ? 1 : p < 7200 ? 2 : p < 14400 ? 3 : 4);
+
+function heatMod(ov) {
+  if (!ov.sessions.length) return mod("w5 first", "Play time by day", empty("No sessions recorded"));
+  const days = heatDays(ov);
+  let months = "<span></span>";
+  let was = -1;
+  for (let w = 0; w < HEAT_WEEKS; w++) {
+    const m = new Date(days[w * 7].t).getMonth();
+    months += `<span>${m === was ? "" : MO[m]}</span>`;
+    was = m;
+  }
+  const names = ["Mon", "", "Wed", "", "Fri", "", ""].map((d) => `<span>${d}</span>`).join("");
+  const cells = days
+    .map((d, i) => `<i data-i="${i}" data-l="${heatLevel(d.p)}"${d.future ? ' class="off"' : ""}></i>`)
+    .join("");
+  const key = `<p class="heat-key"><span>0</span><i style="background:rgba(255,255,255,.055)"></i><i style="background:#4b1626"></i><i style="background:#861a34"></i><i style="background:#cf1f45"></i><i style="background:#ff5d7e"></i><span>over 4h</span></p>`;
+  return mod(
+    "w5 first",
+    "Play time by day",
+    `<div class="heat" id="heat"><div class="heat-months">${months}</div><div class="heat-cells">${names}${cells}</div></div>${key}<p class="readout" id="heat-out"></p>`
+  );
+}
+
+function wireHeat(body, ov) {
+  const heat = body.querySelector("#heat");
+  if (!heat) return;
+  const days = heatDays(ov);
+  const out = body.querySelector("#heat-out");
+  const say = (d) => {
+    out.innerHTML = d.p
+      ? `<b>${day(d.t)}</b> · ${playTime(d.p)} in ${plural(d.n, "session", "sessions")}`
+      : `<b>${day(d.t)}</b> · not played`;
+  };
+  const pick = (e) => {
+    const c = e.target.closest("i[data-i]");
+    if (!c || c.classList.contains("off")) return;
+    heat.querySelectorAll("i.on").forEach((n) => n.classList.remove("on"));
+    c.classList.add("on");
+    say(days[+c.dataset.i]);
+  };
+  heat.addEventListener("pointerover", pick);
+  heat.addEventListener("click", pick);
+  const played = days.filter((d) => d.p);
+  if (played.length) say(played[played.length - 1]);
+}
+
+function zonesMod(ov) {
+  const zones = [...ov.zones].filter((z) => z.p > 0).sort((a, b) => b.p - a.p);
+  if (!zones.length) return mod("w7 last", "Time by zone", empty("No zones recorded"));
+  const rows = zones.slice(0, 6).map((z) => ({ who: z.name, v: z.p, val: `${longDur(z.p)} · ${plural(z.k || 0, "kill", "kills")}` }));
+  const more = zones.length > 6 ? `<p class="total">Top 6 of ${num(zones.length)} zones.</p>` : "";
+  return mod("w7 last", "Time by zone", rank(rows) + more);
+}
+
+// Play history ----------------------------------------------------------------------
+
+const th = (label, cls = "") => `<th${cls ? ` class="${cls}"` : ""}>${label}</th>`;
 
 function levelSpan(lo, hi) {
   if (!lo && !hi) return "";
   return lo === hi || !lo ? String(hi) : `${lo} → ${hi}`;
 }
 
-function historyTable(ov) {
+function historyRows(ov) {
   if (histMode === "levels") {
     const rows = Object.entries(ov.levels)
       .map(([lv, l]) => [Number(lv), l])
       .sort((a, b) => b[0] - a[0]);
-    if (!rows.length) return empty("No levels recorded");
-    const body = rows
-      .map(
-        ([lv, l]) => `<tr><td>${lv}</td><td>${l.at ? dateStr(l.at * 1000) : "Before recording"}</td>
-          <td class="num">${dur(l.p || 0)}</td><td class="num">${num(levelXp(l))}</td><td class="num">${num(l.k || 0)}</td>
-          <td class="num">${num(l.q || 0)}</td><td class="num">${num(l.dd || 0)}</td><td>${esc(l.zone || "")}</td></tr>`
-      )
-      .join("");
-    return `<table><tr>${th("Level")}${th("Reached")}${th("Played", "num")}${th("XP", "num")}${th("Kills", "num")}${th("Quests", "num")}${th("Deaths", "num")}${th("Main zone")}</tr>${body}</table>`;
+    return {
+      head: [th("Level"), th("Reached"), th("Played", "num"), th("XP", "num"), th("Kills", "num"), th("Quests", "num"), th("Deaths", "num"), th("Main zone")],
+      rows: rows.map(
+        ([lv, l]) => `<td>Level ${lv}</td><td>${l.at ? dateStr(l.at * 1000) : "Before recording"}</td>
+          <td class="num">${playTime(l.p || 0)}</td><td class="num">${num(levelXp(l))}</td><td class="num">${num(l.k || 0)}</td>
+          <td class="num">${num(l.q || 0)}</td><td class="num">${num(l.dd || 0)}</td><td>${esc(l.zone || "")}</td>`
+      ),
+      name: "levels",
+    };
   }
-
-  const head = `<tr>${th("When")}${th("Played", "num")}${th("Levels")}${th("Quests", "num")}${th("Gold", "num")}${th("Zones", "num")}</tr>`;
-  if (!ov.sessions.length) return empty("No sessions recorded");
+  const head = [th(histMode === "days" ? "Day" : "When"), th("Played"), th("Levels"), th("Quests", "num"), th("Gold", "num"), th("Zones", "num")];
   let rows;
   if (histMode === "days") {
     const days = new Map();
     for (const s of ov.sessions) {
       const key = dateStr(s.t * 1000);
-      const d = days.get(key) || { p: 0, lo: 0, hi: 0, q: 0, gold: 0, zones: new Set() };
+      const d = days.get(key) || { t: s.t * 1000, p: 0, lo: 0, hi: 0, q: 0, gold: 0, zones: new Set() };
       d.p += s.p || 0;
       d.lo = d.lo ? Math.min(d.lo, s.l0 || d.lo) : s.l0 || 0;
       d.hi = Math.max(d.hi, s.l1 || 0);
@@ -268,65 +467,79 @@ function historyTable(ov) {
       Object.keys(s.zn || {}).forEach((z) => d.zones.add(z));
       days.set(key, d);
     }
-    rows = [...days.entries()].map(([key, d]) => [key, d.p, levelSpan(d.lo, d.hi), d.q, d.gold, d.zones.size]);
+    rows = [...days.values()].map((d) => [day(d.t), d.p, levelSpan(d.lo, d.hi), d.q, d.gold, d.zones.size]);
   } else {
-    rows = ov.sessions.map((s) => [
-      `${dateStr(s.t * 1000)} ${new Date(s.t * 1000).toTimeString().slice(0, 5)}`,
-      s.p || 0,
-      levelSpan(s.l0 || 0, s.l1 || 0),
-      s.q || 0,
-      net(s),
-      s.z || 0,
-    ]);
+    rows = ov.sessions.map((s) => [`${day(s.t * 1000)} ${hm(s.t * 1000)}`, s.p || 0, levelSpan(s.l0 || 0, s.l1 || 0), s.q || 0, net(s), s.z || 0]);
   }
-  const shown = rows.slice(0, HISTORY_ROWS);
-  const body = shown
-    .map(
+  return {
+    head,
+    rows: rows.map(
       ([when, p, lv, q, gold, z]) =>
-        `<tr><td>${esc(when)}</td><td class="num">${dur(p)}</td><td>${esc(lv)}</td><td class="num">${num(q)}</td>
-        <td class="num">${signed(gold)}</td><td class="num">${num(z)}</td></tr>`
-    )
-    .join("");
-  const more = rows.length > shown.length ? `<div class="ov-note">Newest ${shown.length} of ${num(rows.length)}</div>` : "";
-  return `<table>${head}${body}</table>${more}`;
+        `<td>${esc(when)}</td><td>${playTime(p)}</td><td>${esc(lv)}</td><td class="num">${num(q)}</td><td class="num">${signed(gold)}</td><td class="num">${num(z)}</td>`
+    ),
+    name: histMode,
+  };
 }
 
-function historyCard(ov) {
-  const head = seg([["sessions", "Sessions"], ["days", "Days"], ["levels", "Levels"]], histMode, "hist");
-  return panel("Play history", head + historyTable(ov));
+function historyMod(ov) {
+  const head = segButtons([["sessions", "Sessions"], ["days", "Days"], ["levels", "Levels"]], histMode, "hist");
+  if (!ov.sessions.length && histMode !== "levels") return mod("w12 first last", "Play history", empty("No sessions recorded"), head);
+  const { head: cols, rows, name } = historyRows(ov);
+  if (!rows.length) return mod("w12 first last", "Play history", empty("No levels recorded"), head);
+  const cap = histAll ? HISTORY_MAX : HISTORY_ROWS;
+  const body = rows.slice(0, cap).map((r) => `<tr>${r}</tr>`).join("");
+  let more = "";
+  if (rows.length > HISTORY_ROWS) {
+    more = `<button class="linkbtn" id="hist-more" type="button">${histAll ? `Show the latest ${HISTORY_ROWS}` : `Show ${rows.length > HISTORY_MAX ? `the newest ${HISTORY_MAX} of ${num(rows.length)}` : `all ${num(rows.length)}`} ${name}`}</button>`;
+  }
+  return mod("w12 first last", "Play history", `<div class="history"><table><thead><tr>${cols.join("")}</tr></thead><tbody>${body}</tbody></table></div>${more}`, head);
 }
+
+// Page --------------------------------------------------------------------------------
 
 function draw(body) {
+  const top = body.scrollTop;
   body.innerHTML = "";
   if (!current) {
-    body.appendChild(panel("Overview", empty("No characters recorded yet")));
+    body.innerHTML = `<section class="panel"><h3>Overview</h3>${empty("No characters recorded yet")}</section>`;
     return;
   }
   const { name, ov } = current;
-  body.insertAdjacentHTML("beforeend", hero(ov, name));
-  const cols = el("div", "ov-cols");
-  const left = el("div", "ov-stack");
-  const right = el("div", "ov-stack");
-  for (const card of [goldCard(ov), runsCard(ov), matesCard(ov), deathsCard(ov)]) left.appendChild(card);
-  for (const card of [weekCard(ov), levelsChart(ov), historyCard(ov)]) right.appendChild(card);
-  cols.append(left, right);
-  body.appendChild(cols);
+  body.insertAdjacentHTML(
+    "beforeend",
+    `${header(ov, name)}${week(ov)}
+    <div class="sheet">${levelsChart(ov)}${goldMod(ov)}${runsMod(ov)}${matesMod(ov)}${deathsMod(ov)}${heatMod(ov)}${zonesMod(ov)}${historyMod(ov)}</div>`
+  );
+  wireLevels(body, ov);
+  wireGold(body, ov);
+  wireHeat(body, ov);
 
   body.querySelectorAll("[data-xp]").forEach((n) => {
     n.onclick = () => {
       xpMode = n.dataset.xp;
+      xpPinned = null;
       draw(body);
     };
   });
   body.querySelectorAll("[data-hist]").forEach((n) => {
     n.onclick = () => {
       histMode = n.dataset.hist;
+      histAll = false;
       draw(body);
     };
   });
+  const more = body.querySelector("#hist-more");
+  if (more) {
+    more.onclick = () => {
+      histAll = !histAll;
+      draw(body);
+    };
+  }
+  body.scrollTop = top;
 }
 
 export async function render(body) {
   current = await invoke("overview", { ch: state.ch });
+  xpPinned = null;
   draw(body);
 }

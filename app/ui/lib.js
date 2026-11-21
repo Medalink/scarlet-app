@@ -47,6 +47,21 @@ export function money(c) {
   return `${sign}${p}c`;
 }
 
+// Coins coloured like the game's: "68g 24s". `signed` adds + or −.
+export function moneyHtml(c, signed = false) {
+  c = Math.round(c);
+  const v = Math.abs(c);
+  const g = Math.floor(v / 10000),
+    s = Math.floor((v % 10000) / 100),
+    p = v % 100;
+  const parts = [];
+  if (g) parts.push(`${num(g)}<i class="g">g</i>`);
+  if (g || s) parts.push(`${g ? String(s).padStart(2, "0") : s}<i class="s">s</i>`);
+  if (!g) parts.push(`${s ? String(p).padStart(2, "0") : p}<i class="c">c</i>`);
+  const sign = signed ? (c < 0 ? "−" : "+") : c < 0 ? "−" : "";
+  return `<span class="money">${sign}${parts.join("")}</span>`;
+}
+
 export function dur(secs) {
   secs = Math.max(0, Math.floor(secs));
   const h = Math.floor(secs / 3600),
@@ -84,6 +99,9 @@ export const PALETTE = [
   "#b84a5e",
 ];
 
+// Chart series: kills, dungeon kills, quests, exploring, other.
+export const SERIES = ["#ff2d55", "#9a7df2", "#b98b2d", "#2f9ec4", "#5d5d68"];
+
 export function esc(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 }
@@ -112,11 +130,11 @@ export function lineChart(series, color = "#ff2d55", h = 150) {
   const id = "g" + Math.random().toString(36).slice(2, 8);
   return `<svg viewBox="0 0 ${width} ${h}" preserveAspectRatio="none" class="chart">
     <defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="${color}" stop-opacity="0.35"/>
+      <stop offset="0" stop-color="${color}" stop-opacity="0.22"/>
       <stop offset="1" stop-color="${color}" stop-opacity="0"/>
     </linearGradient></defs>
     <path d="${area}" fill="url(#${id})"/>
-    <path d="${d}" fill="none" stroke="${color}" stroke-width="1.5"/>
+    <path d="${d}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
   </svg>
   <div class="chart-scale"><span>${num(lo)}</span><span>${flat ? "unchanged" : num(hi)}</span></div>`;
 }
@@ -140,9 +158,9 @@ export function barList(rows, color = "#ff2d55", fmt = num) {
 export function stackedBar(splits) {
   const total = splits.reduce((a, [, s]) => a + s, 0) || 1;
   return `<div class="stack">${splits
-    .map(([label, s], i) => `<div style="flex:${s};background:${PALETTE[i % PALETTE.length]}" title="${label} ${dur(s)}"></div>`)
+    .map(([label, s], i) => `<div style="flex:${s};background:${SERIES[i % SERIES.length]}" title="${label} ${dur(s)}"></div>`)
     .join("")}</div>
   <div class="legend">${splits
-    .map(([label, s], i) => `<span><i style="background:${PALETTE[i % PALETTE.length]}"></i>${label} ${dur(s)}</span>`)
+    .map(([label, s], i) => `<span><i style="background:${SERIES[i % SERIES.length]}"></i>${label} ${dur(s)}</span>`)
     .join("")}</div>`;
 }

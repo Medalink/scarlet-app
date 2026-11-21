@@ -16,30 +16,30 @@ export async function render(body) {
   const c = await invoke("charts", { ch: state.ch });
 
   body.appendChild(panel("Experience over time", lineChart(c.xp, "#ff2d55")));
-  body.appendChild(panel("Money over time (cumulative)", lineChart(c.money, "#ff6b8e")));
+  body.appendChild(panel("Money over time (cumulative)", lineChart(c.money, "#d9b25f")));
 
   const grid = el("div", "two-col");
   grid.appendChild(panel("Top spells cast", barList(c.spells, "#ff2d55")));
-  grid.appendChild(panel("Top buffs by uptime", barList(c.buffs, "#ff6b8e", dur)));
-  grid.appendChild(panel("Zones by time", barList(c.zones, "#c0102e", dur)));
-  grid.appendChild(panel("People grouped with", barList(c.people, "#ff6b8e", dur)));
+  grid.appendChild(panel("Top buffs by uptime", barList(c.buffs, "#cdced4", dur)));
+  grid.appendChild(panel("Zones by time", barList(c.zones, "#ff2d55", dur)));
+  grid.appendChild(panel("People grouped with", barList(c.people, "#cdced4", dur)));
   body.appendChild(grid);
 
   const fight = el("div", "two-col");
   fight.appendChild(panel("Damage by spell", barList(c.damage_spells, "#ff2d55")));
-  fight.appendChild(panel("Healing by spell", barList(c.healing_spells, "#ff6b8e")));
-  fight.appendChild(panel("Killed most", barList(c.kills, "#c0102e")));
-  fight.appendChild(panel("What killed you", barList(c.killers, "#8a8a93")));
+  fight.appendChild(panel("Healing by spell", barList(c.healing_spells, "#cdced4")));
+  fight.appendChild(panel("Killed most", barList(c.kills, "#ff2d55")));
+  fight.appendChild(panel("What killed you", barList(c.killers, "#cdced4")));
   body.appendChild(fight);
 
   const life = el("div", "two-col");
   life.appendChild(panel("Time casting, by spell", barList(c.cast_time, "#ff2d55", dur)));
-  life.appendChild(panel("Emotes used", barList(c.emotes, "#ff6b8e")));
+  life.appendChild(panel("Emotes used", barList(c.emotes, "#cdced4")));
   body.appendChild(life);
 
   const two = el("div", "two-col");
   two.appendChild(panel("Items in", barList(c.items_in, "#ff2d55")));
-  two.appendChild(panel("Items out", barList(c.items_out, "#8a8a93")));
+  two.appendChild(panel("Items out", barList(c.items_out, "#cdced4")));
   body.appendChild(two);
 
   const tr = await invoke("trends", { ch: state.ch });
@@ -65,5 +65,5 @@ export async function render(body) {
   };
 
   picker("Character stats over time", tr.stats, (s) => s.key, "#ff2d55");
-  picker("Statistics over time", tr.statistics, (s) => s.name, "#ff6b8e");
+  picker("Statistics over time", tr.statistics, (s) => s.name, "#ff2d55");
 }
