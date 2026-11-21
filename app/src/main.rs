@@ -102,6 +102,10 @@ fn main() {
                 tauri::WebviewUrl::App("index.html".into()),
             )
             .title("Scarlet")
+            // The header in ui/ is the title bar: it drags, and holds the window buttons.
+            // The shadow keeps the edge visible; the frame stays resizable.
+            .decorations(false)
+            .shadow(true)
             .inner_size(1280.0, 840.0)
             .min_inner_size(960.0, 620.0);
             if let Some(dir) = settings::webview_data() {

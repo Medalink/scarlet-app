@@ -95,6 +95,30 @@ header {
 
 .head-stats { color: var(--muted); font-size: 13px; }
 
+header { padding-right: 0; }
+header select { margin-right: 14px; }
+
+.winctl { display: flex; align-self: stretch; flex: none; }
+
+.winctl button {
+  width: 46px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  display: grid;
+  place-items: center;
+  cursor: default;
+}
+
+.winctl svg { width: 10px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1; }
+.winctl .i-restore, .maximized .winctl .i-max { display: none; }
+.maximized .winctl .i-restore { display: block; }
+.winctl button:hover { background: var(--card); color: var(--fg); }
+.winctl button:active { background: var(--panel); }
+.winctl #win-close:hover { background: #e81123; color: #fff; }
+.winctl #win-close:active { background: #c50f1f; color: #fff; }
+.winctl button:focus-visible { outline-offset: -2px; }
+
 select, input {
   background: var(--panel);
   color: var(--fg);
