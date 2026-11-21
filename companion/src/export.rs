@@ -318,8 +318,9 @@ pub fn export_new_all(wows: &[PathBuf], out: &Path) -> Result<bool, Box<dyn Erro
             files.len()
         );
     }
+    let accounts = save_accounts(wows, out);
     for wow in wows {
-        write_digest(wow, out);
+        write_digest(wow, out, &accounts);
     }
     Ok(wrote)
 }
@@ -477,11 +478,44 @@ fn overview_is_stale(dir: &Path, overview: &Path) -> bool {
         .any(|t| t > built)
 }
 
+fn save_accounts(wows: &[PathBuf], out: &Path) -> BTreeMap<String, Vec<String>> {
+    let path = out.join("accounts.json");
+    let mut known: BTreeMap<String, Vec<String>> = fs::read_to_string(&path)
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default();
+    let before = known.clone();
+    let mut fresh: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for account in wows.iter().flat_map(|w| accounts(w)) {
+        let names = fresh.entry(account.name).or_default();
+        for c in account.characters {
+            if !names.contains(&c) {
+                names.push(c);
+            }
+        }
+    }
+    known.extend(fresh);
+    for names in known.values_mut() {
+        names.sort();
+    }
+    if known != before
+        && let Ok(text) = serde_json::to_string_pretty(&known)
+        && let Err(e) = fs::write(
+            &path,
+            text + "
+",
+        )
+    {
+        eprintln!("scarlet: {}: {e}", path.display());
+    }
+    known
+}
+
 /// Write Digest.lua into the addon folder from every character's
 /// overview.json (built here for a character that has none yet, or whose
 /// payloads are newer than it). A failure is a note, not an error: the next
 /// export tries again.
-fn write_digest(wow: &Path, out: &Path) {
+fn write_digest(wow: &Path, out: &Path, accounts: &BTreeMap<String, Vec<String>>) {
     let addon = crate::gamedir::game_dir(wow)
         .join("Interface")
         .join("AddOns")
@@ -529,12 +563,17 @@ fn write_digest(wow: &Path, out: &Path) {
         println!("digest: no characters with sessions; Digest.lua not written");
         return;
     }
-    // Another character of this player (the second client of a dual box) is not someone they
-    // played with, so the list of groupmates leaves it out.
-    let own: Vec<String> = chars.iter().map(|(n, _)| n.clone()).collect();
-    for (_, ov) in &mut chars {
-        ov.mates.retain(|m| !own.contains(&m.name));
-    }
+    let accounts: BTreeMap<String, Vec<String>> = accounts
+        .iter()
+        .filter_map(|(folder, names)| {
+            let kept: Vec<String> = names
+                .iter()
+                .filter(|n| chars.iter().any(|(c, _)| c == *n))
+                .cloned()
+                .collect();
+            (!kept.is_empty()).then(|| (folder.clone(), kept))
+        })
+        .collect();
     let made = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as i64);
@@ -547,7 +586,7 @@ fn write_digest(wow: &Path, out: &Path) {
             .collect();
         println!("eta: {name} {} | {}", targets.join(" | "), eta.basis);
     }
-    let text = overview::digest_lua(&chars, made);
+    let text = overview::digest_lua_with(&chars, made, &accounts);
     let tmp = addon.join("Digest.lua.tmp");
     let dest = addon.join("Digest.lua");
     if let Err(e) = fs::write(&tmp, &text) {

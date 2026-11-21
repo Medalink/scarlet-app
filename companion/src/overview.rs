@@ -1622,7 +1622,125 @@ fn lua_write(v: &Value, depth: usize, out: &mut String) {
     }
 }
 
-fn render_digest(chars: &[(String, Overview)], made: i64, sessions: Option<usize>) -> String {
+/// One of your other characters, from one character's side: seconds grouped, seconds online at
+/// the same time, sessions grouped and the last time either happened.
+#[derive(Serialize, Deserialize, Default, Clone, Debug)]
+#[serde(default)]
+pub struct AltRow {
+    pub name: String,
+    pub p: i64,
+    pub o: i64,
+    pub n: i64,
+    pub last: i64,
+}
+
+/// One local day of a character's play: the day's midnight, played seconds, quests, copper
+/// earned and spent, and dungeon and raid runs started.
+#[derive(Serialize, Default, Clone, Debug)]
+pub struct DayRow {
+    pub d: i64,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub p: i64,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub q: i64,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub g: i64,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub s: i64,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub r: i64,
+}
+
+const ALT_OVERLAP_MIN_SECS: i64 = 60;
+
+fn local_midnight(t: i64) -> i64 {
+    use chrono::{Local, TimeZone};
+    Local
+        .timestamp_opt(t, 0)
+        .single()
+        .and_then(|d| d.date_naive().and_hms_opt(0, 0, 0))
+        .and_then(|n| Local.from_local_datetime(&n).earliest())
+        .map_or(t - t.rem_euclid(86_400), |d| d.timestamp())
+}
+
+/// The last 14 local days of a character's sessions, newest first, each session on the day it
+/// started. Days without play are left out.
+pub fn recent_days(sessions: &[SessionRow], now: i64) -> Vec<DayRow> {
+    let since = local_midnight(now - (DIGEST_DAYS - 1) * 86_400);
+    let mut days: BTreeMap<i64, DayRow> = BTreeMap::new();
+    for s in sessions
+        .iter()
+        .filter(|s| s.t >= since && s.t <= now + 86_400)
+    {
+        let d = local_midnight(s.t);
+        let row = days.entry(d).or_insert_with(|| DayRow {
+            d,
+            ..DayRow::default()
+        });
+        row.p += s.p;
+        row.q += s.q;
+        row.g += s.g;
+        row.s += s.s;
+        row.r += s.r;
+    }
+    days.into_values().rev().collect()
+}
+
+fn online_together(a: &[SessionRow], b: &[SessionRow]) -> (i64, i64) {
+    let spans = |rows: &[SessionRow]| {
+        let mut v: Vec<(i64, i64)> = rows
+            .iter()
+            .filter(|s| s.p > 0)
+            .map(|s| (s.t, s.t + s.p))
+            .collect();
+        v.sort_unstable();
+        v
+    };
+    let (a, b) = (spans(a), spans(b));
+    let (mut i, mut j, mut secs, mut last) = (0, 0, 0, 0);
+    while i < a.len() && j < b.len() {
+        let (lo, hi) = (a[i].0.max(b[j].0), a[i].1.min(b[j].1));
+        if hi - lo >= ALT_OVERLAP_MIN_SECS {
+            secs += hi - lo;
+            last = last.max(hi);
+        }
+        if a[i].1 <= b[j].1 {
+            i += 1;
+        } else {
+            j += 1;
+        }
+    }
+    (secs, last)
+}
+
+/// A character's other characters of the same player: grouped time from its groupmate lines,
+/// online-together time from the sessions, most together first.
+pub fn alts_of(me: &str, ov: &Overview, all: &[(String, Overview)]) -> Vec<AltRow> {
+    let mut rows: Vec<AltRow> = Vec::new();
+    for (name, other) in all.iter().filter(|(n, _)| n != me) {
+        let grouped = ov.mates.iter().find(|m| m.name == *name);
+        let (o, ended) = online_together(&ov.sessions, &other.sessions);
+        let row = AltRow {
+            name: name.clone(),
+            p: grouped.map_or(0, |m| m.p),
+            o,
+            n: grouped.map_or(0, |m| m.n),
+            last: grouped.map_or(0, |m| m.last).max(ended),
+        };
+        if row.p > 0 || row.o > 0 || row.n > 0 {
+            rows.push(row);
+        }
+    }
+    rows.sort_by(|a, b| b.o.cmp(&a.o).then(b.p.cmp(&a.p)).then(a.name.cmp(&b.name)));
+    rows
+}
+
+fn render_digest(
+    chars: &[(String, Overview)],
+    made: i64,
+    sessions: Option<usize>,
+    accounts: &BTreeMap<String, Vec<String>>,
+) -> String {
     let mut root = serde_json::Map::new();
     for (name, ov) in chars {
         let mut view = ov.clone();
@@ -1641,6 +1759,10 @@ fn render_digest(chars: &[(String, Overview)], made: i64, sessions: Option<usize
         // and are never trimmed.
         let recent = recent_rows(&ov.sessions, made);
         let first = ov.first_session();
+        let alts = alts_of(name, ov, chars);
+        let days = recent_days(&ov.sessions, made);
+        view.mates
+            .retain(|m| !chars.iter().any(|(n, _)| *n == m.name));
         view.sessions.truncate(keep);
         if let Ok(mut v) = serde_json::to_value(&view) {
             if let Some(m) = v.as_object_mut() {
@@ -1648,11 +1770,29 @@ fn render_digest(chars: &[(String, Overview)], made: i64, sessions: Option<usize
                 if let Ok(r) = serde_json::to_value(&recent) {
                     m.insert("recent".into(), r);
                 }
+                if !alts.is_empty()
+                    && let Ok(a) = serde_json::to_value(&alts)
+                {
+                    m.insert("alts".into(), a);
+                }
+                if !days.is_empty()
+                    && let Ok(d) = serde_json::to_value(&days)
+                {
+                    m.insert("days".into(), d);
+                }
             }
             root.insert(name.clone(), v);
         }
     }
-    let mut out = format!("ScarletDigest = {{\n  v = 1, made = {made},\n  chars = ");
+    let mut out = format!("ScarletDigest = {{\n  v = 1, made = {made},\n");
+    if !accounts.is_empty()
+        && let Ok(a) = serde_json::to_value(accounts)
+    {
+        out.push_str("  accounts = ");
+        lua_write(&a, 1, &mut out);
+        out.push_str(",\n");
+    }
+    out.push_str("  chars = ");
     lua_write(&Value::Object(root), 1, &mut out);
     out.push_str(",\n}\n");
     out
@@ -1663,7 +1803,17 @@ fn render_digest(chars: &[(String, Overview)], made: i64, sessions: Option<usize
 /// and `first` for the level estimates, which are never trimmed). Under
 /// 200 KB: when it would not be, each character keeps fewer sessions.
 pub fn digest_lua(chars: &[(String, Overview)], made: i64) -> String {
-    let mut text = render_digest(chars, made, None);
+    digest_lua_with(chars, made, &BTreeMap::new())
+}
+
+/// `digest_lua`, plus each character's `alts` and `days` and the top-level `accounts` (game
+/// account folder to its characters). A character of yours is no groupmate: it leaves `mates`.
+pub fn digest_lua_with(
+    chars: &[(String, Overview)],
+    made: i64,
+    accounts: &BTreeMap<String, Vec<String>>,
+) -> String {
+    let mut text = render_digest(chars, made, None, accounts);
     let mut keep = chars
         .iter()
         .map(|(_, o)| o.sessions.len())
@@ -1677,7 +1827,7 @@ pub fn digest_lua(chars: &[(String, Overview)], made: i64) -> String {
         } else {
             keep * 2 / 3
         };
-        text = render_digest(chars, made, Some(keep));
+        text = render_digest(chars, made, Some(keep), accounts);
     }
     if trimmed && keep < DIGEST_SESSIONS {
         eprintln!(
