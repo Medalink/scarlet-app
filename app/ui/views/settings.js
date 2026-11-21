@@ -51,6 +51,45 @@ export async function render(body) {
   };
   body.append(sw, swSt);
 
+  // Map art: Scarlet's own dark sheets, or the real map art read from the player's OpenMap addon.
+  const artField = el("div", "field");
+  artField.style.marginTop = "24px";
+  artField.innerHTML = `<label>Map art</label>`;
+  const artSeg = el("div", "seg");
+  artSeg.setAttribute("role", "group");
+  artSeg.setAttribute("aria-label", "Map art");
+  const artNote = el("div", "status");
+  const showArt = async (art) => {
+    artSeg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.art === art)));
+    artNote.className = "status";
+    artNote.textContent = "";
+    const st = await invoke("map_art_status");
+    if (art === "openmap" && !st.installed) {
+      artNote.append("OpenMap is not installed. Get it at ");
+      const a = el("button", "linkbtn", "github.com/openmap-world/openmap");
+      a.type = "button";
+      a.onclick = () => invoke("open_openmap_page").catch(() => {});
+      artNote.appendChild(a);
+    }
+  };
+  for (const [art, label] of [["dark", "Scarlet dark"], ["openmap", "OpenMap"]]) {
+    const b = el("button", "", label);
+    b.type = "button";
+    b.dataset.art = art;
+    b.onclick = async () => {
+      try {
+        await showArt(await invoke("set_map_art", { art }));
+      } catch (e) {
+        artNote.className = "status err";
+        artNote.textContent = String(e);
+      }
+    };
+    artSeg.appendChild(b);
+  }
+  artField.appendChild(artSeg);
+  body.append(artField, artNote);
+  showArt(s.map_art || "dark");
+
   form.querySelector("#save").onclick = async () => {
     const st = form.querySelector("#st");
     st.className = "status";

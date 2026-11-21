@@ -29,6 +29,26 @@ cargo build --release
 target\release\scarlet-app.exe
 ```
 
+## Map art
+
+Settings has a Map art choice. Scarlet dark, the default, shows the Survey look only. OpenMap adds the
+Game map look, read from the player's own copy of the OpenMap addon
+(https://github.com/openmap-world/openmap) in `<WoW folder>\_forever_\Interface\AddOns\OpenMap`.
+Nothing of OpenMap's is copied into this repository or written back to its folder.
+
+OpenMap bakes every zone's art into 512 px world tiles (`Data\Forever\ZoneArt.lua` lists them,
+`Media\Textures\Forever\MapZones\<i>_<j>.blp` holds them). The app decodes the BLP files (DXT) and cuts
+one WebP per map into `<data folder>\openmap\<OpenMap version>-<cut version>`, the first time a map
+is opened. Where each map lies on the world comes from the client's own map tables, kept in
+`app/src/openmap_maps.json` and made by:
+
+```
+node tools/openmap-maps.mjs <tables dir>
+```
+
+Cities have no art in the tiles, so they have no Game map look. `scarlet-app.exe --openmap-cut <folder>`
+cuts every map into a folder with no window and writes `cut.log` there.
+
 ## Map place names
 
 The Map view's Survey look letters each map from `<maps folder>/<uiMapID>.labels.json`, next to the

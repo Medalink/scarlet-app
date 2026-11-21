@@ -1,21 +1,24 @@
-// Map: P points per uiMapID as glowing polylines over the map's art (when a `maps` folder
-// holds it), shown as the game draws it or redrawn as a dark survey sheet, with zoom and pan.
-// The game look colours the paths by session and draws a teleport as a dashed jump. The survey
-// look draws the paths in one colour with place names and the layers the buttons switch.
+// Map: P points per uiMapID as glowing polylines over the map's art, with zoom and pan. The survey
+// look is a dark sheet: the shipped one when the app has it, else drawn from the art at hand (the `maps`
+// folder, or the player's OpenMap). Settings' Map art choice OpenMap adds the game look, the art as
+// OpenMap draws it, when its addon is installed. The game look colours the paths by session and draws
+// a teleport as a dashed jump. The survey look draws the paths in one colour with place names and the
+// layers the buttons switch.
 
 import { invoke, el, num, esc, PALETTE, state } from "../lib.js";
-import { styleMap, mergeLabels, drawLabels, drawLayers, drawMark, LAYERS } from "./mapstyle.js";
+import { P, styleMap, mergeLabels, drawLabels, drawLayers, drawMark, LAYERS } from "./mapstyle.js";
 
-// Art by "<look>:<map id>", oldest first. One map is about 11 MB of GPU bitmap, so few are kept.
+const OPENMAP_URL = "github.com/openmap-world/openmap";
+const CREDIT = "Map art © Blizzard Entertainment, read from your OpenMap install";
+// Art from OpenMap is drawn without the strokes copied from it, like the shipped sheets.
+const OPENMAP_STYLE = { ...P, ink: "off" };
+
+// Art by "<source>:<look>:<map id>", oldest first. One map is about 11 MB of GPU bitmap, so few are kept.
 const styled = new Map();
 const KEEP = 6;
 
-// Which art the map shows: `game` the zone art as the game draws it, `survey` the dark sheet.
+// Which art the map shows: `game` the zone art as OpenMap draws it, `survey` the dark sheet.
 const LOOK_KEY = "scarlet.mapLook";
-let look = "game";
-try {
-  if (localStorage.getItem(LOOK_KEY) === "survey") look = "survey";
-} catch {}
 
 // Which layers the survey look draws, by LAYERS key.
 const LAYERS_KEY = "scarlet.mapLayers";
@@ -41,6 +44,12 @@ function darken(c, px, img) {
 export async function render(body) {
   body.innerHTML = "";
   const maps = state.store?.maps ?? [];
+  let status = { art: "dark", installed: false };
+  try { status = await invoke("map_art_status"); } catch {}
+  const openmap = status.art === "openmap" && status.installed;
+  // Survey unless OpenMap is the art and installed, and then what the player last picked.
+  let look = "survey";
+  try { if (openmap && localStorage.getItem(LOOK_KEY) === "game") look = "game"; } catch {}
 
   const wrap = el("div", "map-wrap");
   const side = el("div", "map-side");
@@ -50,7 +59,7 @@ export async function render(body) {
   const seg = el("div", "seg map-look");
   seg.setAttribute("role", "group");
   seg.setAttribute("aria-label", "Map art");
-  for (const [key, label] of [["game", "Game map"], ["survey", "Survey"]]) {
+  for (const [key, label] of openmap ? [["game", "Game map"], ["survey", "Survey"]] : []) {
     const b = el("button", "", label);
     b.type = "button";
     b.dataset.look = key;
@@ -90,7 +99,11 @@ export async function render(body) {
     };
     toggles.appendChild(b);
   }
-  stage.append(canvas, seg, toggles);
+  // One line over the art: where it comes from, or that OpenMap was chosen and is missing.
+  const note = el("div", "map-credit");
+  note.hidden = true;
+  stage.append(canvas, toggles, note);
+  if (openmap) stage.appendChild(seg);
   wrap.append(side, stage);
   body.appendChild(wrap);
 
@@ -126,11 +139,19 @@ export async function render(body) {
   // its shape and a point (x, y) sits at (x, y * asp).
   let art = null;
 
-  // Art from the `maps` folder, as the game draws it or redrawn as a survey sheet
-  // (mapstyle.js). A map without a file keeps the plain canvas; if the restyle throws, the
-  // art is darkened instead. Loaded art is kept (a few, newest last) so going back is instant.
+  // The art bytes of one source, or null when it has none for the map.
+  async function fetchArt(cmd, map) {
+    const raw = await invoke(cmd, { map });
+    return raw.byteLength ? raw : null;
+  }
+
+  // The game look is OpenMap's art as cut. The survey look is the shipped dark sheet when there
+  // is one, else a sheet drawn from the art at hand: OpenMap first when it is the chosen art, else
+  // the `maps` folder, then OpenMap. A map no source has keeps the plain canvas; if the restyle throws,
+  // the art is darkened instead. `source` names where the art came from. Loaded art is kept (a few,
+  // newest last) so going back is instant.
   async function loadArt(map, want) {
-    const key = want + ":" + map;
+    const key = `${openmap ? "o" : "d"}:${want}:${map}`;
     const hit = styled.get(key);
     if (hit) {
       styled.delete(key);
@@ -138,8 +159,22 @@ export async function render(body) {
       return hit;
     }
     try {
-      const raw = await invoke("map_image", { map });
-      if (!raw.byteLength) return null;
+      let raw, source;
+      if (want === "game") {
+        raw = await fetchArt("map_image_openmap", map);
+        source = "openmap";
+      } else {
+        raw = await fetchArt("map_image_dark", map);
+        if (raw) {
+          const bmp = await createImageBitmap(new Blob([raw]));
+          return keep(key, { img: bmp, asp: bmp.height / bmp.width, source: "dark" });
+        }
+        for (const s of openmap ? ["openmap", "legacy"] : ["legacy", "openmap"]) {
+          raw = await fetchArt(s === "openmap" ? "map_image_openmap" : "map_image", map);
+          if (raw) { source = s; break; }
+        }
+      }
+      if (!raw) return null;
       const bmp = await createImageBitmap(new Blob([raw]));
       const img = document.createElement("canvas");
       img.width = bmp.width;
@@ -148,18 +183,18 @@ export async function render(body) {
       c.drawImage(bmp, 0, 0);
       const asp = bmp.height / bmp.width;
       bmp.close();
-      if (want === "game") return keep(key, { img: await createImageBitmap(img), asp });
+      if (want === "game") return keep(key, { img: await createImageBitmap(img), asp, source });
       const px = c.getImageData(0, 0, img.width, img.height);
       let out;
       try {
         const t0 = performance.now();
-        out = styleMap(px.data, img.width, img.height);
-        console.debug(`map ${map} styled in ${Math.round(performance.now() - t0)} ms`);
+        out = styleMap(px.data, img.width, img.height, source === "openmap" ? OPENMAP_STYLE : P);
+        console.debug(`map ${map} styled from ${source} in ${Math.round(performance.now() - t0)} ms`);
       } catch {
         out = darken(c, px, img);
       }
       // A bitmap stays on the GPU, so redraws while moving do not upload the pixels again.
-      return keep(key, { img: await createImageBitmap(out), asp });
+      return keep(key, { img: await createImageBitmap(out), asp, source });
     } catch {
       return null;
     }
@@ -181,7 +216,22 @@ export async function render(body) {
     const found = await loadArt(current, look);
     if (mine !== token) return;
     art = found;
+    setNote();
     draw();
+  }
+
+  // The credit while OpenMap's art shows; else, when OpenMap is the chosen art and not installed, that.
+  function setNote() {
+    note.textContent = "";
+    note.hidden = false;
+    if (art?.source === "openmap") note.textContent = CREDIT;
+    else if (status.art === "openmap" && !status.installed) {
+      note.append("OpenMap is not installed. Get it at ");
+      const a = el("button", "linkbtn", OPENMAP_URL);
+      a.type = "button";
+      a.onclick = () => invoke("open_openmap_page").catch(() => {});
+      note.appendChild(a);
+    } else note.hidden = true;
   }
 
   function resize() {
@@ -201,6 +251,7 @@ export async function render(body) {
     ]);
     if (mine !== token) return; // a newer map was picked meanwhile
     art = found;
+    setNote();
     const asp = art ? art.asp : 1;
     polys = got.map((p) => ({ ...p, pts: p.pts.map(([x, y]) => [x, y * asp]) }));
     walks = polys.filter((p) => !p.dash && p.pts.length > 1).map((p) => p.pts.map(([x, y]) => [x * 100, (y / asp) * 100]));
