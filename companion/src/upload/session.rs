@@ -191,15 +191,14 @@ impl Session {
             }
             let start = self.client.hits.len();
             let t = Instant::now();
-            let mut r = match self.sync_character(&name) {
-                Ok(r) => r,
-                Err(e) => CharReport {
-                    name: name.clone(),
-                    failed: true,
-                    note: Some(e.to_string()),
-                    ..CharReport::default()
-                },
+            let mut r = CharReport {
+                name: name.clone(),
+                ..CharReport::default()
             };
+            if let Err(e) = self.sync_character(&name, &mut r) {
+                r.failed = true;
+                r.note = Some(e.to_string());
+            }
             r.ms = t.elapsed().as_millis() as u64;
             let hits = &self.client.hits[start..];
             r.requests = hits.len();
@@ -218,21 +217,22 @@ impl Session {
         reports
     }
 
-    fn sync_character(&mut self, name: &str) -> Result<CharReport> {
-        let mut report = CharReport {
-            name: name.to_string(),
-            ..CharReport::default()
-        };
+    fn sync_character(&mut self, name: &str, report: &mut CharReport) -> Result<()> {
         for _ in 0..2 {
             let (character, built) = self.build(name)?;
             report.name = character.clone();
             report.parts = built.parts.len();
-            if built.parts.is_empty() && !self.state.characters.contains_key(&character) {
+            let held = self
+                .state
+                .characters
+                .get(&character)
+                .is_some_and(|s| !s.acked.is_empty());
+            if built.parts.is_empty() && !held {
                 report.matched = true;
                 report.note = Some("no finished session yet".into());
-                return Ok(report);
+                return Ok(());
             }
-            match self.run(&character, &built, &mut report) {
+            match self.run(&character, &built, report) {
                 Err(Error::Api { code, extra, .. }) if code == "group_refused" => {
                     let groups: Vec<String> = extra
                         .get("groups")
@@ -251,7 +251,7 @@ impl Session {
                         report.refused.push(g);
                     }
                 }
-                other => return other.map(|()| report),
+                other => return other,
             }
         }
         Err(Error::local("the server kept refusing groups"))

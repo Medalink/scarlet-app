@@ -139,7 +139,7 @@ impl Client {
         let url = format!("{}{full}", self.site);
         let bytes: &[u8] = body.map_or(&[][..], |b| b.1);
         let body_hash = hex(&Sha256::digest(bytes));
-        let (mut net_tries, mut rate_tries) = (0, 0);
+        let (mut net_tries, mut rate_tries, mut replays) = (0, 0, 0);
         loop {
             let mut headers: Vec<(&'static str, String)> = Vec::new();
             if signed {
@@ -193,6 +193,15 @@ impl Client {
                             return Err(api_error(status, &json));
                         }
                         std::thread::sleep(Duration::from_secs(1 << (net_tries - 1)));
+                    } else if status == 401
+                        && json.pointer("/error/code").and_then(Value::as_str)
+                            == Some("replayed_request")
+                        && replays < 2
+                    {
+                        // Another run signed this exact request in the same second. The server
+                        // did nothing with it; docs/API.md says to sign again with a new time.
+                        replays += 1;
+                        std::thread::sleep(Duration::from_millis(1100));
                     } else if status == 429 {
                         rate_tries += 1;
                         if rate_tries >= RATE_TRIES {
