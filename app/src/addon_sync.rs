@@ -544,12 +544,7 @@ pub struct Status {
     last_error: bool,
 }
 
-fn describe(
-    name: &str,
-    class: &Class,
-    version: Option<&str>,
-    keep: bool,
-) -> (&'static str, String) {
+fn describe(class: &Class, version: Option<&str>, keep: bool) -> (&'static str, String) {
     let v = version
         .map(|v| format!("Version {v}"))
         .unwrap_or_else(|| "Version unknown".into());
@@ -569,7 +564,7 @@ fn describe(
         ),
         Class::ByHand => (
             "by-hand",
-            format!("{v}. Installed by hand, so Scarlet leaves {name} alone."),
+            format!("{v}. Installed by hand; Scarlet leaves it alone."),
         ),
         Class::Curse => (
             "curseforge",
@@ -621,7 +616,7 @@ pub fn status(app: &AppHandle) -> Status {
         let dir = addons.join(&name);
         let class = classify(&dir);
         let version = installed_version(&dir, &class);
-        let (manager, text) = describe(&name, &class, version.as_deref(), keep);
+        let (manager, text) = describe(&class, version.as_deref(), keep);
         out.folders.push(FolderStatus {
             name,
             manager,
