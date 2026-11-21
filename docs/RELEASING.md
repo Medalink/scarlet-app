@@ -21,7 +21,8 @@ pwsh scripts/release.ps1 -Lane beta
 
 1. Download `Scarlet_<version>_x64-setup.exe` from the release page and run it. It installs for your user only and
    needs no administrator rights.
-2. Unzip `Scarlet-<version>.zip` into `<WoW folder>\_forever_\Interface\AddOns`. The zip holds one `Scarlet`
+2. The installed app puts the addon in place itself (see "Updates inside the app"). To do it by hand, unzip
+   `Scarlet-<version>.zip` into `<WoW folder>\_forever_\Interface\AddOns`. The zip holds one `Scarlet`
    folder; its `.toc` carries `<version>`. `Digest.lua` is left out: the app writes it.
 3. Open Settings in the app. It lists what it could not find in plain words (the WoW folder, the addon, a first
    recording).
@@ -43,7 +44,8 @@ tag) at version `<x>` and publishes `v<x>` as the latest release. The binary is 
 Versions come from tags only. No committed file holds one:
 
 - The app version is passed to `cargo tauri build --config` as `{"version": "<version>"}` at build time. The
-  `0.1.0` in `app/tauri.conf.json` and `app/Cargo.toml` is a placeholder.
+  `0.0.0-dev` in `app/tauri.conf.json` is a placeholder: a build that keeps it shows `dev` as its version and never
+  checks for updates. (`app/Cargo.toml` keeps `0.1.0`, which nothing reads.)
 - The addon version is written into the `## Version:` line of the TOC inside the zip. The TOC in the repo is not
   changed.
 
@@ -70,6 +72,7 @@ owner's other products.
 | `Scarlet_<version>_x64-setup.exe` | The signed NSIS installer for the app (per user). MSI is not built: it rejects text prerelease ids such as `-beta.1`. |
 | `Scarlet-<version>.zip` | The addon: a `Scarlet` folder to unzip into `AddOns`, version stamped in the TOC, no `Digest.lua`. |
 | `SHA256SUMS.txt` | SHA-256 of the two files above. |
+| `latest.json` | The update manifest: the version, the notes, the installer's updater signature and address, and the addon zip with its signature. The app reads it. |
 
 The release notes list the app and addon commits (`App commit:` and `Addon commit:`; the release lane reads these
 back, so do not edit them) and the commit titles since the previous release.
@@ -84,6 +87,83 @@ Tauri downloads NSIS into `%LOCALAPPDATA%\tauri`, which on this PC is a junction
 A release is created as a draft, filled with its assets, checked, and only then published, so a failed upload
 leaves a draft and no half release.
 
+## Updates inside the app
+
+The app updates itself from the releases of `Medalink/scarlet-app` and keeps the addon current. Settings shows the
+version (`dev` for a build nobody released), a Release or Beta choice, the update on offer with its notes, recent
+releases, and the state of the addon.
+
+### Feeds
+
+Each track reads one `latest.json`:
+
+| Track | Feed |
+| --- | --- |
+| Release | `https://github.com/Medalink/scarlet-app/releases/latest/download/latest.json`, the asset of the latest release. It is a 404 until the first release exists; the app reads that as "nothing published". |
+| Beta | `https://github.com/Medalink/scarlet-app/releases/download/beta-channel/latest.json`, the asset of the fixed `beta-channel` prerelease. |
+
+`release.ps1` attaches `latest.json` to every release it publishes. After publishing it also puts the manifest in the
+`beta-channel` release (creating it the first time), unless that release already names a newer version. So the feed
+of the Beta track names the newest of the betas and the releases, and a release outranks the betas before it.
+Nobody edits `beta-channel` by hand. The app updates only to a newer version: a beta user who switches to Release
+stays on the beta until the next release and is told so in Settings.
+
+The notes in the manifest and in the app are the release body without the install and commit lines. The script stops
+when the notes hold something shaped like a character name (Name-Surname) or a name from the data folder, so a name
+in a commit title never reaches a release. `-AllowNotesText "Some-Words"` lets a harmless match through.
+
+Betas before the updater (`v0.4.0-beta.1` and `-beta.2`) cannot be promoted: their `tauri.conf.json` has no public
+key, so the script stops before building. Promote `v0.4.0-beta.3` or later.
+
+If the script fails after publishing, at the `beta-channel` step, the release itself is complete. Finish the feed by
+hand with `gh release upload beta-channel <Root>\<version>\latest.json --clobber -R Medalink/scarlet-app`
+(`gh release create beta-channel` with the same file when the release does not exist yet; see `Update-BetaFeed`).
+
+### The updater key
+
+Installers and the addon zip are signed with a minisign key made by `cargo tauri signer generate`. The public key is
+in `app/tauri.conf.json` (`plugins.updater.pubkey`); the app refuses anything the key did not sign.
+
+- The private key is `E:\Dev\secrets\scarlet-updater\scarlet-updater.key`, outside every repository, with no
+  password. `release.ps1` finds it there, or at `-UpdaterKey` / `SCARLET_UPDATER_KEY`. It never goes in a repository,
+  a log or a chat.
+- Back it up. A build signed with another key is rejected by every installed copy, so losing the key means every
+  user installs the next version by hand.
+- `release.ps1` signs after the Authenticode signature, because the updater signature covers the installer's exact
+  bytes. It checks the key against the public key in the app before the long build, and stops when they differ.
+- The first build with the updater in it cannot be reached by an update: install it by hand. After that, installs
+  update themselves.
+
+### Addon in the WoW folder
+
+When the app is a released build and the switch "Keep the addon up to date" is on, it reads the addon zip named by
+the feed (checking its signature against the same key, and that the signature is for that zip) and writes into
+`<WoW folder>\_forever_\Interface\AddOns`:
+
+- A folder that is missing or empty is installed. The app writes `.scarlet-app.json` in it, listing the files it wrote.
+- A folder with that file is updated: the zip's files are written and only files the app wrote earlier and the zip no
+  longer has are removed. `Digest.lua`, which the companion writes, is never in either list.
+- Everything else is left alone and Settings says so: a folder without that file (installed by hand), a TOC with
+  `X-Curse-Project-ID` (CurseForge) or `X-Wago-ID` (Wago), a folder holding `.git`, and a junction or symlink,
+  the folder itself or anything in it.
+- The zip `release.ps1` builds never carries `X-Curse-Project-ID` or `X-Wago-ID`, so a folder the app installed is
+  never taken for CurseForge's or Wago's. When the listings exist, their apps and this one share the folder by that rule.
+
+### What the installer does to other copies
+
+Tauri's NSIS installer closes every process named `scarlet-app.exe` of the current user before it replaces the exe,
+the background `--on-wow` watcher and a dev copy of the same name included. A running dev build is closed by an
+update of an installed one.
+
+### Trying the updater
+
+`release.ps1 -DryRun -TestConfig <json> -TestUrlBase <url>` builds a test copy with its own name and identifier (so it
+never touches a real install), signs it the real way and writes a `latest.json` that points at `<url>`. Serve the
+output folder, set `SCARLET_UPDATE_BASE` (the app reads `<base>/<release|beta>/latest.json` and `<base>/releases.json`),
+and install the copy with `/D=<folder>`. `--home <folder>` does what `SCARLET_HOME` does and survives the installer's
+restart, which keeps the environment out. The test config must also set `plugins.updater.dangerousInsecureTransportProtocol`
+for a plain-http server. Neither flag works without `-DryRun`.
+
 ## Settings on an installed app
 
 The installed app keeps `settings.json` in `%APPDATA%\app.scarlet.desktop`. On first run it looks for the WoW
@@ -91,4 +171,5 @@ folder (Battle.net's registered install location, then the usual folders on ever
 `Documents\Scarlet\out` for its data. A copy with a `settings.json` next to the exe keeps using that file and its
 old rules (data off C:). Setting `SCARLET_HOME` to a folder keeps settings, the WebView2 profile, temp and the
 default data folder inside it, and gives that copy its own single-window lock, so it runs beside the Scarlet you
-already have open.
+already have open. `track` (`release` or `beta`; unset follows the installed build) and `keep_addon` are the
+update settings.

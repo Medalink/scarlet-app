@@ -19,6 +19,12 @@ products: the sign command comes from -SignCommand (default: the file the Whispe
 authenticates through the cached `az login`. Nothing is published unless the installer and the app exe verify as
 Valid with a timestamp, both before upload and again after downloading the published installer.
 
+The app updates itself from GitHub: after the Authenticode signing, the installer and the addon zip are signed with
+the updater key (minisign, `tauri signer sign`; the key's place is in docs/RELEASING.md) and `latest.json` lists
+them. It is attached to the release, and the release lane makes it the latest release's feed. The fixed
+`beta-channel` release holds the feed for the Beta track, replaced whenever the new version is newer than the one
+in it. -DryRun builds all of it into <Root>\<version> and publishes nothing.
+
 A release is created as a draft, filled, then published, so a failed upload never leaves a half release.
 See docs/RELEASING.md.
 #>
@@ -34,7 +40,15 @@ param(
     [string]$SignCommand = $(if ($env:SCARLET_SIGN_COMMAND) { $env:SCARLET_SIGN_COMMAND } else { 'C:\Users\medal\.whisper-release-keys\rewrite\windows\sign-command.json' }),
     [string]$TargetDir = 'E:\Dev\caches\scarlet\target-release',
     [string]$ToolCache = 'E:\Dev\caches\tauri',
-    [switch]$AllowToolCacheOnC
+    [switch]$AllowToolCacheOnC,
+    [string]$UpdaterKey = $(if ($env:SCARLET_UPDATER_KEY) { $env:SCARLET_UPDATER_KEY } else { 'E:\Dev\secrets\scarlet-updater\scarlet-updater.key' }),
+    # Text the notes may hold although it looks like a character name (Name-Surname).
+    [string[]]$AllowNotesText = @(),
+    # -DryRun only, for trying the updater: another tauri config merged over the build (a test copy of the app
+    # with its own name and identifier, so it never touches a real install) and the address the manifest names
+    # the installer and the zip at (a local server).
+    [string]$TestConfig,
+    [string]$TestUrlBase
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -43,6 +57,8 @@ $FirstVersion = '0.4.0'
 $TimestampUrl = 'http://timestamp.acs.microsoft.com'
 $BetaPattern = '^v(\d+\.\d+\.\d+)-beta\.(\d+)$'
 $StablePattern = '^v(\d+\.\d+\.\d+)$'
+# The fixed release whose latest.json is the Beta track's feed. Its tag matches neither pattern above.
+$FeedTag = 'beta-channel'
 
 function Write-Step([string]$Text) { Write-Host "==> $Text" -ForegroundColor Cyan }
 
@@ -63,6 +79,13 @@ function Invoke-Tool([string]$Exe, [string[]]$Arguments) {
 function Get-Gh([string[]]$Arguments) { Invoke-Tool 'gh' $Arguments }
 
 function ConvertTo-VersionKey([string]$Text) { [version]$Text }
+
+# Orders x.y.z and x.y.z-beta.N like semver (a beta is older than its release) as a string that sorts.
+function Get-VersionOrder([string]$Text) {
+    if ($Text -notmatch '^(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+))?$') { throw "'$Text' is not x.y.z or x.y.z-beta.N" }
+    $pre = if ($Matches[4]) { '0' + ([int]$Matches[4]).ToString('D6') } else { '1000000' }
+    return '{0:D6}.{1:D6}.{2:D6}.{3}' -f [int]$Matches[1], [int]$Matches[2], [int]$Matches[3], $pre
+}
 
 # ---- tags -> versions ---------------------------------------------------------------------------------------
 
@@ -204,6 +227,106 @@ function Assert-ToolCacheOffC {
     throw "Tauri keeps its NSIS tools in $dir, which is not a junction to $ToolCache, so the build would write to C:. Run: pwsh -File E:\Dev\tools\evict-c\evict-c.ps1 apply -Only tauri (or pass -AllowToolCacheOnC on a PC where C: is fine)."
 }
 
+# ---- updater signature --------------------------------------------------------------------------------------
+
+# The key id of a minisign public key or signature given as the base64 text Tauri uses for both: the 8 bytes after
+# the 2-byte algorithm in the second line of the decoded text.
+function Get-MinisignKeyId([string]$Base64Text) {
+    $text = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($Base64Text.Trim()))
+    $line = @($text -split '\r?\n' | Where-Object { $_ })[1]
+    return [BitConverter]::ToString([Convert]::FromBase64String($line)[2..9])
+}
+
+function Read-UpdaterPubkey([string]$ConfigPath) {
+    $conf = Get-Content -Raw -LiteralPath $ConfigPath | ConvertFrom-Json
+    $key = $conf.plugins.updater.pubkey
+    if (-not $key) { throw "$ConfigPath has no plugins.updater.pubkey, so the app cannot verify an update." }
+    return $key
+}
+
+# Signs a file with the updater key and returns the signature (the text of the .sig file). Throws unless the key is
+# the one whose public half is in the app: an update signed with another key would fail on every PC.
+function New-UpdaterSignature([string]$File, [string]$Pubkey) {
+    if (-not (Test-Path -LiteralPath $UpdaterKey)) {
+        throw "The updater key $UpdaterKey does not exist. Set SCARLET_UPDATER_KEY or -UpdaterKey to it (docs/RELEASING.md)."
+    }
+    $null = Invoke-Tool 'cargo' @('tauri', 'signer', 'sign', '-f', $UpdaterKey, '-p', '', $File)
+    $sig = (Get-Content -Raw -LiteralPath "$File.sig").Trim()
+    if ((Get-MinisignKeyId $sig) -ne (Get-MinisignKeyId $Pubkey)) {
+        throw "$UpdaterKey is not the key of the public key in app/tauri.conf.json, so no installed Scarlet would accept this update."
+    }
+    return $sig
+}
+
+# The notes go into the app. A character is named Name-Surname, so nothing like that may be in them, and no name
+# the owner's data folder holds.
+function Assert-NoCharacterNames([string]$Notes, [string]$Path) {
+    $names = @()
+    foreach ($root in @($env:SCARLET_OUT, 'E:\wow\Scarlet\out') | Where-Object { $_ -and (Test-Path -LiteralPath $_) }) {
+        $names += @(Get-ChildItem -LiteralPath $root -Directory | ForEach-Object Name | Where-Object { $_ -match '^[A-Z][a-z]+-[A-Z][a-z]+$' })
+    }
+    $bad = @()
+    $lineNo = 0
+    foreach ($line in ($Notes -split '\r?\n')) {
+        $lineNo++
+        $hit = @($names | Where-Object { $line.Contains($_) }).Count -gt 0
+        foreach ($m in [regex]::Matches($line, '\b[A-Z][a-z]{2,}-[A-Z][a-z]{2,}\b')) {
+            if ($m.Value -notin $AllowNotesText) { $hit = $true }
+        }
+        if ($hit) { $bad += $lineNo }
+    }
+    if ($bad.Count) {
+        throw "The release notes ($Path) hold something that looks like a character name on line(s) $($bad -join ', '). Reword the commit title, or pass -AllowNotesText with the exact text if it is not a name."
+    }
+}
+
+# latest.json: what the app reads on its track. The installer's signature is over the file that is uploaded.
+function New-Manifest($Plan, [string]$Notes, [string]$InstallerSig, [string]$ZipSig, [string]$BaseUrl) {
+    $manifest = [ordered]@{
+        version   = $Plan.Version
+        notes     = $Notes
+        pub_date  = [datetime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
+        platforms = [ordered]@{ 'windows-x86_64' = [ordered]@{ signature = $InstallerSig; url = "$BaseUrl/$($Plan.InstallerName)" } }
+        addon     = [ordered]@{ version = $Plan.Version; url = "$BaseUrl/$($Plan.ZipName)"; signature = $ZipSig; folders = @('Scarlet') }
+    }
+    return ($manifest | ConvertTo-Json -Depth 6) + "`n"
+}
+
+# Puts the new manifest in the Beta track's feed unless the feed already names a newer version (a release outranks
+# the betas before it). The feed is a fixed prerelease; the first call creates it.
+function Update-BetaFeed($Plan, [string]$ManifestPath) {
+    $exists = $true
+    try { $null = Get-Gh @('release', 'view', $FeedTag, '-R', $AppRepo) } catch { $exists = $false }
+    if (-not $exists) {
+        $feedNotes = 'The Beta track of the Scarlet app reads latest.json from this release. It names the newest beta or release. There is nothing to install from here.'
+        $null = Get-Gh @('release', 'create', $FeedTag, $ManifestPath, '-R', $AppRepo, '--prerelease', '--latest=false', '--target', $Plan.AppSha, '--title', 'Scarlet beta update feed', '--notes', $feedNotes)
+        return 'created'
+    }
+    $current = ((Get-Gh @('release', 'download', $FeedTag, '-R', $AppRepo, '-p', 'latest.json', '-O', '-')) -join "`n") | ConvertFrom-Json
+    if ((Get-VersionOrder $Plan.Version) -le (Get-VersionOrder $current.version)) { return "kept $($current.version)" }
+    $null = Get-Gh @('release', 'upload', $FeedTag, $ManifestPath, '-R', $AppRepo, '--clobber')
+    return 'replaced'
+}
+
+# Reads a feed the way the app does and checks it names this version.
+function Assert-Feed([string]$Url, [string]$Version) {
+    $last = $null
+    foreach ($try in 1..4) {
+        try {
+            # A release asset comes back as application/octet-stream, which Invoke-RestMethod does not parse.
+            $file = Join-Path ([IO.Path]::GetTempPath()) "scarlet-feed-$PID.json"
+            Invoke-WebRequest -Uri $Url -Headers @{ 'User-Agent' = 'scarlet-release' } -OutFile $file
+            $feed = Get-Content -Raw -LiteralPath $file | ConvertFrom-Json
+            Remove-Item -LiteralPath $file -Force
+            if ($feed.version -eq $Version) { return }
+            $last = "it names $($feed.version)"
+        }
+        catch { $last = $_.Exception.Message }
+        Start-Sleep -Seconds 5
+    }
+    throw "The feed $Url does not name $Version ($last)."
+}
+
 # ---- addon zip ----------------------------------------------------------------------------------------------
 
 function New-AddonZip([string]$AddonDir, [string]$ZipPath, [string]$Stamp, [datetimeoffset]$When) {
@@ -224,7 +347,11 @@ function New-AddonZip([string]$AddonDir, [string]$ZipPath, [string]$Stamp, [date
                 if ($rel -ieq 'Scarlet.toc') {
                     $text = $latin1.GetString($bytes)
                     if ($text -notmatch '(?m)^## Version:') { throw 'The TOC has no "## Version:" line to stamp.' }
-                    $bytes = $latin1.GetBytes([regex]::Replace($text, '(?m)^## Version:[^\r\n]*', "## Version: $Stamp"))
+                    $text = [regex]::Replace($text, '(?m)^## Version:[^\r\n]*', "## Version: $Stamp")
+                    # CurseForge and Wago add their ids to the packages they build. This zip is the app's own, and the
+                    # app leaves a folder alone that carries one of them, so it never carries one.
+                    $text = [regex]::Replace($text, '(?m)^##[ \t]*X-(Curse-Project-ID|Wago-ID)[ \t]*:[^\r\n]*(\r?\n)?', '')
+                    $bytes = $latin1.GetBytes($text)
                     $stamped++
                 }
                 $entry = $zip.CreateEntry("Scarlet/$rel", [IO.Compression.CompressionLevel]::Optimal)
@@ -248,6 +375,7 @@ function New-AddonZip([string]$AddonDir, [string]$ZipPath, [string]$Stamp, [date
         $reader = [IO.StreamReader]::new($toc.Open())
         try { $content = $reader.ReadToEnd() } finally { $reader.Dispose() }
         if ($content -notmatch "(?m)^## Version: $([regex]::Escape($Stamp))\s*$") { throw 'The TOC in the zip does not carry the stamped version.' }
+        if ($content -match '(?mi)^##\s*X-(Curse-Project-ID|Wago-ID)\s*:') { throw 'The TOC in the zip carries a CurseForge or Wago id.' }
     }
     finally { $check.Dispose() }
 }
@@ -279,6 +407,8 @@ function New-Notes($Plan, [string]$AppTitles, [string]$AddonTitles) {
 
 # ---- main ---------------------------------------------------------------------------------------------------
 
+if (($TestConfig -or $TestUrlBase) -and -not $DryRun) { throw '-TestConfig and -TestUrlBase are for -DryRun only: a published release must be the real app.' }
+if ($TestConfig -and -not (Test-Path -LiteralPath $TestConfig)) { throw "-TestConfig $TestConfig does not exist." }
 $null = Invoke-Tool 'gh' @('auth', 'status')
 if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) { throw 'cargo is not on PATH.' }
 $null = Invoke-Tool 'cargo' @('tauri', '--version')
@@ -335,9 +465,17 @@ try {
     $addonSrc = Join-Path $work 'addon-src'
     Export-Tree $addonRepoDir $plan.AddonSha $addonSrc 'addon/Scarlet'
 
+    # The updater key must exist and be the app's key before a build that takes minutes.
+    $pubkey = Read-UpdaterPubkey (Join-Path $src 'app\tauri.conf.json')
+    $probe = Join-Path $work 'key-probe.txt'
+    Set-Content -LiteralPath $probe -Value 'probe' -Encoding ascii
+    $null = New-UpdaterSignature $probe $pubkey
+    Remove-Item -LiteralPath $probe, "$probe.sig" -Force
+
     # Commit titles since the last release this lane's readers know: the latest published release for a beta,
     # the latest stable one for a release.
-    $newest = @($releases | Where-Object { -not $_.isDraft } | Sort-Object createdAt -Descending | Select-Object -First 1)
+    # Only the version releases count: the feed release is not a base for the notes.
+    $newest = @($releases | Where-Object { -not $_.isDraft -and ($_.tagName -match $BetaPattern -or $_.tagName -match $StablePattern) } | Sort-Object createdAt -Descending | Select-Object -First 1)
     $baseTag = if ($Lane -eq 'release') { if ($latestStable) { $latestStable.tagName } else { $null } }
     elseif ($newest.Count) { $newest[0].tagName }
     else { $null }
@@ -366,15 +504,21 @@ try {
     $env:CARGO_TARGET_DIR = $TargetDir
     Push-Location (Join-Path $src 'app')
     try {
-        & cargo tauri build --ci --bundles nsis --config $versionConfig --config $signConfig 2>&1 | Tee-Object -FilePath $log | ForEach-Object { "$_" }
+        $configs = @('--config', $versionConfig, '--config', $signConfig)
+        if ($TestConfig) { $configs += @('--config', (Resolve-Path -LiteralPath $TestConfig).Path) }
+        & cargo tauri build --ci --bundles nsis @configs 2>&1 | Tee-Object -FilePath $log | ForEach-Object { "$_" }
         if ($LASTEXITCODE -ne 0) { throw "cargo tauri build failed ($LASTEXITCODE); see $log. If the log mentions signing, the signature is the reason." }
     }
     finally {
         Pop-Location
         $env:CARGO_TARGET_DIR = $previousTarget
     }
-    $built = Join-Path $bundleDir $plan.InstallerName
-    if (-not (Test-Path -LiteralPath $built)) { throw "The build did not produce $($plan.InstallerName) in $bundleDir." }
+    # Named <product>_<version>_x64-setup.exe: Scarlet_..., or a test copy's own name.
+    $found = @(Get-ChildItem -LiteralPath $bundleDir -Filter "*_$($plan.Version)_x64-setup.exe" -File -ErrorAction SilentlyContinue)
+    if ($found.Count -ne 1) { throw "The build did not produce one installer for $($plan.Version) in $bundleDir." }
+    $built = $found[0].FullName
+    $plan.InstallerName = $found[0].Name
+    if (-not $TestConfig -and $plan.InstallerName -ne "Scarlet_$($plan.Version)_x64-setup.exe") { throw "The installer is named $($plan.InstallerName), not Scarlet_$($plan.Version)_x64-setup.exe." }
     $installer = Join-Path $out $plan.InstallerName
     Copy-Item -LiteralPath $built -Destination $installer -Force
 
@@ -384,12 +528,25 @@ try {
     $installerSigner = Assert-Signed $installer
     Write-Host "$($plan.InstallerName) signed by $installerSigner"
 
+    # The updater signature covers the installer as it is now, after the Authenticode signature: signing it any
+    # earlier makes every update fail verification.
+    Write-Step 'Signing for the updater'
+    $installerSig = New-UpdaterSignature $installer $pubkey
+    $zipSig = New-UpdaterSignature $zipPath $pubkey
+    Write-Host "signed $($plan.InstallerName) and $($plan.ZipName) with key $(Get-MinisignKeyId $pubkey)"
+
     $sums = Join-Path $out 'SHA256SUMS.txt'
     $lines = foreach ($f in @($installer, $zipPath)) { "$((Get-FileHash -Algorithm SHA256 -LiteralPath $f).Hash.ToLower())  $(Split-Path $f -Leaf)" }
     Set-Content -LiteralPath $sums -Value $lines -Encoding utf8NoBOM
 
     $notes = Join-Path $out 'notes.md'
-    Set-Content -LiteralPath $notes -Value (New-Notes ([pscustomobject]$plan) $appTitles $addonTitles) -Encoding utf8NoBOM -NoNewline
+    $notesText = New-Notes ([pscustomobject]$plan) $appTitles $addonTitles
+    Set-Content -LiteralPath $notes -Value $notesText -Encoding utf8NoBOM -NoNewline
+    Assert-NoCharacterNames $notesText $notes
+
+    $manifestPath = Join-Path $out 'latest.json'
+    $baseUrl = if ($TestUrlBase) { $TestUrlBase.TrimEnd('/') } else { "https://github.com/$AppRepo/releases/download/$($plan.Tag)" }
+    Set-Content -LiteralPath $manifestPath -Value (New-Manifest ([pscustomobject]$plan) $notesText $installerSig $zipSig $baseUrl) -Encoding utf8NoBOM -NoNewline
 
     if ($DryRun) {
         Write-Step "Dry run done; nothing published. Files are in $out"
@@ -398,7 +555,7 @@ try {
     }
 
     Write-Step "Creating draft $($plan.Tag) on $AppRepo"
-    $create = @('release', 'create', $plan.Tag, $installer, $zipPath, $sums, '-R', $AppRepo, '--draft', '--target', $plan.AppSha, '--title', "Scarlet $($plan.Version)", '--notes-file', $notes)
+    $create = @('release', 'create', $plan.Tag, $installer, $zipPath, $sums, $manifestPath, '-R', $AppRepo, '--draft', '--target', $plan.AppSha, '--title', "Scarlet $($plan.Version)", '--notes-file', $notes)
     if ($Lane -eq 'beta') { $create += '--prerelease' }
     $null = Get-Gh $create
 
@@ -406,7 +563,7 @@ try {
     $draft = @($drafts | Where-Object { $_.tag_name -eq $plan.Tag -and $_.draft })[0]
     if (-not $draft) { throw "The draft $($plan.Tag) is not on $AppRepo after creating it." }
     $names = @($draft.assets | ForEach-Object name)
-    foreach ($want in @($plan.InstallerName, $plan.ZipName, 'SHA256SUMS.txt')) {
+    foreach ($want in @($plan.InstallerName, $plan.ZipName, 'SHA256SUMS.txt', 'latest.json')) {
         if ($want -notin $names) { throw "The draft is missing $want; it stays a draft for inspection." }
     }
 
@@ -428,11 +585,21 @@ try {
         }
         $downloadedSigner = Assert-Signed (Join-Path $back $plan.InstallerName)
         Write-Host "downloaded installer signed by $downloadedSigner"
+        $downloaded = Get-Content -Raw -LiteralPath (Join-Path $back 'latest.json') | ConvertFrom-Json
+        if ($downloaded.version -ne $plan.Version -or $downloaded.platforms.'windows-x86_64'.url -notlike "*/$($plan.InstallerName)" -or $downloaded.addon.url -notlike "*/$($plan.ZipName)") {
+            throw "The downloaded latest.json does not name $($plan.Version), $($plan.InstallerName) and $($plan.ZipName)."
+        }
     }
     catch {
         $null = Get-Gh @('api', '-X', 'PATCH', "repos/$AppRepo/releases/$($draft.id)", '-F', 'draft=true')
         throw "Published $($plan.Tag), but checking it after download failed, so it is a draft again: $($_.Exception.Message)"
     }
+
+    Write-Step "Updating the Beta feed ($FeedTag)"
+    Write-Host "beta feed: $(Update-BetaFeed ([pscustomobject]$plan) $manifestPath)"
+    if ($Lane -eq 'release') { Assert-Feed "https://github.com/$AppRepo/releases/latest/download/latest.json" $plan.Version }
+    $feedNow = ((Get-Gh @('release', 'download', $FeedTag, '-R', $AppRepo, '-p', 'latest.json', '-O', '-')) -join "`n") | ConvertFrom-Json
+    Write-Host "beta feed names $($feedNow.version)"
 
     Write-Step 'Done'
     Write-Host "https://github.com/$AppRepo/releases/tag/$($plan.Tag)"
