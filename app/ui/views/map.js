@@ -261,7 +261,8 @@ export async function render(body) {
       ctx.save();
       ctx.scale(k, k);
       drawLayers(ctx, { ...layers, walks }, rx, ry, moving ? { ...layersOn, met: false } : layersOn, names);
-      if (layersOn.names) drawLabels(ctx, names, rx, ry, [0, 0, cw, ch]);
+      // Names keep clear of the row of layer switches along the bottom.
+      if (layersOn.names) drawLabels(ctx, names, rx, ry, [0, 0, cw, ch - toggles.offsetHeight - 18]);
       ctx.restore();
       return;
     }
