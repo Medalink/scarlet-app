@@ -59,12 +59,21 @@ export async function render(body) {
   artSeg.setAttribute("role", "group");
   artSeg.setAttribute("aria-label", "Map art");
   const artNote = el("div", "status");
+  // Only the latest choice writes the note: an earlier one still waiting for the status would add
+  // its own note, twice or for the art no longer chosen.
+  let artSeq = 0;
   const showArt = async (art) => {
+    const mine = ++artSeq;
     artSeg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.art === art)));
+    let st = null, failed = null;
+    try { st = await invoke("map_art_status"); } catch (e) { failed = e; }
+    if (mine !== artSeq) return;
     artNote.className = "status";
     artNote.textContent = "";
-    const st = await invoke("map_art_status");
-    if (art === "openmap" && !st.installed) openmapMissing(artNote, st);
+    if (failed) {
+      artNote.className = "status err";
+      artNote.textContent = String(failed);
+    } else if (art === "openmap" && !st.installed) openmapMissing(artNote, st);
   };
   for (const [art, label] of [["dark", "Scarlet dark"], ["openmap", "OpenMap"]]) {
     const b = el("button", "", label);
@@ -74,6 +83,7 @@ export async function render(body) {
       try {
         await showArt(await invoke("set_map_art", { art }));
       } catch (e) {
+        artSeq++; // a choice still waiting for the status must not wipe this
         artNote.className = "status err";
         artNote.textContent = String(e);
       }

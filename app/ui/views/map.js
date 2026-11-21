@@ -41,10 +41,12 @@ function darken(c, px, img) {
 }
 
 export async function render(body) {
-  body.innerHTML = "";
-  const maps = state.store?.maps ?? [];
+  // Ask first and clear after, so the page this one replaces is not emptied for a render that is
+  // then stacked under another.
   let status = { art: "dark", installed: false };
   try { status = await invoke("map_art_status"); } catch {}
+  body.innerHTML = "";
+  const maps = state.store?.maps ?? [];
   const openmap = status.art === "openmap" && status.installed;
   // Survey unless OpenMap is the art and installed, and then what the player last picked.
   let look = "survey";
@@ -69,7 +71,7 @@ export async function render(body) {
       try { localStorage.setItem(LOOK_KEY, key); } catch {}
       seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.look === key)));
       toggles.hidden = look !== "survey";
-      reloadArt();
+      load(); // the same map and view, the other art
     };
     seg.appendChild(b);
   }
@@ -209,16 +211,6 @@ export async function render(body) {
     return found;
   }
 
-  // The other look on the same map: same paths and view, new art.
-  async function reloadArt() {
-    const mine = ++token;
-    const found = await loadArt(current, look);
-    if (mine !== token) return;
-    art = found;
-    setNote();
-    draw();
-  }
-
   // The credit while OpenMap's art shows; else, when OpenMap is the chosen art and not installed, that.
   function setNote() {
     note.textContent = "";
@@ -234,7 +226,9 @@ export async function render(body) {
     draw();
   }
 
-  let token = 0;
+  // The map `view` is framed for. A load of that map keeps the view (the other look on it, or an
+  // update); a load of another map, or while the view is not set yet, frames the paths.
+  let token = 0, viewMap = null;
   async function load() {
     const mine = ++token;
     const [got, found, extra, table] = await Promise.all([
@@ -243,7 +237,8 @@ export async function render(body) {
       invoke("map_layers", { map: current, ch: state.ch }).catch(() => null),
       invoke("map_labels", { map: current }).catch(() => []),
     ]);
-    if (mine !== token) return; // a newer map was picked meanwhile
+    if (mine !== token) return; // a newer map or look was picked meanwhile
+    const before = art ? art.asp : 1;
     art = found;
     setNote();
     const asp = art ? art.asp : 1;
@@ -254,7 +249,12 @@ export async function render(body) {
     // Session index -> colour, stable across maps.
     const ids = [...new Set(polys.map((p) => p.session))];
     for (const p of polys) p.color = PALETTE[Math.max(0, ids.indexOf(p.session)) % PALETTE.length];
-    fit();
+    if (view && viewMap === current) {
+      // The view's y runs in the art's aspect, which the other look may not share.
+      const k = asp / before;
+      view = { x: view.x, y: view.y * k, w: view.w, h: view.h * k };
+    } else fit();
+    viewMap = current;
     draw();
   }
 

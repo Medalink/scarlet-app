@@ -55,13 +55,24 @@ window.__nav = (key) => {
   location.hash = key;
 };
 
-async function setView() {
-  const key = (location.hash || "#overview").slice(1);
-  current = VIEWS[key] ? key : "overview";
-  document.querySelectorAll("#nav .item").forEach((i) => i.classList.toggle("active", i.dataset.key === current));
-  $("#pagetitle").textContent = VIEWS[current][0];
-  await VIEWS[current][1].render($("#body"));
-  invoke("save_view", { view: current });
+// Renders run one at a time, so a view that is still waiting on the app when the user moves on has
+// finished drawing before the next one clears the page (else its page lands under the next one's).
+// Of the navigations that queue up behind a render, only the last one runs.
+let navSeq = 0;
+let navTail = Promise.resolve();
+function setView() {
+  const mine = ++navSeq;
+  const run = navTail.then(async () => {
+    if (mine !== navSeq) return;
+    const key = (location.hash || "#overview").slice(1);
+    current = VIEWS[key] ? key : "overview";
+    document.querySelectorAll("#nav .item").forEach((i) => i.classList.toggle("active", i.dataset.key === current));
+    $("#pagetitle").textContent = VIEWS[current][0];
+    await VIEWS[current][1].render($("#body"));
+    if (mine === navSeq) invoke("save_view", { view: current });
+  });
+  navTail = run.catch(() => {});
+  return run;
 }
 
 async function refreshCharSelector() {
