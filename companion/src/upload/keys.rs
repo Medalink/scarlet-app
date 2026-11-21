@@ -48,17 +48,18 @@ pub trait KeyStore {
     fn delete(&self) -> Result<()>;
 }
 
-/// The identity in the store, made on first use when `create` is set.
-pub fn identity(store: &dyn KeyStore, create: bool) -> Result<Option<Identity>> {
+/// The identity in the store, made on first use when `create` is set. The flag is true when it
+/// was made just now, so install ids remembered for an earlier key are stale.
+pub fn identity(store: &dyn KeyStore, create: bool) -> Result<Option<(Identity, bool)>> {
     if let Some(id) = store.load()? {
-        return Ok(Some(id));
+        return Ok(Some((id, false)));
     }
     if !create {
         return Ok(None);
     }
     let id = Identity::random()?;
     store.save(&id)?;
-    Ok(Some(id))
+    Ok(Some((id, true)))
 }
 
 /// The store of this platform.

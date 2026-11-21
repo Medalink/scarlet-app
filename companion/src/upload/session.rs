@@ -92,15 +92,20 @@ impl Session {
         if let Some(p) = cfg.server_problem() {
             return Err(Error::local(p));
         }
-        let Some(id) = keys::identity(store, create)? else {
+        let Some((id, fresh)) = keys::identity(store, create)? else {
             return Ok(None);
         };
+        let mut state = state::load(out);
+        if fresh {
+            // Install ids remembered for an earlier key do not belong to this one.
+            state.installs.clear();
+        }
         let mut s = Session {
             cfg: cfg.clone(),
             out: out.to_path_buf(),
             client: Client::new(&cfg.server, Some(&id.seed)),
             name_key: id.name_key,
-            state: state::load(out),
+            state,
         };
         s.ensure_registered(false)?;
         Ok(Some(s))
