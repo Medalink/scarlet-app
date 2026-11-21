@@ -1,9 +1,10 @@
 // Map: P points per uiMapID as glowing polylines over the map's art (when a `maps` folder
-// holds it), shown as the game draws it or redrawn as a dark survey sheet, with session
-// colours, zoom and pan. A teleport on the map is a dashed jump between its two points.
+// holds it), shown as the game draws it or redrawn as a dark survey sheet, with zoom and pan.
+// The game look colours the paths by session and draws a teleport as a dashed jump. The survey
+// look draws the paths in one colour with place names and the layers the buttons switch.
 
 import { invoke, el, num, esc, PALETTE, state } from "../lib.js";
-import { styleMap } from "./mapstyle.js";
+import { styleMap, mergeLabels, drawLabels, drawLayers, drawMark, LAYERS } from "./mapstyle.js";
 
 // Art by "<look>:<map id>", oldest first. One map is about 11 MB of GPU bitmap, so few are kept.
 const styled = new Map();
@@ -15,6 +16,16 @@ let look = "game";
 try {
   if (localStorage.getItem(LOOK_KEY) === "survey") look = "survey";
 } catch {}
+
+// Which layers the survey look draws, by LAYERS key.
+const LAYERS_KEY = "scarlet.mapLayers";
+const layersOn = { names: true, travel: true, deaths: true, met: false, gather: true, people: false, quests: false, found: true, camps: true };
+try {
+  const saved = JSON.parse(localStorage.getItem(LAYERS_KEY) || "{}");
+  for (const [k] of LAYERS) if (typeof saved[k] === "boolean") layersOn[k] = saved[k];
+} catch {}
+// The mark drawn on a layer's button; the others have none.
+const SWATCH = { travel: "teleport", deaths: "death", gather: "gather", people: "npc", quests: "quest", found: "found", camps: "camp" };
 
 // The art with its colours muted, the paths staying the brightest thing on the map.
 function darken(c, px, img) {
@@ -49,11 +60,37 @@ export async function render(body) {
       look = key;
       try { localStorage.setItem(LOOK_KEY, key); } catch {}
       seg.querySelectorAll("button").forEach((x) => x.setAttribute("aria-pressed", String(x.dataset.look === key)));
+      toggles.hidden = look !== "survey";
       reloadArt();
     };
     seg.appendChild(b);
   }
-  stage.append(canvas, seg);
+  const toggles = el("div", "map-layers");
+  toggles.setAttribute("role", "group");
+  toggles.setAttribute("aria-label", "Map layers");
+  toggles.hidden = look !== "survey";
+  for (const [key, label] of LAYERS) {
+    const b = el("button", "", label);
+    b.type = "button";
+    b.setAttribute("aria-pressed", String(layersOn[key]));
+    if (SWATCH[key]) {
+      const sw = el("canvas");
+      sw.width = sw.height = 16 * devicePixelRatio;
+      sw.style.width = sw.style.height = "16px";
+      const c = sw.getContext("2d");
+      c.scale(devicePixelRatio, devicePixelRatio);
+      drawMark(c, SWATCH[key], 8, 8);
+      b.prepend(sw);
+    }
+    b.onclick = () => {
+      layersOn[key] = !layersOn[key];
+      b.setAttribute("aria-pressed", String(layersOn[key]));
+      try { localStorage.setItem(LAYERS_KEY, JSON.stringify(layersOn)); } catch {}
+      draw();
+    };
+    toggles.appendChild(b);
+  }
+  stage.append(canvas, seg, toggles);
   wrap.append(side, stage);
   body.appendChild(wrap);
 
@@ -80,6 +117,10 @@ export async function render(body) {
 
   const ctx = canvas.getContext("2d");
   let polys = [];
+  // The survey look's data for the map: the walked lines in the recorded unit (map coordinates
+  // times 10000), the other layers, and the place names merged from the client's table and the
+  // player's own lines.
+  let walks = [], layers = {}, names = [];
   // The map's art, darkened: {img, asp} with asp = height / width, or null.
   // The view is in map-percent space with y scaled by asp, so the art keeps
   // its shape and a point (x, y) sits at (x, y * asp).
@@ -152,14 +193,19 @@ export async function render(body) {
   let token = 0;
   async function load() {
     const mine = ++token;
-    const [got, found] = await Promise.all([
+    const [got, found, extra, table] = await Promise.all([
       invoke("map_data", { map: current, ch: state.ch }),
       loadArt(current, look),
+      invoke("map_layers", { map: current, ch: state.ch }).catch(() => null),
+      invoke("map_labels", { map: current }).catch(() => []),
     ]);
     if (mine !== token) return; // a newer map was picked meanwhile
     art = found;
     const asp = art ? art.asp : 1;
     polys = got.map((p) => ({ ...p, pts: p.pts.map(([x, y]) => [x, y * asp]) }));
+    walks = polys.filter((p) => !p.dash && p.pts.length > 1).map((p) => p.pts.map(([x, y]) => [x * 100, (y / asp) * 100]));
+    layers = extra || {};
+    names = mergeLabels(table, layers.places, layers.found);
     // Session index -> colour, stable across maps.
     const ids = [...new Set(polys.map((p) => p.session))];
     for (const p of polys) p.color = PALETTE[Math.max(0, ids.indexOf(p.session)) % PALETTE.length];
@@ -206,6 +252,18 @@ export async function render(body) {
     if (art) {
       ctx.imageSmoothingQuality = moving ? "low" : "high";
       ctx.drawImage(art.img, X(0), Y(0), X(100) - X(0), Y(100 * art.asp) - Y(0));
+    }
+    if (look === "survey" && art) {
+      // Marks and lettering are in CSS pixels, so they keep their size at every zoom; the
+      // recorded unit is map coordinates times 10000.
+      const k = devicePixelRatio, cw = W / k, ch = H / k;
+      const rx = (v) => X(v / 100) / k, ry = (v) => Y(((v / 100) * art.asp)) / k;
+      ctx.save();
+      ctx.scale(k, k);
+      drawLayers(ctx, { ...layers, walks }, rx, ry, moving ? { ...layersOn, met: false } : layersOn, names);
+      if (layersOn.names) drawLabels(ctx, names, rx, ry, [0, 0, cw, ch]);
+      ctx.restore();
+      return;
     }
     ctx.lineWidth = 2 * devicePixelRatio;
     ctx.lineCap = "round";
