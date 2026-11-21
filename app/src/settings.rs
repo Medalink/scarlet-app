@@ -34,6 +34,10 @@ const DRIVE_FIXED: u32 = 3;
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Settings {
     pub wow: PathBuf,
+    /// More World of Warcraft folders on this PC (a second install, or another Battle.net
+    /// login's). One Scarlet reads them all; `wow` stays the one the addon and map art use.
+    #[serde(default)]
+    pub more_wow: Vec<PathBuf>,
     pub data: PathBuf,
     pub watch: bool,
     pub last_view: String,
@@ -272,6 +276,7 @@ fn fallback() -> Settings {
     if portable() {
         return Settings {
             wow: PathBuf::from(scarlet::DEFAULT_WOW),
+            more_wow: Vec::new(),
             data: default_data(),
             watch: false,
             last_view: "overview".into(),
@@ -287,6 +292,7 @@ fn fallback() -> Settings {
         // Exporting is what fills the app; start it only when there is a folder to read.
         watch: wow.is_some(),
         wow: wow.unwrap_or_default(),
+        more_wow: Vec::new(),
         data: default_data(),
         last_view: "overview".into(),
         open_with_wow: false,
@@ -387,7 +393,7 @@ pub fn problems(s: &Settings) -> Vec<String> {
             "The Scarlet addon is not installed. Copy its Scarlet folder to {}.",
             addon.parent().unwrap_or(&addon).display()
         ));
-    } else if scarlet::export::find_sv(&s.wow).is_ok_and(|v| v.is_empty()) {
+    } else if scarlet::export::find_sv_all(&s.folders()).is_ok_and(|v| v.is_empty()) {
         out.push(
             "Scarlet has not saved a recording yet. Play with the addon on, then log out or \
              type /reload so WoW writes it."
@@ -411,4 +417,30 @@ pub fn not_on_c(p: &Path) -> bool {
         },
         _ => true,
     }
+}
+
+impl Settings {
+    /// Every World of Warcraft folder Scarlet reads: `wow` first, then the extra ones, each once
+    /// and only when it exists.
+    pub fn folders(&self) -> Vec<PathBuf> {
+        let mut out: Vec<PathBuf> = Vec::new();
+        for p in std::iter::once(&self.wow).chain(&self.more_wow) {
+            if p.as_os_str().is_empty() || !p.is_dir() {
+                continue;
+            }
+            let key = folder_key(p);
+            if !out.iter().any(|q| folder_key(q) == key) {
+                out.push(p.clone());
+            }
+        }
+        out
+    }
+}
+
+/// A folder's identity for comparing two spellings of it.
+pub fn folder_key(p: &Path) -> String {
+    let c = p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    let s = c.to_string_lossy().replace('/', "\\").to_lowercase();
+    let s = s.strip_prefix("\\\\?\\").unwrap_or(&s);
+    s.trim_end_matches('\\').to_string()
 }

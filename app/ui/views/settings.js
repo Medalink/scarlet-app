@@ -1,6 +1,6 @@
 // Settings: one page per topic, chosen by the tabs at the top and by the hash (#settings/updates).
 
-import { invoke, el, openmapMissing } from "../lib.js";
+import { invoke, el, esc, openmapMissing } from "../lib.js";
 import { renderUpload } from "./upload.js";
 import { renderUpdates, renderAddon, watchProblems, refreshProblems } from "./updates.js";
 
@@ -100,6 +100,10 @@ async function general(body) {
     }
   };
   body.append(sw, swSt);
+  const boxes = el("div");
+  boxes.style.marginTop = "22px";
+  body.appendChild(boxes);
+  await drawBoxes(body, boxes, s, dataIn);
 
   form.querySelector("#save").onclick = async () => {
     const st = form.querySelector("#st");
@@ -117,6 +121,70 @@ async function general(body) {
       st.textContent = String(e);
     }
   };
+}
+
+// Every WoW folder on this PC with its game accounts, their characters and the clients running:
+// one Scarlet covers all of them. A running client's folder is added by itself; Add folder is for
+// one that is not running.
+async function drawBoxes(body, box, s, dataIn) {
+  const list = await invoke("wow_folders");
+  const extra = list.filter((f) => !f.primary).map((f) => f.path);
+  const save = async (more) => {
+    await invoke("set_settings", { wow: s.wow, data: dataIn.value, moreWow: more });
+    await general(body);
+  };
+  box.innerHTML = "";
+  const head = el("div", "split-head");
+  head.innerHTML = `<span>WoW folders</span><span>${list.reduce((n, f) => n + f.running, 0)} running</span>`;
+  box.appendChild(head);
+  for (const f of list) {
+    const card = el("div", "wowbox");
+    const top = el("div", "wb-head");
+    const title = el("div", "wb-path");
+    title.textContent = f.path;
+    const state = el("div", "wb-state");
+    state.textContent = f.problem ? f.problem : f.running ? `${f.running} running` : "not running";
+    state.classList.toggle("on", f.running > 0 && !f.problem);
+    top.append(title, state);
+    card.appendChild(top);
+    if (!f.problem && !f.accounts.length) {
+      const none = el("div", "dim");
+      none.textContent = "No game accounts yet.";
+      card.appendChild(none);
+    }
+    const t = el("table");
+    for (const a of f.accounts) {
+      const tr = el("tr");
+      const when = a.saved ? new Date(a.saved * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "no recording yet";
+      tr.innerHTML = `<td>${esc(a.name)}</td><td>${a.characters.length ? esc(a.characters.join(", ")) : ""}</td><td class="dim">${esc(when)}</td>`;
+      t.appendChild(tr);
+    }
+    if (f.accounts.length) card.appendChild(t);
+    if (!f.primary) {
+      const rm = el("button", "btn", "Remove");
+      rm.type = "button";
+      rm.onclick = () => save(extra.filter((p) => p !== f.path)).catch(() => {});
+      card.appendChild(rm);
+    }
+    box.appendChild(card);
+  }
+  const add = el("button", "btn", "Add folder…");
+  add.type = "button";
+  const st = el("div", "status");
+  add.onclick = async () => {
+    st.className = "status";
+    st.textContent = "";
+    try {
+      const picked = await invoke("browse_wow");
+      if (picked === null) return;
+      if (list.some((f) => f.path.toLowerCase() === picked.toLowerCase())) return;
+      await save([...extra, picked]);
+    } catch (e) {
+      st.className = "status err";
+      st.textContent = String(e);
+    }
+  };
+  box.append(add, st);
 }
 
 // Map art: Scarlet's own dark sheets, or the real map art read from the player's OpenMap addon.

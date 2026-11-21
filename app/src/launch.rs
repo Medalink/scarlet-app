@@ -1,7 +1,8 @@
 //! "Open when WoW Forever starts": a windowless copy of this exe (`--on-wow`)
 //! started at sign-in from the HKCU Run value. It scans the process list every
-//! few seconds until `Wow.exe` in the game folder under the WoW folder starts, opens Scarlet, then waits
-//! on WoW's process handle (no scanning) until it exits. Nothing is written to
+//! few seconds until a `Wow.exe` in the game folder of one of the WoW folders starts, opens Scarlet,
+//! then waits on the process handles of every running client (no scanning) until all of them have
+//! exited. Nothing is written to
 //! disk; the Run value is a registry entry, not a Startup-folder file.
 //!
 //! Also the one-window rule: a second Scarlet window process brings the open
@@ -13,7 +14,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use windows_sys::Win32::Foundation::{
     CloseHandle, ERROR_ALREADY_EXISTS, ERROR_FILE_NOT_FOUND, GetLastError, HANDLE,
-    INVALID_HANDLE_VALUE, WAIT_OBJECT_0,
+    INVALID_HANDLE_VALUE, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
     CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS,
@@ -24,7 +25,7 @@ use windows_sys::Win32::System::Registry::{
 use windows_sys::Win32::System::Threading::{
     CREATE_NO_WINDOW, CreateMutexW, DETACHED_PROCESS, OpenMutexW, OpenProcess, PROCESS_NAME_WIN32,
     PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW, SYNCHRONIZATION_SYNCHRONIZE,
-    WaitForSingleObject,
+    WaitForMultipleObjects,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     FindWindowExW, GetWindowThreadProcessId, IsIconic, MB_ICONERROR, MB_OK, MessageBoxW,
@@ -188,15 +189,20 @@ fn image_path(pid: u32) -> Option<String> {
 }
 
 enum Seen {
-    /// Running, with a handle that can be waited on (closed by the caller).
-    Running(HANDLE),
+    /// Running: one handle per client (dual boxing runs several from the same folder), each
+    /// able to be waited on and closed by the caller.
+    Running(Vec<HANDLE>),
     Stopped,
     /// No snapshot, or a Wow.exe whose path could not be read.
     Unknown,
 }
 
-/// Looks for a process running from exactly `target` (retail and Classic are Wow.exe too).
-fn find(target: &str) -> Seen {
+/// The most handles one `WaitForMultipleObjects` takes. More clients than this are not tracked.
+const MAX_CLIENTS: usize = 60;
+
+/// Looks for every process running from exactly one of `targets`, the `Wow.exe` of each WoW folder
+/// (retail and Classic are Wow.exe too).
+fn find(targets: &[String]) -> Seen {
     let snap = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
     if snap == INVALID_HANDLE_VALUE {
         return Seen::Unknown;
@@ -204,7 +210,7 @@ fn find(target: &str) -> Seen {
     let mut unknown = false;
     let mut e: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
     e.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
-    let mut found = None;
+    let mut found: Vec<HANDLE> = Vec::new();
     let mut more = unsafe { Process32FirstW(snap, &mut e) } != 0;
     while more {
         let end = e
@@ -222,9 +228,10 @@ fn find(target: &str) -> Seen {
                 )
             };
             match (!h.is_null()).then(|| handle_path(h)).flatten() {
-                Some(p) if norm(Path::new(&p)) == target => {
-                    found = Some(h);
-                    break;
+                Some(p) if targets.contains(&norm(Path::new(&p))) && found.len() < MAX_CLIENTS => {
+                    found.push(h);
+                    more = unsafe { Process32NextW(snap, &mut e) } != 0;
+                    continue;
                 }
                 Some(_) => {}
                 None => unknown = true,
@@ -236,10 +243,12 @@ fn find(target: &str) -> Seen {
         more = unsafe { Process32NextW(snap, &mut e) } != 0;
     }
     unsafe { CloseHandle(snap) };
-    match found {
-        Some(h) => Seen::Running(h),
-        None if unknown => Seen::Unknown,
-        None => Seen::Stopped,
+    if !found.is_empty() {
+        Seen::Running(found)
+    } else if unknown {
+        Seen::Unknown
+    } else {
+        Seen::Stopped
     }
 }
 
@@ -263,45 +272,80 @@ pub fn watch() {
         return;
     }
     // was: WoW was running at the last scan. A scan clears it only after two misses, so
-    // one failed read does not look like a new start; WoW's own exit clears it at once.
+    // one failed read does not look like a new start. With several clients running (dual
+    // boxing), one of them closing changes nothing: `was` clears at once only when the last
+    // tracked client exits and a fresh scan finds no other one.
     let mut was = false;
     let mut gone = 0;
-    let mut target = None;
-    let mut wow: Option<HANDLE> = None;
+    let mut targets: Vec<String> = Vec::new();
+    let mut clients: Vec<HANDLE> = Vec::new();
     loop {
         // A missing or half-written file keeps the last good path; only a real "off" exits.
         match settings::try_load() {
             Some(s) if !s.open_with_wow => {
                 unsafe {
-                    if let Some(w) = wow {
-                        CloseHandle(w);
+                    for c in clients.drain(..) {
+                        CloseHandle(c);
                     }
                     CloseHandle(h);
                 }
                 return;
             }
             Some(s) => {
-                target = Some(norm(&scarlet::gamedir::game_dir(&s.wow).join("Wow.exe")));
+                targets = exes(&s.folders());
             }
             None => {}
         }
-        // While WoW runs, waiting on its handle is the sleep: no scan until it exits.
-        if let Some(w) = wow {
-            if unsafe { WaitForSingleObject(w, POLL.as_millis() as u32) } == WAIT_OBJECT_0 {
-                unsafe { CloseHandle(w) };
-                wow = None;
-                was = false;
+        // While WoW runs, waiting on every client's handle is the sleep: no scan until one exits.
+        if !clients.is_empty() {
+            let r = unsafe {
+                WaitForMultipleObjects(
+                    clients.len() as u32,
+                    clients.as_ptr(),
+                    0,
+                    POLL.as_millis() as u32,
+                )
+            };
+            if r == WAIT_TIMEOUT {
+                continue;
+            }
+            let i = r.wrapping_sub(WAIT_OBJECT_0) as usize;
+            if i < clients.len() {
+                unsafe { CloseHandle(clients.swap_remove(i)) };
+            } else {
+                // The wait failed: drop what is held and look again.
+                for c in clients.drain(..) {
+                    unsafe { CloseHandle(c) };
+                }
+                std::thread::sleep(POLL);
+            }
+            if clients.is_empty() {
+                // The last tracked client exited. One started meanwhile is WoW still running,
+                // not a new start, so Scarlet is not opened for it.
+                match if targets.is_empty() {
+                    Seen::Unknown
+                } else {
+                    find(&targets)
+                } {
+                    Seen::Running(found) => clients = found,
+                    Seen::Stopped => was = false,
+                    Seen::Unknown => {}
+                }
             }
             continue;
         }
-        match target.as_deref().map_or(Seen::Unknown, find) {
-            Seen::Running(w) => {
+        match if targets.is_empty() {
+            Seen::Unknown
+        } else {
+            find(&targets)
+        } {
+            Seen::Running(found) => {
                 if !was && !app_open() {
                     open_app();
                 }
                 was = true;
                 gone = 0;
-                wow = Some(w);
+                clients = found;
                 continue;
             }
             Seen::Stopped => {
@@ -354,4 +398,22 @@ pub fn wow_paths() -> Vec<PathBuf> {
     }
     unsafe { CloseHandle(snap) };
     out
+}
+
+/// The normalised `Wow.exe` path of each WoW folder.
+fn exes(folders: &[PathBuf]) -> Vec<String> {
+    folders
+        .iter()
+        .map(|f| norm(&scarlet::gamedir::game_dir(f).join("Wow.exe")))
+        .collect()
+}
+
+/// For each folder, how many WoW Forever clients run from it: two or more in one folder when
+/// the player dual boxes from one install.
+pub fn running_clients(folders: &[PathBuf]) -> Vec<usize> {
+    let running: Vec<String> = wow_paths().iter().map(|p| norm(p)).collect();
+    exes(folders)
+        .iter()
+        .map(|t| running.iter().filter(|r| *r == t).count())
+        .collect()
 }

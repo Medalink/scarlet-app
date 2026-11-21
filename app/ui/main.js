@@ -48,10 +48,13 @@ function buildNav() {
   nav.appendChild(foot);
 }
 
+let wowClients = 0;
+
 function updateFoot() {
   const st = state.store;
   if (!st) return;
-  $("#foot").innerHTML = `${num(st.events)} events<br>${st.chars.length} character(s)`;
+  const running = wowClients > 0 ? `<br>${wowClients} WoW running` : "";
+  $("#foot").innerHTML = `${num(st.events)} events<br>${st.chars.length} character(s)${running}`;
 }
 
 window.__nav = (key) => {
@@ -129,6 +132,17 @@ async function boot() {
   await setView();
 
   window.addEventListener("hashchange", setView);
+
+  // How many clients run: two for a player who dual boxes. Cheap, so it is asked every 5 s.
+  const askClients = async () => {
+    const n = await invoke("wow_clients").catch(() => wowClients);
+    if (n !== wowClients) {
+      wowClients = n;
+      updateFoot();
+    }
+  };
+  askClients();
+  setInterval(askClients, 5000);
 
   const { listen } = window.__TAURI__.event;
   $("#upd").onclick = () => (location.hash = "settings/updates");

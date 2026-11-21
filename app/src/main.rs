@@ -106,6 +106,8 @@ fn main() {
             ops::compress_logs,
             ops::toggle_watch,
             ops::sizes,
+            ops::wow_clients,
+            ops::wow_folders,
             ops::get_settings,
             ops::set_settings,
             browse::browse_wow,

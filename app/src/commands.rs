@@ -426,13 +426,15 @@ pub fn overview(app: AppHandle, ch: Option<String>) -> Option<CharOverview> {
                 .or_else(|| (!st.chars.is_empty()).then_some(0))?,
         };
         let name = st.chars.get(c as usize)?.clone();
-        let ov = scarlet::overview::build(
+        let mut ov = scarlet::overview::build(
             &name,
             st.events
                 .iter()
                 .filter(|r| r.ch == c)
                 .map(|r| (r.ms, r.code.as_str(), r.fields.as_slice())),
         );
+        // Another recorded character is the player's own (a dual box), not a groupmate.
+        ov.mates.retain(|m| !st.chars.contains(&m.name));
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs() as i64);

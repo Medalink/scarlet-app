@@ -610,3 +610,11 @@ ul, ol { list-style: none; }
 .cap-list p { display: flex; justify-content: space-between; gap: 12px; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 15px; }
 .cap-list span { color: var(--text); }
 .cap-list b { color: var(--fg); font-weight: 650; }
+
+/* Settings: one block per WoW folder, with its game accounts. */
+.wowbox { padding: 12px 0 14px; border-bottom: 1px solid var(--line); }
+.wowbox .wb-head { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin-bottom: 6px; }
+.wowbox .wb-path { color: var(--fg); font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wowbox .wb-state { color: var(--muted); font-size: 14px; white-space: nowrap; }
+.wowbox .wb-state.on { color: var(--fg); }
+.wowbox .btn { margin-top: 8px; padding: 7px 12px; }

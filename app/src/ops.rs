@@ -20,11 +20,11 @@ pub struct Sizes {
 #[tauri::command(async)]
 pub fn sizes(app: AppHandle) -> Sizes {
     let s = state(&app);
-    let (wow, dir) = {
+    let (wows, dir) = {
         let st = s.settings.lock().unwrap();
-        (st.wow.clone(), st.data.clone())
+        (st.folders(), st.data.clone())
     };
-    let sv = scarlet::export::find_sv(&wow).unwrap_or_default();
+    let sv = scarlet::export::find_sv_all(&wows).unwrap_or_default();
     let mut sv_bytes = 0u64;
     for p in &sv {
         sv_bytes += std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
@@ -56,16 +56,19 @@ pub fn sizes(app: AppHandle) -> Sizes {
 
 fn run_export(app: &AppHandle) -> String {
     let s = state(app);
-    let (wow, out) = {
+    let (wows, out) = {
         let st = s.settings.lock().unwrap();
-        (st.wow.clone(), st.data.clone())
+        (st.folders(), st.data.clone())
     };
-    if !scarlet::gamedir::game_dir(&wow).join("WTF").is_dir() {
+    if !wows
+        .iter()
+        .any(|w| scarlet::gamedir::game_dir(w).join("WTF").is_dir())
+    {
         return "export skipped: the WoW folder in Settings has no game folder with a WTF folder"
             .into();
     }
     let before = std::time::Instant::now();
-    match crate::watch::export_and_reload(app, &wow, &out) {
+    match crate::watch::export_and_reload(app, &wows, &out) {
         Ok(_) => format!("export ok in {:.1}s", before.elapsed().as_secs_f64()),
         Err(e) => format!("export failed: {e}"),
     }
@@ -79,11 +82,11 @@ pub fn compress_export(app: AppHandle) -> String {
 #[tauri::command(async)]
 pub fn compress_logs(app: AppHandle) -> String {
     let s = state(&app);
-    let (wow, out) = {
+    let (wows, out) = {
         let st = s.settings.lock().unwrap();
-        (st.wow.clone(), st.data.clone())
+        (st.folders(), st.data.clone())
     };
-    match scarlet::export::logs(&wow, &out) {
+    match scarlet::export::logs_all(&wows, &out) {
         Ok(()) => "combat logs done".into(),
         Err(e) => format!("logs failed: {e}"),
     }
@@ -118,7 +121,12 @@ pub fn get_settings() -> SettingsView {
 }
 
 #[tauri::command(async)]
-pub fn set_settings(app: AppHandle, wow: String, data: String) -> Result<Settings, String> {
+pub fn set_settings(
+    app: AppHandle,
+    wow: String,
+    data: String,
+    more_wow: Option<Vec<String>>,
+) -> Result<Settings, String> {
     let wow_p = PathBuf::from(wow.trim());
     let data_p = PathBuf::from(data.trim());
     if data_p.as_os_str().is_empty() {
@@ -130,6 +138,14 @@ pub fn set_settings(app: AppHandle, wow: String, data: String) -> Result<Setting
     let cur = settings::update(|c| {
         c.wow = wow_p;
         c.data = data_p;
+        // Left as it is when the caller sends none (the Browse button changes only `wow`).
+        if let Some(more) = more_wow {
+            c.more_wow = more
+                .iter()
+                .map(|p| PathBuf::from(p.trim()))
+                .filter(|p| !p.as_os_str().is_empty())
+                .collect();
+        }
     })?;
     *state(&app).settings.lock().unwrap() = cur.clone();
     reload(&app);
@@ -181,4 +197,68 @@ pub fn save_view(app: AppHandle, view: String) {
         s.last_view = view;
         let _ = settings::save(&s);
     }
+}
+
+/// The number of WoW Forever clients running now, in every folder, for the sidebar.
+#[tauri::command(async)]
+pub fn wow_clients(app: AppHandle) -> usize {
+    crate::discover::adopt_running(&app);
+    let folders = state(&app).settings.lock().unwrap().folders();
+    crate::launch::running_clients(&folders).iter().sum()
+}
+
+#[derive(Serialize)]
+pub struct AccountView {
+    name: String,
+    /// Epoch seconds the account's Scarlet file was last written, 0 for never.
+    saved: i64,
+    characters: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct FolderView {
+    path: String,
+    primary: bool,
+    /// Clients running from this folder.
+    running: usize,
+    problem: Option<String>,
+    accounts: Vec<AccountView>,
+}
+
+/// Every WoW folder with its game accounts and their characters, and the clients running from
+/// it: what Settings shows so a player with several boxes sees them all in one app.
+#[tauri::command(async)]
+pub fn wow_folders(app: AppHandle) -> Vec<FolderView> {
+    let (primary, more) = {
+        let st = state(&app).settings.lock().unwrap();
+        (st.wow.clone(), st.more_wow.clone())
+    };
+    let mut all: Vec<PathBuf> = Vec::new();
+    for p in std::iter::once(primary.clone()).chain(more) {
+        if !p.as_os_str().is_empty()
+            && !all
+                .iter()
+                .any(|q| settings::folder_key(q) == settings::folder_key(&p))
+        {
+            all.push(p);
+        }
+    }
+    let running = crate::launch::running_clients(&all);
+    all.iter()
+        .zip(running)
+        .map(|(wow, running)| FolderView {
+            path: wow.display().to_string(),
+            primary: settings::folder_key(wow) == settings::folder_key(&primary),
+            running,
+            problem: settings::folder_problem(wow),
+            accounts: scarlet::export::accounts(wow)
+                .into_iter()
+                .map(|a| AccountView {
+                    name: a.name,
+                    saved: a.saved,
+                    characters: a.characters,
+                })
+                .collect(),
+        })
+        .collect()
 }

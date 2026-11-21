@@ -1,7 +1,8 @@
 //! "Watch": export again when the game writes SavedVariables. The thread sleeps in
 //! `WaitForMultipleObjects` on a Windows change notification for the account folder, so
-//! it costs nothing while the game is not writing. A switch-off or a settings change sets
-//! the wake event; a PC without the game folder yet is rechecked every 30 s.
+//! it costs nothing while the game is not writing. Each WoW folder has its own notification. A
+//! switch-off or a settings change sets the wake event; a PC without the game folder yet is
+//! rechecked every 30 s.
 
 use crate::commands::{reload, state};
 use std::path::{Path, PathBuf};
@@ -10,7 +11,9 @@ use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
-use windows_sys::Win32::Foundation::{FALSE, HANDLE, INVALID_HANDLE_VALUE, WAIT_OBJECT_0};
+use windows_sys::Win32::Foundation::{
+    FALSE, HANDLE, INVALID_HANDLE_VALUE, WAIT_OBJECT_0, WAIT_TIMEOUT,
+};
 use windows_sys::Win32::Storage::FileSystem::{
     FILE_NOTIFY_CHANGE_FILE_NAME, FILE_NOTIFY_CHANGE_LAST_WRITE, FindCloseChangeNotification,
     FindFirstChangeNotificationW, FindNextChangeNotification,
@@ -30,6 +33,8 @@ static WAKE: OnceLock<usize> = OnceLock::new();
 const SETTLE: Duration = Duration::from_secs(1);
 /// How often to look again for the account folder while it does not exist.
 const RECHECK_MS: u32 = 30_000;
+/// Folders watched at once: a wait takes 64 handles, one of them the wake event.
+const MAX_FOLDERS: usize = 60;
 
 fn wake_handle() -> HANDLE {
     *WAKE.get_or_init(|| unsafe {
@@ -79,8 +84,8 @@ pub fn set_watch(app: &AppHandle, on: bool) {
 }
 
 /// Exports and reloads the store only when the export wrote new lines.
-pub fn export_and_reload(app: &AppHandle, wow: &Path, out: &Path) -> Result<bool, String> {
-    let wrote = scarlet::export::export_new(wow, out).map_err(|e| e.to_string())?;
+pub fn export_and_reload(app: &AppHandle, wows: &[PathBuf], out: &Path) -> Result<bool, String> {
+    let wrote = scarlet::export::export_new_all(wows, out).map_err(|e| e.to_string())?;
     if wrote {
         reload(app);
         crate::upload::start_if_on(app);
@@ -98,41 +103,71 @@ fn watch_loop(app: AppHandle) {
             }
         }
         let s = state(&app);
-        let (wow, out) = {
+        let (wows, out) = {
             let st = s.settings.lock().unwrap();
-            (st.wow.clone(), st.data.clone())
+            (st.folders(), st.data.clone())
         };
-        let accounts: PathBuf = scarlet::gamedir::game_dir(&wow).join("WTF").join("Account");
-        let note = watch_dir(&accounts);
-        // Checked after the notification exists, so a write between the check and the wait is
+        // One notification per WoW folder: each game account in each of them writes its own
+        // SavedVariables file when its client logs out or reloads, at its own time.
+        let mut notes: Vec<HANDLE> = Vec::new();
+        let mut missing = wows.is_empty();
+        for wow in wows.iter().take(MAX_FOLDERS) {
+            let accounts: PathBuf = scarlet::gamedir::game_dir(wow).join("WTF").join("Account");
+            match watch_dir(&accounts) {
+                Some(h) => notes.push(h),
+                None => missing = true,
+            }
+        }
+        // The files as they were before an export read them. With two clients running, one
+        // can log out while the other's export is under way: its file differs from this
+        // list afterwards, so it is exported again whatever state.json says.
+        let mut stamps = scarlet::export::sv_stamps(&wows);
+        // Checked after the notifications exist, so a write between the check and the wait is
         // seen. A start with nothing newer than the last export does no work.
-        if scarlet::export::has_new(&wow, &out) && export_and_reload(&app, &wow, &out).is_err() {
+        if scarlet::export::has_new_all(&wows, &out)
+            && export_and_reload(&app, &wows, &out).is_err()
+        {
             // Do not spin on a file that cannot be read yet.
+            stamps.clear();
             unsafe { WaitForSingleObject(wake_handle(), 5_000) };
         }
 
-        let Some(note) = note else {
+        if notes.is_empty() {
             unsafe { WaitForSingleObject(wake_handle(), RECHECK_MS) };
             continue;
-        };
-        // Wait here until the folder changes, or the settings or the switch do.
+        }
+        // Wait here until a folder changes, or the settings or the switch do. A folder that
+        // is not there yet is looked for again every 30 s.
         loop {
-            let objs = [wake_handle(), note];
-            let r = unsafe { WaitForMultipleObjects(2, objs.as_ptr(), FALSE, INFINITE) };
-            // Index 0 is the wake event; anything but the folder's notification re-reads.
-            if r != WAIT_OBJECT_0 + 1 {
+            let mut objs = vec![wake_handle()];
+            objs.extend(&notes);
+            let timeout = if missing { RECHECK_MS } else { INFINITE };
+            let r =
+                unsafe { WaitForMultipleObjects(objs.len() as u32, objs.as_ptr(), FALSE, timeout) };
+            // Index 0 is the wake event; anything but a folder's notification re-reads.
+            let i = r.wrapping_sub(WAIT_OBJECT_0) as usize;
+            if r == WAIT_TIMEOUT || i == 0 || i >= objs.len() {
                 break;
             }
+            let note = objs[i];
             unsafe { FindNextChangeNotification(note) };
             std::thread::sleep(SETTLE);
             unsafe { FindNextChangeNotification(note) };
             if !WATCH_ON.load(Ordering::Relaxed) {
                 break;
             }
-            if scarlet::export::has_new(&wow, &out) {
-                let _ = export_and_reload(&app, &wow, &out);
+            let now = scarlet::export::sv_stamps(&wows);
+            if now != stamps || scarlet::export::has_new_all(&wows, &out) {
+                // Kept only when the export worked, so the next change tries again.
+                stamps = if export_and_reload(&app, &wows, &out).is_ok() {
+                    now
+                } else {
+                    Vec::new()
+                };
             }
         }
-        unsafe { FindCloseChangeNotification(note) };
+        for note in notes {
+            unsafe { FindCloseChangeNotification(note) };
+        }
     }
 }
