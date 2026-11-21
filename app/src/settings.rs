@@ -40,6 +40,14 @@ pub struct Settings {
     /// Open Scarlet when WoW Forever starts (the `--on-wow` watcher).
     #[serde(default)]
     pub open_with_wow: bool,
+    /// The Map view's art: "dark" (Scarlet's own sheets, the default) or "openmap" (read from the
+    /// player's OpenMap addon).
+    #[serde(default = "default_map_art")]
+    pub map_art: String,
+}
+
+fn default_map_art() -> String {
+    "dark".into()
 }
 
 pub fn exe_dir() -> PathBuf {
@@ -249,6 +257,7 @@ fn fallback() -> Settings {
             watch: false,
             last_view: "overview".into(),
             open_with_wow: false,
+            map_art: default_map_art(),
         };
     }
     let wow = detect_wow();
@@ -259,6 +268,7 @@ fn fallback() -> Settings {
         data: default_data(),
         last_view: "overview".into(),
         open_with_wow: false,
+        map_art: default_map_art(),
     }
 }
 

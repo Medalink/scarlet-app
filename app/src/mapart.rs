@@ -1,0 +1,132 @@
+//! Where the Map view's art comes from: Scarlet's own dark sheets, or the player's OpenMap addon.
+
+use crate::commands::state;
+use crate::openmap::{self, Install};
+use crate::settings;
+use serde::Serialize;
+use tauri::{AppHandle, Manager};
+
+/// OpenMap's page, the one address `open_openmap_page` opens.
+const OPENMAP_URL: &str = "https://github.com/openmap-world/openmap";
+
+#[derive(Serialize)]
+pub struct ArtStatus {
+    /// "dark" or "openmap": the setting.
+    art: String,
+    /// OpenMap's files were found in the WoW folder from Settings.
+    installed: bool,
+    version: Option<String>,
+    wow: String,
+}
+
+fn install(app: &AppHandle) -> Option<Install> {
+    let wow = state(app).settings.lock().unwrap().wow.clone();
+    Install::find(&wow)
+}
+
+#[tauri::command]
+pub fn map_art_status(app: AppHandle) -> ArtStatus {
+    let s = state(&app).settings.lock().unwrap().clone();
+    let found = Install::find(&s.wow);
+    ArtStatus {
+        art: s.map_art,
+        installed: found.is_some(),
+        version: found.map(|i| i.version),
+        wow: s.wow.display().to_string(),
+    }
+}
+
+#[tauri::command]
+pub fn set_map_art(app: AppHandle, art: String) -> Result<String, String> {
+    if art != "dark" && art != "openmap" {
+        return Err("Map art is dark or openmap.".into());
+    }
+    settings::update(|c| c.map_art = art.clone())?;
+    state(&app).settings.lock().unwrap().map_art = art.clone();
+    Ok(art)
+}
+
+/// One map's picture cut out of the OpenMap install, as WebP; empty when OpenMap is not installed or
+/// does not have the map. The first cut of a map takes about a tenth of a second and is cached.
+#[tauri::command]
+pub async fn map_image_openmap(app: AppHandle, map: u32) -> tauri::ipc::Response {
+    let data = state(&app).settings.lock().unwrap().data.clone();
+    let inst = install(&app);
+    let bytes = tauri::async_runtime::spawn_blocking(move || {
+        inst.and_then(|i| openmap::image(&i, &data, map))
+    })
+    .await
+    .ok()
+    .flatten();
+    tauri::ipc::Response::new(bytes.unwrap_or_default())
+}
+
+/// A map's pre-rendered dark sheet from the app's `dark` resource folder; empty when the folder has
+/// none, and the view then draws the sheet itself from whichever art it has.
+#[tauri::command]
+pub fn map_image_dark(app: AppHandle, map: u32) -> tauri::ipc::Response {
+    let bytes = app
+        .path()
+        .resource_dir()
+        .ok()
+        .map(|d| d.join("dark").join(format!("{map}.webp")))
+        .and_then(|p| std::fs::read(p).ok());
+    tauri::ipc::Response::new(bytes.unwrap_or_default())
+}
+
+/// Opens OpenMap's page in the default browser. Takes no address, so the page cannot open anything else.
+#[tauri::command]
+pub fn open_openmap_page() -> Result<(), String> {
+    use windows_sys::Win32::UI::Shell::ShellExecuteW;
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    let wide = |s: &str| {
+        s.encode_utf16()
+            .chain(std::iter::once(0))
+            .collect::<Vec<u16>>()
+    };
+    // SAFETY: both strings are NUL-terminated and outlive the call; the other arguments are null.
+    let rc = unsafe {
+        ShellExecuteW(
+            std::ptr::null_mut(),
+            wide("open").as_ptr(),
+            wide(OPENMAP_URL).as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    } as usize;
+    // ShellExecute reports success with a value above 32.
+    if rc > 32 {
+        Ok(())
+    } else {
+        Err(format!("Windows could not open the page (code {rc})."))
+    }
+}
+
+/// `scarlet-app --openmap-cut <folder>`: cuts every map out of the OpenMap install in Settings into
+/// the folder, with no window, and writes `cut.log` there (the build has no console). For measuring
+/// a full cache and for tools that want the pictures as files.
+pub fn cut_to(dir: &std::path::Path) {
+    let log = dir.join("cut.log");
+    let _ = std::fs::create_dir_all(dir);
+    let s = settings::load();
+    let Some(inst) = Install::find(&s.wow) else {
+        let _ = std::fs::write(log, format!("no OpenMap in {}\n", s.wow.display()));
+        return;
+    };
+    let t = std::time::Instant::now();
+    let (mut maps, mut bytes) = (0u32, 0usize);
+    let r = openmap::build_all(&inst, dir, |_, n| {
+        maps += 1;
+        bytes += n;
+    });
+    let note = match r {
+        Ok(()) => format!(
+            "OpenMap {} cut {maps} maps, {bytes} bytes, {:.2} s\n",
+            inst.version,
+            t.elapsed().as_secs_f64()
+        ),
+        Err(e) => format!("cut failed after {maps} maps: {e}\n"),
+    };
+    let _ = std::fs::write(log, note);
+}

@@ -8,6 +8,8 @@ mod commands;
 mod launch;
 mod layers;
 mod loot;
+mod mapart;
+mod openmap;
 mod ops;
 mod settings;
 mod store;
@@ -16,6 +18,14 @@ fn main() {
     // The background copy that opens Scarlet when WoW Forever starts; no window, no Tauri.
     if std::env::args().any(|a| a == launch::FLAG) {
         launch::watch();
+        return;
+    }
+    // A tool run: cuts the OpenMap maps into a folder and exits.
+    let mut args = std::env::args();
+    if args.any(|a| a == "--openmap-cut") {
+        if let Some(dir) = args.next() {
+            mapart::cut_to(std::path::Path::new(&dir));
+        }
         return;
     }
     // One Scarlet window: a second launch brings the open one to the front and exits.
@@ -46,6 +56,11 @@ fn main() {
             commands::map_image,
             commands::map_labels,
             commands::map_layers,
+            mapart::map_art_status,
+            mapart::set_map_art,
+            mapart::map_image_openmap,
+            mapart::map_image_dark,
+            mapart::open_openmap_page,
             commands::charts,
             commands::trends,
             loot::loot,

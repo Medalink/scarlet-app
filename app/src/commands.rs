@@ -130,6 +130,12 @@ fn maps_of(st: &Store) -> Vec<MapInfo> {
             name: index
                 .get(&id)
                 .map(|(name, _)| name.clone())
+                .or_else(|| {
+                    crate::openmap::maps()
+                        .iter()
+                        .find(|m| m.id == id)
+                        .map(|m| m.name.clone())
+                })
                 .or_else(|| st.zones.get(&id).cloned())
                 .unwrap_or_else(|| format!("Map {id}")),
             points,
