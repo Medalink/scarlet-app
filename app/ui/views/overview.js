@@ -97,7 +97,17 @@ function rank(rows) {
 
 // Header ------------------------------------------------------------------
 
-function header(ov, name) {
+// Time to the next level, the next tens level and level 60, as the companion
+// worked them out (docs/OVERVIEW.md, "Level estimates").
+function etaRows(eta) {
+  if (!eta || (!eta.targets.length && !eta.basis)) return "";
+  const rows = eta.targets
+    .map((t) => `<li><span class="eta-lv">Level ${t.level}</span><b>${esc(t.time)}</b><span>${esc(t.date)}</span></li>`)
+    .join("");
+  return `<div class="eta">${rows ? `<ul>${rows}</ul>` : ""}${eta.basis ? `<p class="eta-basis">${esc(eta.basis)}</p>` : ""}</div>`;
+}
+
+function header(ov, name, eta) {
   const color = CLASS_COLOR[ov.class] || "#ff2d55";
   const identity = [ov.level ? `Level ${ov.level}` : "", raceName(ov.race), className(ov.class)].filter(Boolean).join(" ");
   const bits = [identity, ov.faction, ov.zone ? `in ${ov.zone}` : "", ov.played ? `${longDur(ov.played)} played` : ""].filter(Boolean);
@@ -105,7 +115,7 @@ function header(ov, name) {
   if (ov.xpMax > 0) {
     const pct = Math.min(100, Math.floor((ov.xp / ov.xpMax) * 100));
     bar = `<div class="lvl"><div class="lvl-bar"><i style="width:${pct}%"></i></div>
-      <p>${pct}% to level ${ov.level + 1} · ${num(Math.max(0, ov.xpMax - ov.xp))} XP to go</p></div>`;
+      <p>${pct}% to level ${ov.level + 1} · ${num(Math.max(0, ov.xpMax - ov.xp))} XP to go</p>${etaRows(eta)}</div>`;
   }
   const last = ov.through ? `<p class="ch-note">Last session ${day(ov.through * 1000)} ${hm(ov.through * 1000)}</p>` : "";
   return `<section class="ch-head" style="--cls:${color}">
@@ -504,10 +514,10 @@ function draw(body) {
     body.innerHTML = `<section class="panel"><h3>Overview</h3>${empty("No characters recorded yet")}</section>`;
     return;
   }
-  const { name, ov } = current;
+  const { name, ov, eta } = current;
   body.insertAdjacentHTML(
     "beforeend",
-    `${header(ov, name)}${week(ov)}
+    `${header(ov, name, eta)}${week(ov)}
     <div class="sheet">${levelsChart(ov)}${goldMod(ov)}${runsMod(ov)}${matesMod(ov)}${deathsMod(ov)}${heatMod(ov)}${zonesMod(ov)}${historyMod(ov)}</div>`
   );
   wireLevels(body, ov);

@@ -388,6 +388,9 @@ pub fn stats(app: AppHandle, ch: Option<String>) -> Stats {
 pub struct CharOverview {
     name: String,
     ov: scarlet::overview::Overview,
+    /// Time to the next level, the next tens level and level 60, computed
+    /// once in the companion (docs/OVERVIEW.md, "Level estimates").
+    eta: scarlet::overview::Eta,
 }
 
 /// The character overview for the chosen character; with none chosen, the
@@ -414,7 +417,11 @@ pub fn overview(app: AppHandle, ch: Option<String>) -> Option<CharOverview> {
                 .filter(|r| r.ch == c)
                 .map(|r| (r.ms, r.code.as_str(), r.fields.as_slice())),
         );
-        Some(CharOverview { name, ov })
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs() as i64);
+        let eta = ov.eta(now);
+        Some(CharOverview { name, ov, eta })
     })
 }
 

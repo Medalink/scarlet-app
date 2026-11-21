@@ -376,6 +376,11 @@ td.dim:first-child { color: var(--muted); }
 .lvl-bar { height: 8px; background: rgba(255, 255, 255, 0.1); border-radius: 2px; overflow: hidden; }
 .lvl-bar i { display: block; height: 100%; background: var(--accent); border-radius: 0 2px 2px 0; }
 .lvl p { margin-top: 7px; font-size: 14px; color: var(--text); }
+.eta { margin-top: 12px; }
+.eta ul { list-style: none; padding: 0; margin: 0; }
+.eta li { display: grid; grid-template-columns: 5.5rem 6rem minmax(0, 1fr); gap: 0 12px; font-size: 14px; color: var(--text); padding: 2px 0; }
+.eta li b { font-weight: 650; color: var(--fg); }
+.eta .eta-basis { margin-top: 6px; color: var(--muted); }
 .ch-note { font-size: 14px; color: var(--muted); text-align: right; white-space: nowrap; }
 
 .week { display: grid; grid-template-columns: minmax(0, 1.25fr) repeat(5, minmax(0, 1fr)); border-top: 1px solid var(--line2); border-bottom: 1px solid var(--line2); }

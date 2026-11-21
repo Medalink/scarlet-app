@@ -429,6 +429,15 @@ fn write_digest(wow: &Path, out: &Path) {
     let made = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as i64);
+    for (name, ov) in &chars {
+        let eta = ov.eta(made);
+        let targets: Vec<String> = eta
+            .targets
+            .iter()
+            .map(|t| format!("L{} {} ({}m) {}", t.level, t.time, t.minutes, t.date))
+            .collect();
+        println!("eta: {name} {} | {}", targets.join(" | "), eta.basis);
+    }
     let text = overview::digest_lua(&chars, made);
     let tmp = addon.join("Digest.lua.tmp");
     let dest = addon.join("Digest.lua");

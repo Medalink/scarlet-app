@@ -785,6 +785,211 @@ pub fn build<'a>(me: &str, events: impl IntoIterator<Item = Ev<'a>>) -> Overview
     b.finish()
 }
 
+// Level estimates ------------------------------------------------------------
+
+/// Played seconds the pace is measured over, and the days the calendar rate is.
+const PACE_SECONDS: i64 = 36_000;
+const MIN_PLAYED: i64 = 900;
+const DAY_WINDOW: i64 = 14;
+const MAX_DAYS: f64 = 3650.0;
+const MAX_LEVEL: i64 = 60;
+/// `NEED[n - 1]` is the XP level `n` needs to reach level `n + 1`.
+const NEED: [i64; 59] = [
+    400, 900, 1400, 2100, 2800, 3600, 4500, 5400, 6500, 7600, 8800, 10100, 11400, 12900, 14400,
+    16000, 17700, 19400, 21300, 23200, 25200, 27300, 29400, 31700, 34000, 36400, 38900, 41400,
+    44300, 47400, 50800, 54500, 58600, 62800, 67100, 71600, 76100, 80800, 85700, 90700, 95800,
+    101000, 106300, 111800, 117500, 123200, 129100, 135100, 141200, 147500, 153900, 160400, 167100,
+    173900, 180800, 187900, 195000, 202300, 209800,
+];
+
+/// One session as the estimates read it: start, played seconds, all XP.
+#[derive(Serialize, Clone, Copy, Debug)]
+pub struct RecentRow {
+    pub t: i64,
+    pub p: i64,
+    pub x: i64,
+}
+
+/// The rows the level estimates need, newest first: every session from the
+/// last 14 days, and more until their played time adds up to 36,000 s.
+/// `sessions` is newest first and complete.
+pub fn recent_rows(sessions: &[SessionRow], now: i64) -> Vec<RecentRow> {
+    let cutoff = now - DAY_WINDOW * 86_400;
+    let mut out = Vec::new();
+    let mut played = 0;
+    for s in sessions {
+        if s.t < cutoff && played >= PACE_SECONDS {
+            break;
+        }
+        played += s.p;
+        out.push(RecentRow {
+            t: s.t,
+            p: s.p,
+            x: s.xk + s.xd + s.xq + s.xe + s.xo,
+        });
+    }
+    out
+}
+
+/// One target level: the time to reach it and, when the pace allows, a date.
+#[derive(Serialize, Clone, Debug)]
+pub struct EtaTarget {
+    pub level: i64,
+    pub time: String,
+    pub minutes: i64,
+    pub date: String,
+}
+
+/// The level estimates of docs/OVERVIEW.md, ready to show.
+#[derive(Serialize, Default, Clone, Debug)]
+pub struct Eta {
+    pub targets: Vec<EtaTarget>,
+    /// The muted line under the targets; empty when there is nothing to say.
+    pub basis: String,
+}
+
+/// "3d 4h", "1h 52m", "41m".
+fn span(secs: f64) -> (String, i64) {
+    let m = ((secs / 60.0 + 0.5).floor() as i64).max(1);
+    let (d, h) = (m / 1440, m % 1440 / 60);
+    let text = if d > 0 {
+        format!("{d}d {h}h")
+    } else if h > 0 {
+        format!("{h}h {}m", m % 60)
+    } else {
+        format!("{m}m")
+    };
+    (text, m)
+}
+
+/// 12564 -> "12,564".
+fn commas(n: i64) -> String {
+    let digits = n.abs().to_string();
+    let mut out = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    if n < 0 { format!("-{out}") } else { out }
+}
+
+/// "Fri 28 Nov", with the year when it is not the year of `now`.
+fn date_text(ts: i64, now: i64) -> String {
+    use chrono::{Datelike, Local, TimeZone};
+    let (Some(t), Some(n)) = (
+        Local.timestamp_opt(ts, 0).single(),
+        Local.timestamp_opt(now, 0).single(),
+    ) else {
+        return String::new();
+    };
+    let mut text = t.format("%a %-d %b").to_string();
+    if t.year() != n.year() {
+        text.push_str(&format!(" {}", t.year()));
+    }
+    text
+}
+
+/// Time to the next level, the next multiple of 10 and level 60 from the
+/// pace in `rows` (newest first, the merged history), for a character at
+/// `level` with `xp` of `xp_max` on the bar. `first` is the start of the
+/// oldest recorded session. Same rule as Overview.lua.
+pub fn level_eta(
+    rows: &[RecentRow],
+    first: i64,
+    level: i64,
+    xp: i64,
+    xp_max: i64,
+    now: i64,
+) -> Eta {
+    let mut eta = Eta::default();
+    if !(1..MAX_LEVEL).contains(&level) || xp_max <= 0 {
+        return eta;
+    }
+    let (mut played, mut gained, mut full) = (0, 0, false);
+    let mut day_played = 0;
+    let day_start = now - DAY_WINDOW * 86_400;
+    for r in rows {
+        if !full {
+            played += r.p;
+            gained += r.x;
+            full = played >= PACE_SECONDS;
+        }
+        if r.t >= day_start {
+            day_played += r.p;
+        }
+    }
+    if played < MIN_PLAYED || gained <= 0 {
+        eta.basis = "No level times yet: they need 15m played with XP recorded".into();
+        return eta;
+    }
+    let per_second = gained as f64 / played as f64;
+    let oldest = if first > 0 {
+        first
+    } else {
+        rows.iter().map(|r| r.t).min().unwrap_or(now)
+    };
+    let covered = ((now - oldest) as f64 / 86_400.0).clamp(1.0, DAY_WINDOW as f64);
+    let rate = day_played as f64 / covered;
+
+    let mut targets = vec![level + 1];
+    let major = (level / 10 + 1) * 10;
+    if major != level + 1 && major < MAX_LEVEL {
+        targets.push(major);
+    }
+    if level + 1 != MAX_LEVEL {
+        targets.push(MAX_LEVEL);
+    }
+    for target in targets {
+        let mut left = (xp_max - xp).max(0);
+        for n in level + 1..target {
+            left += NEED[(n - 1) as usize];
+        }
+        let secs = left as f64 / per_second;
+        let (time, minutes) = span(secs);
+        let date = if rate > 0.0 && secs / rate <= MAX_DAYS {
+            format!(
+                "about {}",
+                date_text((now as f64 + secs / rate * 86_400.0).floor() as i64, now)
+            )
+        } else {
+            String::new()
+        };
+        eta.targets.push(EtaTarget {
+            level: target,
+            time,
+            minutes,
+            date,
+        });
+    }
+    eta.basis = format!(
+        "At your pace over the last {} played: {} XP an hour",
+        span(played as f64).0,
+        commas((per_second * 3600.0 + 0.5).floor() as i64)
+    );
+    eta
+}
+
+impl Overview {
+    /// The start of the character's first recorded session; 0 when none.
+    pub fn first_session(&self) -> i64 {
+        self.sessions.last().map_or(0, |s| s.t)
+    }
+
+    /// The level estimates from this overview's sessions at `now`.
+    pub fn eta(&self, now: i64) -> Eta {
+        level_eta(
+            &recent_rows(&self.sessions, now),
+            self.first_session(),
+            self.level,
+            self.xp,
+            self.xp_max,
+            now,
+        )
+    }
+}
+
 // Digest.lua ---------------------------------------------------------------
 
 const DIGEST_MAX_BYTES: usize = 200_000;
@@ -894,8 +1099,18 @@ fn render_digest(chars: &[(String, Overview)], made: i64, sessions: Option<usize
                 recent.max(DIGEST_SESSIONS)
             }
         };
+        // `recent` and `first` come from every session, before any trimming,
+        // and are never trimmed.
+        let recent = recent_rows(&ov.sessions, made);
+        let first = ov.first_session();
         view.sessions.truncate(keep);
-        if let Ok(v) = serde_json::to_value(&view) {
+        if let Ok(mut v) = serde_json::to_value(&view) {
+            if let Some(m) = v.as_object_mut() {
+                m.insert("first".into(), Value::from(first));
+                if let Ok(r) = serde_json::to_value(&recent) {
+                    m.insert("recent".into(), r);
+                }
+            }
             root.insert(name.clone(), v);
         }
     }
@@ -906,8 +1121,9 @@ fn render_digest(chars: &[(String, Overview)], made: i64, sessions: Option<usize
 }
 
 /// The text of Digest.lua for these characters (newest sessions first, the
-/// last 60 or all from the last 14 days, whichever is more). Under 200 KB:
-/// when it would not be, each character keeps fewer sessions.
+/// last 60 or all from the last 14 days, whichever is more; plus `recent`
+/// and `first` for the level estimates, which are never trimmed). Under
+/// 200 KB: when it would not be, each character keeps fewer sessions.
 pub fn digest_lua(chars: &[(String, Overview)], made: i64) -> String {
     let mut text = render_digest(chars, made, None);
     let mut keep = chars
