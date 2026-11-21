@@ -341,7 +341,7 @@ fn build(st: &Store, accounts: Vec<(String, Vec<String>)>) -> Roster {
     let overviews: Vec<Overview> = events
         .into_iter()
         .zip(&st.chars)
-        .map(|(evs, name)| overview::build(name, evs))
+        .map(|(evs, name)| overview::build_among(name, evs, &st.chars))
         .collect();
 
     let moved = own_transfers(moves, &st.chars);

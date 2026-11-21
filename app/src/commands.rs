@@ -426,12 +426,13 @@ pub fn overview(app: AppHandle, ch: Option<String>) -> Option<CharOverview> {
                 .or_else(|| (!st.chars.is_empty()).then_some(0))?,
         };
         let name = st.chars.get(c as usize)?.clone();
-        let mut ov = scarlet::overview::build(
+        let mut ov = scarlet::overview::build_among(
             &name,
             st.events
                 .iter()
                 .filter(|r| r.ch == c)
                 .map(|r| (r.ms, r.code.as_str(), r.fields.as_slice())),
+            &st.chars,
         );
         // Another recorded character is the player's own (a dual box), not a groupmate.
         ov.mates.retain(|m| !st.chars.contains(&m.name));
