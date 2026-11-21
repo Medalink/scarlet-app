@@ -4,6 +4,7 @@
 use crate::addons;
 use crate::archive;
 use crate::events;
+use crate::inventory::{self, Inventory};
 use crate::lua::{self, Lua};
 use crate::overview::{self, Overview};
 use crate::tables;
@@ -286,6 +287,7 @@ pub fn export_new_all(wows: &[PathBuf], out: &Path) -> Result<bool, Box<dyn Erro
         if let Err(e) = write_overview(&dir, &ov) {
             eprintln!("scarlet: {name}: overview: {e}");
         }
+        write_inventory(&dir, name, &evs);
         if let Some(rows) = addon.get(name) {
             crosscheck(name, &ov, rows);
         }
@@ -368,6 +370,21 @@ fn overview_rev_stale(out: &Path) -> bool {
         eprintln!("scarlet: {}: {e}", file.display());
     }
     stale
+}
+
+fn write_inventory(dir: &Path, name: &str, evs: &[archive::Event]) {
+    let inv = inventory::build(
+        evs.iter()
+            .map(|e| (e.ms, e.code.as_str(), e.fields.as_slice())),
+    );
+    let tmp = dir.join("inventory.json.tmp");
+    let written = serde_json::to_string(&inv)
+        .map_err(|e| e.to_string())
+        .and_then(|text| fs::write(&tmp, text).map_err(|e| e.to_string()))
+        .and_then(|()| fs::rename(&tmp, dir.join("inventory.json")).map_err(|e| e.to_string()));
+    if let Err(e) = written {
+        eprintln!("scarlet: {name}: inventory: {e}");
+    }
 }
 
 fn write_overview(dir: &Path, ov: &Overview) -> Result<(), Box<dyn Error>> {
@@ -540,12 +557,17 @@ fn write_digest(wow: &Path, out: &Path, accounts: &BTreeMap<String, Vec<String>>
             continue;
         };
         let file = d.join("overview.json");
-        if rebuild || !file.is_file() || overview_is_stale(&d, &file) {
+        if rebuild
+            || !file.is_file()
+            || !d.join("inventory.json").is_file()
+            || overview_is_stale(&d, &file)
+        {
             match load_events(&d, &name) {
                 Ok(evs) if !evs.is_empty() => {
                     if let Err(e) = write_overview(&d, &build_overview(&name, &evs, &own)) {
                         eprintln!("scarlet: {name}: overview: {e}");
                     }
+                    write_inventory(&d, &name, &evs);
                 }
                 _ => continue,
             }
@@ -586,6 +608,7 @@ fn write_digest(wow: &Path, out: &Path, accounts: &BTreeMap<String, Vec<String>>
             .collect();
         println!("eta: {name} {} | {}", targets.join(" | "), eta.basis);
     }
+    write_items(&addon, &chars, out, made);
     let text = overview::digest_lua_with(&chars, made, &accounts);
     let tmp = addon.join("Digest.lua.tmp");
     let dest = addon.join("Digest.lua");
@@ -607,6 +630,22 @@ fn write_digest(wow: &Path, out: &Path, accounts: &BTreeMap<String, Vec<String>>
             "digest: could not replace {} ({e}); Digest.lua.tmp stays for the next export",
             dest.display()
         ),
+    }
+}
+
+fn write_items(addon: &Path, chars: &[(String, Overview)], out: &Path, made: i64) {
+    let list: Vec<(String, Inventory)> = chars
+        .iter()
+        .filter_map(|(name, _)| {
+            let text = fs::read_to_string(out.join(name).join("inventory.json")).ok()?;
+            Some((name.clone(), serde_json::from_str::<Inventory>(&text).ok()?))
+        })
+        .collect();
+    let text = inventory::items_lua(&list, made);
+    let tmp = addon.join("Items.lua.tmp");
+    let dest = addon.join("Items.lua");
+    if let Err(e) = fs::write(&tmp, &text).and_then(|()| fs::rename(&tmp, &dest)) {
+        println!("items: could not write {}: {e}", dest.display());
     }
 }
 

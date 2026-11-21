@@ -1607,7 +1607,7 @@ fn lua_key(k: &str, out: &mut String) {
 /// Containers down to this depth get a line each, deeper ones stay inline.
 const LUA_LINE_DEPTH: usize = 4;
 
-fn lua_write(v: &Value, depth: usize, out: &mut String) {
+pub(crate) fn lua_write(v: &Value, depth: usize, out: &mut String) {
     let nl = |out: &mut String, d: usize| {
         if depth < LUA_LINE_DEPTH {
             out.push('\n');
