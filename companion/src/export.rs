@@ -142,6 +142,7 @@ pub fn has_new_all(wows: &[PathBuf], out: &Path) -> bool {
         .and_then(|m| m.modified())
         .ok();
     wows.iter().any(|w| data_addon_missing(w))
+        || imports_stale(wows, out)
         || find_sv_all(wows).unwrap_or_default().iter().any(|sv| {
             let t = fs::metadata(sv).and_then(|m| m.modified()).ok();
             match (t, done) {
@@ -400,6 +401,31 @@ fn write_overview(dir: &Path, ov: &Overview) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn import_stamp(path: &Path) -> (String, u64) {
+    let stamp = fs::metadata(path)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_secs());
+    (format!("{}#import", state_key(path)), stamp)
+}
+
+fn imports_stale(wows: &[PathBuf], out: &Path) -> bool {
+    let sources: Vec<PathBuf> = wows
+        .iter()
+        .flat_map(|w| import::find_files(&crate::gamedir::game_dir(w)))
+        .map(|(path, _)| path)
+        .collect();
+    if sources.is_empty() {
+        return false;
+    }
+    let state = load_state(&out.join("state.json"));
+    sources.iter().any(|path| {
+        let (key, stamp) = import_stamp(path);
+        state.0.get(&key) != Some(&stamp)
+    })
+}
+
 fn refresh_imports(
     wows: &[PathBuf],
     out: &Path,
@@ -413,12 +439,7 @@ fn refresh_imports(
     for game in &games {
         for (path, _) in import::find_files(game) {
             any = true;
-            let stamp = fs::metadata(&path)
-                .and_then(|m| m.modified())
-                .ok()
-                .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
-                .map_or(0, |d| d.as_secs());
-            let key = format!("{}#import", state_key(&path));
+            let (key, stamp) = import_stamp(&path);
             if state.0.get(&key) != Some(&stamp) {
                 sources_changed = true;
                 state.0.insert(key, stamp);
