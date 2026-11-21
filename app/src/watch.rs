@@ -83,6 +83,7 @@ pub fn export_and_reload(app: &AppHandle, wow: &Path, out: &Path) -> Result<bool
     let wrote = scarlet::export::export_new(wow, out).map_err(|e| e.to_string())?;
     if wrote {
         reload(app);
+        crate::upload::after_export(app);
     }
     Ok(wrote)
 }

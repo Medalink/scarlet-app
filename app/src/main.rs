@@ -14,6 +14,7 @@ mod openmap;
 mod ops;
 mod settings;
 mod store;
+mod upload;
 mod watch;
 
 fn main() {
@@ -81,6 +82,16 @@ fn main() {
             ops::set_settings,
             ops::save_view,
             ops::set_open_with_wow,
+            upload::upload_get,
+            upload::upload_set_enabled,
+            upload::upload_set_server,
+            upload::upload_set_group,
+            upload::upload_remove_group,
+            upload::upload_set_character,
+            upload::upload_delete_all,
+            upload::upload_now,
+            upload::upload_linked,
+            upload::upload_link,
         ])
         .setup(move |app| {
             let mut window = tauri::WebviewWindowBuilder::new(

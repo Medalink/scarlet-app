@@ -241,6 +241,7 @@ main:has(.ch-head) #pagetitle { display: none; }
 }
 
 .btn:hover { border-color: var(--soft); color: var(--fg); }
+.btn:disabled { opacity: 0.45; cursor: default; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--ink); font-weight: 700; }
 .btn.primary:hover { background: var(--soft); border-color: var(--soft); color: var(--ink); }
 .btn.on { background: var(--fg); border-color: var(--fg); color: var(--ink); font-weight: 700; }
@@ -522,6 +523,7 @@ ul, ol { list-style: none; }
 .switch.on .track { border-color: var(--accent); }
 .switch.on .knob { left: 16px; background: var(--accent); }
 .switch .lab { font-size: 14px; color: var(--fg); }
+.switch.locked { cursor: default; opacity: 0.6; }
 
 /* Settings ---------------------------------------------------------------- */
 

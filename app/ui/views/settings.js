@@ -1,6 +1,7 @@
 // Settings: WoW folder and data folder, what is missing on this PC, and where they are stored.
 
 import { invoke, el, openmapMissing } from "../lib.js";
+import { renderUpload } from "./upload.js";
 
 export async function render(body) {
   body.innerHTML = "";
@@ -93,6 +94,7 @@ export async function render(body) {
   artField.appendChild(artSeg);
   body.append(artField, artNote);
   showArt(s.map_art || "dark");
+  renderUpload(body);
 
   form.querySelector("#save").onclick = async () => {
     const st = form.querySelector("#st");

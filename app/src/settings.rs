@@ -44,6 +44,9 @@ pub struct Settings {
     /// player's OpenMap addon).
     #[serde(default = "default_map_art")]
     pub map_art: String,
+    /// Uploading to the Scarlet website: off until the player turns it on.
+    #[serde(default)]
+    pub upload: scarlet::upload::config::UploadConfig,
 }
 
 fn default_map_art() -> String {
@@ -258,6 +261,7 @@ fn fallback() -> Settings {
             last_view: "overview".into(),
             open_with_wow: false,
             map_art: default_map_art(),
+            upload: Default::default(),
         };
     }
     let wow = detect_wow();
@@ -269,6 +273,7 @@ fn fallback() -> Settings {
         last_view: "overview".into(),
         open_with_wow: false,
         map_art: default_map_art(),
+        upload: Default::default(),
     }
 }
 
