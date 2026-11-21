@@ -376,9 +376,24 @@ fn crosscheck(name: &str, ov: &Overview, rows: &[AddonRow]) {
     }
 }
 
+/// A payload newer than overview.json (history imported or copied in after
+/// the last export of this character) means the file misses sessions.
+fn overview_is_stale(dir: &Path, overview: &Path) -> bool {
+    let modified = |p: &Path| fs::metadata(p).and_then(|m| m.modified()).ok();
+    let Some(built) = modified(overview) else {
+        return true;
+    };
+    archive::char_payloads(dir)
+        .into_iter()
+        .flatten()
+        .filter_map(|p| modified(&p))
+        .any(|t| t > built)
+}
+
 /// Write Digest.lua into the addon folder from every character's
-/// overview.json (built here for a character that has none yet). A failure is
-/// a note, not an error: the next export tries again.
+/// overview.json (built here for a character that has none yet, or whose
+/// payloads are newer than it). A failure is a note, not an error: the next
+/// export tries again.
 fn write_digest(wow: &Path, out: &Path) {
     let addon = wow
         .join("_forever_")
@@ -403,7 +418,7 @@ fn write_digest(wow: &Path, out: &Path) {
             continue;
         };
         let file = d.join("overview.json");
-        if !file.is_file() {
+        if !file.is_file() || overview_is_stale(&d, &file) {
             match load_events(&d, &name) {
                 Ok(evs) if !evs.is_empty() => {
                     if let Err(e) = write_overview(&d, &build_overview(&name, &evs)) {
