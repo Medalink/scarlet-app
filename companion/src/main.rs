@@ -17,14 +17,14 @@ fn main() {
 
 fn run() -> Result<(), Box<dyn Error>> {
     let mut words: Vec<String> = Vec::new();
-    let mut wow: Option<PathBuf> = None;
+    let mut wows: Vec<PathBuf> = Vec::new();
     let mut out: Option<PathBuf> = None;
     let mut settings: Option<PathBuf> = None;
     let mut up = cli::Args::default();
     let mut ap = lexopt::Parser::from_env();
     while let Some(arg) = ap.next()? {
         match arg {
-            Long("wow") => wow = Some(ap.value()?.into()),
+            Long("wow") => wows.push(ap.value()?.into()),
             Long("out") => out = Some(ap.value()?.into()),
             Long("settings") => settings = Some(ap.value()?.into()),
             Long("character") => up.character = Some(ap.value()?.string()?),
@@ -39,7 +39,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
     }
     let Some(cmd) = words.first().cloned() else {
-        eprintln!("usage: scarlet <export|watch|logs|upload> [--wow <dir>] [--out <dir>]");
+        eprintln!("usage: scarlet <export|watch|logs|upload> [--wow <dir>]... [--out <dir>]");
         std::process::exit(2);
     };
     let out = out
@@ -56,17 +56,19 @@ fn run() -> Result<(), Box<dyn Error>> {
     if words.len() > 1 {
         return Err("unexpected argument".into());
     }
-    let wow = wow.unwrap_or_else(|| PathBuf::from(DEFAULT_WOW));
-    if !wow.is_dir() {
+    if wows.is_empty() {
+        wows.push(PathBuf::from(DEFAULT_WOW));
+    }
+    for wow in wows.iter().filter(|w| !w.is_dir()) {
         eprintln!(
             "scarlet: {} does not exist; pass --wow <the World of Warcraft folder>",
             wow.display()
         );
     }
     match cmd.as_str() {
-        "export" => export::export(&wow, &out),
-        "watch" => export::watch(&wow, &out),
-        "logs" => export::logs(&wow, &out),
+        "export" => export::export_all(&wows, &out),
+        "watch" => export::watch_all(&wows, &out),
+        "logs" => export::logs_all(&wows, &out),
         other => {
             Err(format!("unknown command '{other}' (use export, watch, logs or upload)").into())
         }

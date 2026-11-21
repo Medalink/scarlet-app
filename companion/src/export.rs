@@ -16,21 +16,45 @@ use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
-/// Every `<game>\WTF\Account\*\SavedVariables\Scarlet.lua`, with `<game>` from
-/// `gamedir::game_dir(wow)`.
-pub fn find_sv(wow: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
+/// Every `<game>\WTF\Account\*\SavedVariables\Scarlet.lua` of every WoW folder (one per game
+/// account, so a player who dual boxes has two or more), with `<game>` from
+/// `gamedir::game_dir(wow)`. A folder listed twice counts once.
+pub fn find_sv_all(wows: &[PathBuf]) -> Result<Vec<PathBuf>, Box<dyn Error>> {
     let mut found = Vec::new();
-    let accounts = crate::gamedir::game_dir(wow).join("WTF").join("Account");
-    if let Ok(entries) = fs::read_dir(&accounts) {
-        for acc in entries {
-            let sv = acc?.path().join("SavedVariables").join("Scarlet.lua");
-            if sv.is_file() {
-                found.push(sv);
+    for wow in wows {
+        let accounts = crate::gamedir::game_dir(wow).join("WTF").join("Account");
+        if let Ok(entries) = fs::read_dir(&accounts) {
+            for acc in entries {
+                let sv = acc?.path().join("SavedVariables").join("Scarlet.lua");
+                if sv.is_file() {
+                    found.push(sv);
+                }
             }
         }
     }
-    found.sort();
+    found.sort_by_cached_key(|p| state_key(p));
+    found.dedup_by_key(|p| state_key(p));
     Ok(found)
+}
+
+/// `find_sv_all` for one WoW folder.
+pub fn find_sv(wow: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
+    find_sv_all(&[wow.to_path_buf()])
+}
+
+/// `has_new_all` for one WoW folder.
+pub fn has_new(wow: &Path, out: &Path) -> bool {
+    has_new_all(&[wow.to_path_buf()], out)
+}
+
+/// `export_new_all` for one WoW folder.
+pub fn export_new(wow: &Path, out: &Path) -> Result<bool, Box<dyn Error>> {
+    export_new_all(&[wow.to_path_buf()], out)
+}
+
+/// `logs_all` for one WoW folder.
+pub fn logs(wow: &Path, out: &Path) -> Result<(), Box<dyn Error>> {
+    logs_all(&[wow.to_path_buf()], out)
 }
 
 #[derive(Serialize, Deserialize, Default)]
@@ -124,18 +148,18 @@ impl CharRun {
 
 /// Export all new chunks from every account's Scarlet.lua. Writes the
 /// readable .txt and one .scl payload per character, then state.json.
-pub fn export(wow: &Path, out: &Path) -> Result<(), Box<dyn Error>> {
-    export_new(wow, out).map(|_| ())
+pub fn export_all(wows: &[PathBuf], out: &Path) -> Result<(), Box<dyn Error>> {
+    export_new_all(wows, out).map(|_| ())
 }
 
 /// True when a SavedVariables file was written after the last export finished
 /// (`state.json` is rewritten at the end of every export). With no `state.json`
 /// yet, any SavedVariables file counts.
-pub fn has_new(wow: &Path, out: &Path) -> bool {
+pub fn has_new_all(wows: &[PathBuf], out: &Path) -> bool {
     let done = fs::metadata(out.join("state.json"))
         .and_then(|m| m.modified())
         .ok();
-    find_sv(wow).unwrap_or_default().iter().any(|sv| {
+    find_sv_all(wows).unwrap_or_default().iter().any(|sv| {
         let t = fs::metadata(sv).and_then(|m| m.modified()).ok();
         match (t, done) {
             (Some(t), Some(done)) => t > done,
@@ -145,10 +169,29 @@ pub fn has_new(wow: &Path, out: &Path) -> bool {
     })
 }
 
+/// Every SavedVariables file with its modification time. Two clients write their own file at
+/// their own moments, so a caller takes this before an export and compares it after: a file
+/// written during the export shows as different and is exported again.
+pub fn sv_stamps(wows: &[PathBuf]) -> Vec<(PathBuf, Option<SystemTime>)> {
+    find_sv_all(wows)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|p| {
+            let t = fs::metadata(&p).and_then(|m| m.modified()).ok();
+            (p, t)
+        })
+        .collect()
+}
+
+/// One export at a time: the watch thread and a button press, or two clients logging out
+/// together, must not read the same chunks twice and write two payloads for them.
+static EXPORT_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// `export`, reporting whether it wrote any new lines. When it did not, the caller
 /// has nothing to reload.
-pub fn export_new(wow: &Path, out: &Path) -> Result<bool, Box<dyn Error>> {
-    let files = find_sv(wow)?;
+pub fn export_new_all(wows: &[PathBuf], out: &Path) -> Result<bool, Box<dyn Error>> {
+    let _one = EXPORT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let files = find_sv_all(wows)?;
     let state_path = out.join("state.json");
     let mut state = load_state(&state_path);
     let mut runs: BTreeMap<String, CharRun> = BTreeMap::new();
@@ -238,11 +281,14 @@ pub fn export_new(wow: &Path, out: &Path) -> Result<bool, Box<dyn Error>> {
         }
         let payload =
             zstd::stream::encode_all(format!("scarlet\t1\t{name}\n{}", run.scl).as_bytes(), 19)?;
-        fs::write(
-            dir.join("payloads")
-                .join(format!("{}-{}.scl", run.first_q, run.last_q)),
-            &payload,
-        )?;
+        // Through a temp file: an upload or a reload reading the folder meanwhile never meets
+        // half a payload.
+        let dest = dir
+            .join("payloads")
+            .join(format!("{}-{}.scl", run.first_q, run.last_q));
+        let tmp = dest.with_extension("scl.tmp");
+        fs::write(&tmp, &payload)?;
+        fs::rename(&tmp, &dest)?;
 
         // Rebuild the relational tables from every payload this character
         // has, in full, on each export.
@@ -286,7 +332,9 @@ pub fn export_new(wow: &Path, out: &Path) -> Result<bool, Box<dyn Error>> {
             files.len()
         );
     }
-    write_digest(wow, out);
+    for wow in wows {
+        write_digest(wow, out);
+    }
     Ok(wrote)
 }
 
@@ -469,6 +517,12 @@ fn write_digest(wow: &Path, out: &Path) {
         println!("digest: no characters with sessions; Digest.lua not written");
         return;
     }
+    // Another character of this player (the second client of a dual box) is not someone they
+    // played with, so the list of groupmates leaves it out.
+    let own: Vec<String> = chars.iter().map(|(n, _)| n.clone()).collect();
+    for (_, ov) in &mut chars {
+        ov.mates.retain(|m| !own.contains(&m.name));
+    }
     let made = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as i64);
@@ -507,13 +561,13 @@ fn write_digest(wow: &Path, out: &Path) {
 
 /// Export once, then again whenever any Scarlet.lua mtime changes.
 /// Ctrl+C exits.
-pub fn watch(wow: &Path, out: &Path) -> Result<(), Box<dyn Error>> {
+pub fn watch_all(wows: &[PathBuf], out: &Path) -> Result<(), Box<dyn Error>> {
     let mut seen: HashMap<PathBuf, SystemTime> = HashMap::new();
     let mut first = true;
-    println!("watching {} (Ctrl+C to exit)", wow.display());
+    println!("watching {} folder(s) (Ctrl+C to exit)", wows.len());
     loop {
         let mut changed = false;
-        for sv in find_sv(wow)? {
+        for sv in find_sv_all(wows)? {
             let m = fs::metadata(&sv)?.modified()?;
             if seen.get(&sv) != Some(&m) {
                 changed = true;
@@ -522,51 +576,129 @@ pub fn watch(wow: &Path, out: &Path) -> Result<(), Box<dyn Error>> {
         }
         if changed || first {
             first = false;
-            export(wow, out)?;
+            export_all(wows, out)?;
         }
         std::thread::sleep(Duration::from_secs(5));
     }
 }
 
 /// zstd-compress finished WoWCombatLog txt files; originals untouched.
-pub fn logs(wow: &Path, out: &Path) -> Result<(), Box<dyn Error>> {
-    let src_dir = crate::gamedir::game_dir(wow).join("Logs");
+///
+/// Each running client writes its own `WoWCombatLog-<date>_<time>.txt` in `Logs`, so two
+/// clients never share a file. A log does not say which character wrote it, so the files are
+/// kept whole and not split by character. A file a client
+/// still has open is under ten minutes old and waits; one that cannot be read is skipped and
+/// the others go on.
+pub fn logs_all(wows: &[PathBuf], out: &Path) -> Result<(), Box<dyn Error>> {
     let dest = out.join("combatlogs");
     fs::create_dir_all(&dest)?;
-    let Ok(entries) = fs::read_dir(&src_dir) else {
-        println!("no Logs folder at {}", src_dir.display());
-        return Ok(());
-    };
     let mut done = 0;
-    for entry in entries {
-        let entry = entry?;
-        let path = entry.path();
-        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+    for wow in wows {
+        let src_dir = crate::gamedir::game_dir(wow).join("Logs");
+        let Ok(entries) = fs::read_dir(&src_dir) else {
+            println!("no Logs folder at {}", src_dir.display());
             continue;
         };
-        if !name.starts_with("WoWCombatLog") || !name.ends_with(".txt") {
-            continue;
+        for entry in entries {
+            let entry = entry?;
+            let path = entry.path();
+            let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            if !name.starts_with("WoWCombatLog") || !name.ends_with(".txt") {
+                continue;
+            }
+            let md = entry.metadata()?;
+            if md.len() == 0 {
+                continue;
+            }
+            let age = SystemTime::now().duration_since(md.modified()?)?;
+            if age < Duration::from_secs(600) {
+                continue;
+            }
+            let target = dest.join(format!("{name}.zst"));
+            if target.exists() {
+                continue;
+            }
+            let src = match File::open(&path) {
+                Ok(f) => f,
+                Err(e) => {
+                    println!("{name}: skipped, {e}");
+                    continue;
+                }
+            };
+            // Through a temp name, so a stop halfway never leaves a short .zst that counts as done.
+            let tmp = dest.join(format!("{name}.zst.tmp"));
+            let mut dst = File::create(&tmp)?;
+            zstd::stream::copy_encode(&mut BufReader::new(src), &mut dst, 3)?;
+            drop(dst);
+            fs::rename(&tmp, &target)?;
+            done += 1;
+            println!("{name} -> {}", target.display());
         }
-        let md = entry.metadata()?;
-        if md.len() == 0 {
-            continue;
-        }
-        let age = SystemTime::now().duration_since(md.modified()?)?;
-        if age < Duration::from_secs(600) {
-            continue;
-        }
-        let target = dest.join(format!("{name}.zst"));
-        if target.exists() {
-            continue;
-        }
-        let src = File::open(&path)?;
-        let mut dst = File::create(&target)?;
-        zstd::stream::copy_encode(&mut BufReader::new(src), &mut dst, 3)?;
-        done += 1;
-        println!("{name} -> {}", target.display());
     }
     if done == 0 {
         println!("no new combat logs");
     }
     Ok(())
+}
+
+/// One game account folder (`WTF\Account\<name>`, such as `1570195#1`): when it last saved
+/// Scarlet's file and the characters in it.
+pub struct Account {
+    pub name: String,
+    /// Epoch seconds the account's Scarlet.lua was last written; 0 when it has none yet.
+    pub saved: i64,
+    pub characters: Vec<String>,
+}
+
+/// Characters per SavedVariables file, kept until the file changes: the folder list asks again
+/// each time it is opened and the files can be megabytes.
+static CHARS_SEEN: std::sync::Mutex<Vec<(PathBuf, SystemTime, Vec<String>)>> =
+    std::sync::Mutex::new(Vec::new());
+
+fn characters_in(sv: &Path, modified: SystemTime) -> Vec<String> {
+    let mut seen = CHARS_SEEN.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, _, c)) = seen.iter().find(|(p, t, _)| p == sv && *t == modified) {
+        return c.clone();
+    }
+    let mut names: Vec<String> = fs::read_to_string(sv)
+        .ok()
+        .and_then(|text| lua::parse_main(&text).ok())
+        .and_then(|db| {
+            db.get("chars")
+                .and_then(Lua::items)
+                .map(|c| c.iter().map(|(n, _)| n.clone()).collect())
+        })
+        .unwrap_or_default();
+    names.sort();
+    seen.retain(|(p, _, _)| p != sv);
+    seen.push((sv.to_path_buf(), modified, names.clone()));
+    names
+}
+
+/// The game accounts of one WoW folder, each with the characters its Scarlet file holds. An
+/// account folder without a `SavedVariables` folder is not an account that has played.
+pub fn accounts(wow: &Path) -> Vec<Account> {
+    let dir = crate::gamedir::game_dir(wow).join("WTF").join("Account");
+    let mut out: Vec<Account> = fs::read_dir(&dir)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().join("SavedVariables").is_dir())
+        .filter(|e| e.file_name() != "SavedVariables")
+        .map(|e| {
+            let sv = e.path().join("SavedVariables").join("Scarlet.lua");
+            let modified = fs::metadata(&sv).and_then(|m| m.modified()).ok();
+            Account {
+                name: e.file_name().to_string_lossy().into_owned(),
+                saved: modified
+                    .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
+                    .map_or(0, |d| d.as_secs() as i64),
+                characters: modified.map_or_else(Vec::new, |t| characters_in(&sv, t)),
+            }
+        })
+        .collect();
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out
 }
