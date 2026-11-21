@@ -37,26 +37,6 @@ pub fn find_sv_all(wows: &[PathBuf]) -> Result<Vec<PathBuf>, Box<dyn Error>> {
     Ok(found)
 }
 
-/// `find_sv_all` for one WoW folder.
-pub fn find_sv(wow: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
-    find_sv_all(&[wow.to_path_buf()])
-}
-
-/// `has_new_all` for one WoW folder.
-pub fn has_new(wow: &Path, out: &Path) -> bool {
-    has_new_all(&[wow.to_path_buf()], out)
-}
-
-/// `export_new_all` for one WoW folder.
-pub fn export_new(wow: &Path, out: &Path) -> Result<bool, Box<dyn Error>> {
-    export_new_all(&[wow.to_path_buf()], out)
-}
-
-/// `logs_all` for one WoW folder.
-pub fn logs(wow: &Path, out: &Path) -> Result<(), Box<dyn Error>> {
-    logs_all(&[wow.to_path_buf()], out)
-}
-
 #[derive(Serialize, Deserialize, Default)]
 struct State(BTreeMap<String, u64>);
 
