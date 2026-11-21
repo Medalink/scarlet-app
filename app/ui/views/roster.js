@@ -64,7 +64,7 @@ function groupMod(group) {
     .map(
       (c) => `<tr class="click" tabindex="0" data-pick="${esc(c.name)}">
         <td>${named(c)}</td><td>${levelCell(c)}</td><td>${esc(raceName(c.race))} ${esc(className(c.class))}</td>
-        <td>${esc(c.zone || "–")}</td><td>${c.played ? longDur(c.played) : "–"}</td>
+        <td>${esc(c.zone || "–")}</td><td>${c.played ? longDur(c.played) : c.recorded ? `${longDur(c.recorded)} recorded` : "–"}</td>
         <td>${c.through ? `${day(c.through * 1000)} ${hm(c.through * 1000)}` : "–"}</td>
         <td class="num">${c.money == null ? "–" : moneyHtml(c.money)}</td><td class="gap">${reachCell(c)}</td></tr>`
     )
@@ -245,7 +245,7 @@ function wireDays(body) {
 function levelsMod() {
   const cap = Math.max(...data.chars.map((c) => Math.max(c.cap, c.level)), 0);
   const top = Math.max(...data.chars.flatMap((c) => c.levels.map((l) => l[1])), 0);
-  if (cap < 2 || !top) return mod("w12 first last", "Time per level", empty("No time per level recorded"));
+  if (cap < 2 || !top) return mod("w12 first last", "Time per level", empty("No level recorded from its ding to the next one"));
   const X = (lv) => ((lv - 1) / (cap - 1)) * 1000;
   const Y = (p) => 10 + (1 - p / top) * 200;
   const lines = data.chars

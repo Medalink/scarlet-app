@@ -362,7 +362,7 @@ fn roster(out: &Path) -> Vec<String> {
     names
 }
 
-const OVERVIEW_REV: &str = "2";
+const OVERVIEW_REV: &str = "3";
 
 fn overview_rev_stale(out: &Path) -> bool {
     let file = out.join("overview.rev");

@@ -142,6 +142,16 @@ pub struct LevelTotal {
     pub at: i64,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub zone: String,
+    /// The ding into this level was seen and no unrecorded play has fallen inside it: its recorded
+    /// time starts at the ding.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub whole: bool,
+    /// `whole`, and the ding out of it was seen too. Only a complete level has a duration.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub complete: bool,
+    /// The game's own played seconds at the ding into this level; 0 when no `/played` read followed it.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub pd: i64,
 }
 
 #[derive(Serialize, Deserialize, Default, Clone, Debug)]
@@ -215,8 +225,9 @@ pub struct CapBlock {
     pub level: i64,
     /// When the character reached the cap (epoch seconds); 0 when before recording.
     pub reached: i64,
-    /// Played seconds at the cap: the larger of the cap level's share and the client's last `/played`
-    /// seconds on that level.
+    /// Played seconds at the cap. With the ding into the cap seen (`reached`): the larger of the cap
+    /// level's share and the client's last `/played` seconds on that level. Without it: the cap level's
+    /// share alone, the time recorded since the character was first seen.
     pub p: i64,
     pub bosses: i64,
     pub loot: i64,
@@ -266,7 +277,20 @@ pub struct Overview {
     pub xp: i64,
     pub xp_max: i64,
     pub zone: String,
+    /// Lifetime: the game's played counter at the end of the last session; 0 when no `/played` read
+    /// was recorded.
     pub played: i64,
+    /// Observed: the seconds Scarlet recorded itself, summed over the sessions.
+    pub recorded: i64,
+    /// The level at the character's first recorded session; the levels below it were never seen.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub first_level: i64,
+    /// Stretches of play the sessions do not cover (another PC, the addon off, a lost
+    /// SavedVariables), and the seconds the `/played` counter says they held.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub gaps: i64,
+    #[serde(skip_serializing_if = "is_zero")]
+    pub gap_secs: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub money: Option<i64>,
     /// Newest first.
@@ -314,6 +338,9 @@ const MAX_NAMES: usize = 10;
 const MAX_GOLD: usize = 30;
 /// A dungeon left less than this long ago is the same run when re-entered.
 const RUN_REJOIN_MS: i64 = 30 * 60 * 1000;
+const GAP_TOLERANCE_MS: i64 = 120_000;
+const XP_GAP_DIVISOR: i64 = 50;
+const DING_READ_MS: i64 = 30 * 60 * 1000;
 
 /// A whole number from a field; `?` and empty are none.
 fn num(f: &[String], i: usize) -> Option<i64> {
@@ -397,6 +424,7 @@ struct Open {
     native: bool,
     bosses: i64,
     loot: i64,
+    gap_marked: bool,
 }
 
 /// What the session just closed leaves for the next one: where the client's
@@ -517,6 +545,12 @@ struct Builder {
     death_zones: HashMap<String, i64>,
     moved: HashMap<usize, i64>,
     rested: Option<Rested>,
+    gapped: std::collections::BTreeSet<u32>,
+    gaps: i64,
+    gap_ms: i64,
+    dinged_at: BTreeMap<u32, i64>,
+    ding_wait: Option<(u32, i64)>,
+    first_level: i64,
 }
 
 impl Builder {
@@ -554,7 +588,38 @@ impl Builder {
             death_zones: HashMap::new(),
             moved: HashMap::new(),
             rested: None,
+            gapped: std::collections::BTreeSet::new(),
+            gaps: 0,
+            gap_ms: 0,
+            dinged_at: BTreeMap::new(),
+            ding_wait: None,
+            first_level: 0,
         }
+    }
+
+    fn mark_gap(&mut self, from: u32, new_level: u32, gap_ms: i64) {
+        let (lo, hi) = (from.min(new_level), from.max(new_level));
+        for l in lo..=hi.min(lo + 120) {
+            if l > 0 {
+                self.gapped.insert(l);
+            }
+        }
+        self.gaps += 1;
+        self.gap_ms += gap_ms.max(0);
+    }
+
+    fn starts_ahead(&self, level: u32, bar: Option<(i64, i64)>) -> bool {
+        let Some(prev) = self.closed.as_ref() else {
+            return false;
+        };
+        if prev.level == 0 || level == 0 {
+            return false;
+        }
+        if level != prev.level {
+            return level > prev.level;
+        }
+        let Some((x, m)) = bar else { return false };
+        self.xp_max > 0 && m == self.xp_max && x > self.xp + (m / XP_GAP_DIVISOR).max(1)
     }
 
     fn start(&mut self, ms: i64, f: &[String]) {
@@ -562,10 +627,21 @@ impl Builder {
         self.class = field(1);
         self.race = field(2);
         self.faction = field(4);
-        if let Some(l) = num(f, 3).filter(|l| *l > 0) {
-            self.level = l as u32;
+        let new_level = num(f, 3).filter(|l| *l > 0).map(|l| l as u32);
+        let bar = num(f, 10).zip(num(f, 11));
+        let ahead = new_level.is_some_and(|l| self.starts_ahead(l, bar));
+        if let Some(l) = new_level {
+            if ahead {
+                let from = self.closed.as_ref().map_or(l, |c| c.level);
+                self.mark_gap(from, l, 0);
+            }
+            if self.first_level == 0 {
+                self.first_level = i64::from(l);
+            }
+            self.level = l;
         }
-        if let (Some(x), Some(m)) = (num(f, 10), num(f, 11)) {
+        self.ding_wait = None;
+        if let Some((x, m)) = bar {
             self.xp = x;
             self.xp_max = m;
         }
@@ -597,6 +673,7 @@ impl Builder {
             native: !field(5).chars().next().is_some_and(|c| !c.is_ascii_digit()),
             bosses: 0,
             loot: 0,
+            gap_marked: ahead,
         });
     }
 
@@ -606,6 +683,15 @@ impl Builder {
     /// session before it ended is that gap. It is added to that session, to the
     /// level and the zone it ended in, up to the wall time between the two.
     fn played_read(&mut self, ms: i64, total_s: i64) {
+        if let Some((level, ding_ms)) = self.ding_wait
+            && level == self.level
+            && (0..=DING_READ_MS).contains(&(ms - ding_ms))
+        {
+            self.dinged_at
+                .entry(level)
+                .or_insert_with(|| total_s - round_s(ms - ding_ms));
+            self.ding_wait = None;
+        }
         let Some(o) = self.open.as_mut() else { return };
         o.last_read = Some((ms, total_s));
         if o.played_start_ms.is_some() {
@@ -620,8 +706,17 @@ impl Builder {
             return;
         };
         let wall = (o.start_ms - prev.end_ms).max(0);
-        // Whole seconds of reads on both sides: a difference under 1.5 s is rounding.
         let gap = start - end;
+        if gap > GAP_TOLERANCE_MS {
+            let marked = std::mem::replace(&mut o.gap_marked, true);
+            let level = o.row.l0 as u32;
+            if marked {
+                self.gap_ms += gap;
+            } else {
+                self.mark_gap(prev.level, level, gap);
+            }
+            return;
+        }
         if gap < 1500 {
             return;
         }
@@ -893,6 +988,9 @@ impl Builder {
             "Z" => self.zone_changed(ms, f),
             "L" => {
                 if let Some(l) = num(f, 0).filter(|l| *l > 0) {
+                    if o.level != l as u32 {
+                        self.ding_wait = Some((l as u32, ms));
+                    }
                     o.level = l as u32;
                     o.row.l1 = l;
                     self.level = l as u32;
@@ -1032,6 +1130,14 @@ impl Builder {
         }
         for (l, total) in levels.iter_mut() {
             total.at = self.reached.get(l).copied().unwrap_or(0);
+            total.whole = self.reached.contains_key(l) && !self.gapped.contains(l);
+            total.complete = total.whole && self.reached.contains_key(&(l + 1));
+            total.pd = self
+                .dinged_at
+                .get(l)
+                .copied()
+                .filter(|p| *p > 0)
+                .unwrap_or(0);
             total.zone = self
                 .level_zone_ms
                 .get(l)
@@ -1062,7 +1168,11 @@ impl Builder {
             CapBlock {
                 level: c,
                 reached,
-                p: share_p.max(self.cap_tp),
+                p: if reached > 0 {
+                    share_p.max(self.cap_tp)
+                } else {
+                    share_p
+                },
                 bosses: acc.bosses,
                 loot: acc.loot,
                 honor: acc.honor,
@@ -1161,7 +1271,11 @@ impl Builder {
             xp,
             xp_max,
             zone: self.zone,
-            played: played_end.map_or_else(|| self.tp.unwrap_or(sum_played), round_s),
+            played: played_end.map_or_else(|| self.tp.unwrap_or(0), round_s),
+            recorded: sum_played,
+            first_level: self.first_level,
+            gaps: self.gaps,
+            gap_secs: round_s(self.gap_ms),
             money,
             sessions,
             levels,

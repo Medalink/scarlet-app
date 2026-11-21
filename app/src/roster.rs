@@ -55,7 +55,10 @@ pub struct RosterChar {
     xp: i64,
     xp_max: i64,
     zone: String,
+    /// Lifetime played seconds from the game's counter; 0 when no `/played` read was recorded.
     played: i64,
+    /// Seconds Scarlet recorded itself.
+    recorded: i64,
     money: Option<i64>,
     through: i64,
     cap: i64,
@@ -65,7 +68,8 @@ pub struct RosterChar {
     sessions: Vec<[i64; 4]>,
     /// `[end, balance]` per session that read one, oldest first.
     balance: Vec<[i64; 2]>,
-    /// `[level, seconds]` for every level with time on it.
+    /// `[level, seconds]` for every complete level: seen from its ding to the next, with no unrecorded
+    /// play inside.
     levels: Vec<[i64; 2]>,
     professions: Vec<Skill>,
     sent: i64,
@@ -417,6 +421,7 @@ fn build(st: &Store, accounts: Vec<(String, Vec<String>)>) -> Roster {
                 xp_max: ov.xp_max,
                 zone: ov.zone,
                 played: ov.played,
+                recorded: ov.recorded,
                 money: ov.money,
                 through: ov.through,
                 cap,
@@ -431,7 +436,7 @@ fn build(st: &Store, accounts: Vec<(String, Vec<String>)>) -> Roster {
                 levels: ov
                     .levels
                     .iter()
-                    .filter(|(_, l)| l.share.p > 0)
+                    .filter(|(_, l)| l.complete && l.share.p > 0)
                     .map(|(lv, l)| [i64::from(*lv), l.share.p])
                     .collect(),
                 professions: skills(rows, st),

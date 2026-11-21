@@ -118,6 +118,14 @@ function header(ov, name, eta) {
     bar = `<div class="lvl"><div class="lvl-bar"><i style="width:${pct}%"></i></div>
       <p>${pct}% to level ${ov.level + 1} · ${num(Math.max(0, ov.xpMax - ov.xp))} XP to go</p>${etaRows(eta)}</div>`;
   }
+  const first = ov.sessions.length ? ov.sessions[ov.sessions.length - 1].t : 0;
+  const since = first
+    ? `Recorded since ${day(first * 1000)}${ov.firstLevel > 1 ? `, from level ${ov.firstLevel}` : ""}`
+    : "";
+  const holes = ov.gaps
+    ? `${plural(ov.gaps, "stretch", "stretches")} of play not recorded${ov.gapSecs ? `, about ${longDur(ov.gapSecs)}` : ""}`
+    : "";
+  const notes = [since, holes].filter(Boolean).map((t) => `<p class="ch-note">${esc(t)}</p>`);
   const last = ov.through ? `<p class="ch-note">Last session ${day(ov.through * 1000)} ${hm(ov.through * 1000)}</p>` : "";
   return `<section class="ch-head" style="--cls:${color}">
     <div>
@@ -125,7 +133,7 @@ function header(ov, name, eta) {
       <p class="ch-sub"><i class="dot"></i>${bits.map((b) => `<span>${esc(b)}</span>`).join("")}</p>
       ${bar}
     </div>
-    ${last}
+    <div>${notes.join("")}${last}</div>
   </section>`;
 }
 
@@ -172,7 +180,7 @@ function levelRows(ov) {
   return Object.entries(ov.levels)
     .map(([lv, l]) => [Number(lv), l])
     .sort((a, b) => a[0] - b[0])
-    .filter(([, l]) => (xpMode === "xp" ? levelXp(l) : l.p) > 0);
+    .filter(([, l]) => (xpMode === "xp" ? levelXp(l) : l.complete ? l.p : 0) > 0);
 }
 
 function axisXp(v) {
@@ -197,7 +205,8 @@ function levelRead(level, l, last) {
   const parts = XP_PARTS.filter(([k]) => (l[k] || 0) / total >= 0.005).map(
     ([k, name]) => `${name.toLowerCase()} ${Math.round((l[k] / total) * 100)}%`
   );
-  return `${head} · ${num(total)} XP · ${parts.join(" · ")}`;
+  const part = l.whole ? "" : " · recorded part only";
+  return `${head} · ${num(total)} XP · ${parts.join(" · ")}${part}`;
 }
 
 // Below the cap the chart sits beside Gold; with max level focus it is the Levelling section.
@@ -206,7 +215,10 @@ function levelsChart(ov, focus = false) {
   const levels = levelRows(ov);
   const cls = focus ? "w12 first last" : "w8 first";
   const title = focus ? "Levelling" : "Experience by level";
-  if (!levels.length) return mod(cls, title, empty("No experience recorded"), head);
+  if (!levels.length) {
+    const text = xpMode === "xp" ? "No experience recorded" : "No level recorded from its ding to the next one";
+    return mod(cls, title, empty(text), head);
+  }
   const total = (l) => (xpMode === "xp" ? levelXp(l) : l.p);
   const max = Math.max(...levels.map(([, l]) => total(l)), 1);
   const bars = levels
@@ -359,7 +371,8 @@ function capShare(ov) {
 function capStrip(ov) {
   const c = ov.cap;
   const a = capShare(ov);
-  const since = c.reached ? `since ${day(c.reached * 1000)}` : "before recording";
+  const first = ov.sessions.length ? ov.sessions[ov.sessions.length - 1].t : 0;
+  const since = c.reached ? `since ${day(c.reached * 1000)}` : `since first seen ${first ? day(first * 1000) : ""}`.trim();
   const cells = [
     ["Time at max level", playTime(a.p)],
     ["Gold an hour", signed(a.perHour)],
@@ -539,7 +552,7 @@ function historyRows(ov) {
       head: [th("Level"), th("Reached"), th("Played", "num"), th("XP", "num"), th("Kills", "num"), th("Quests", "num"), th("Deaths", "num"), th("Main zone")],
       rows: rows.map(
         ([lv, l]) => `<td>Level ${lv}</td><td>${l.at ? dateStr(l.at * 1000) : "Before recording"}</td>
-          <td class="num">${playTime(l.p || 0)}</td><td class="num">${num(levelXp(l))}</td><td class="num">${num(l.k || 0)}</td>
+          <td class="num">${l.complete ? playTime(l.p || 0) : `<span class="dim" title="Not recorded from its ding to the next one">–</span>`}</td><td class="num">${num(levelXp(l))}</td><td class="num">${num(l.k || 0)}</td>
           <td class="num">${num(l.q || 0)}</td><td class="num">${num(l.dd || 0)}</td><td>${esc(l.zone || "")}</td>`
       ),
       name: "levels",
@@ -599,9 +612,10 @@ function draw(body) {
   }
   const { name, ov, eta, focus } = current;
   // An hour at the cap: max level data first, the levelling content in its own section below.
+  const sawLevelling = !(ov.firstLevel && ov.cap && ov.firstLevel >= ov.cap.level);
   const layout = focus
     ? `${header(ov, name, eta)}${capStrip(ov)}
-    <div class="sheet">${goldMod(ov, "first", true)}${capRunsMod(ov)}${capDeathsMod(ov)}${capRepMod(ov)}${capLegacyMod(ov)}${matesMod(ov, "last")}${heatMod(ov)}${zonesMod(ov)}${levelsChart(ov, true)}${historyMod(ov)}</div>`
+    <div class="sheet">${goldMod(ov, "first", true)}${capRunsMod(ov)}${capDeathsMod(ov)}${capRepMod(ov)}${capLegacyMod(ov)}${matesMod(ov, "last")}${heatMod(ov)}${zonesMod(ov)}${sawLevelling ? levelsChart(ov, true) : ""}${historyMod(ov)}</div>`
     : `${header(ov, name, eta)}${week(ov)}
     <div class="sheet">${levelsChart(ov)}${goldMod(ov)}${runsMod(ov)}${matesMod(ov)}${deathsMod(ov)}${heatMod(ov)}${zonesMod(ov)}${historyMod(ov)}</div>`;
   body.insertAdjacentHTML("beforeend", layout);
