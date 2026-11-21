@@ -559,9 +559,15 @@ try {
     if ($Lane -eq 'beta') { $create += '--prerelease' }
     $null = Get-Gh $create
 
-    $drafts = ((Get-Gh @('api', "repos/$AppRepo/releases?per_page=100")) -join "`n") | ConvertFrom-Json
-    $draft = @($drafts | Where-Object { $_.tag_name -eq $plan.Tag -and $_.draft })[0]
-    if (-not $draft) { throw "The draft $($plan.Tag) is not on $AppRepo after creating it." }
+    # The releases list can lag a new draft by a few seconds (v0.4.0-beta.4 was missing from it right after create).
+    $draft = $null
+    foreach ($try in 1..6) {
+        $drafts = ((Get-Gh @('api', "repos/$AppRepo/releases?per_page=100")) -join "`n") | ConvertFrom-Json
+        $draft = $drafts | Where-Object { $_.tag_name -eq $plan.Tag -and $_.draft } | Select-Object -First 1
+        if ($draft) { break }
+        Start-Sleep -Seconds 5
+    }
+    if (-not $draft) { throw "The draft $($plan.Tag) is not on $AppRepo 30 seconds after creating it." }
     $names = @($draft.assets | ForEach-Object name)
     foreach ($want in @($plan.InstallerName, $plan.ZipName, 'SHA256SUMS.txt', 'latest.json')) {
         if ($want -notin $names) { throw "The draft is missing $want; it stays a draft for inspection." }
