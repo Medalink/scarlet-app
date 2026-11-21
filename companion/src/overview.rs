@@ -1179,12 +1179,6 @@ impl Builder {
     }
 }
 
-/// Build one character's overview from their events, in time order. `me` is
-/// the character's own Name-Surname.
-pub fn build<'a>(me: &str, events: impl IntoIterator<Item = Ev<'a>>) -> Overview {
-    build_among(me, events, &[])
-}
-
 const TRANSFER_WINDOW_MS: i64 = 10_000;
 
 fn name_key(name: &str) -> String {
@@ -1250,8 +1244,9 @@ fn repair_transfers(evs: &[Ev], me: &str, own: &[String]) -> HashMap<usize, i64>
     out
 }
 
-/// `build`, with the names of the player's other characters: money mailed or traded
-/// between them counts as a transfer, neither earned nor spent.
+/// Build one character's overview from their events, in time order. `me` is the character's own
+/// Name-Surname; `own` holds the player's other characters: money mailed or traded between them
+/// counts as a transfer, neither earned nor spent.
 pub fn build_among<'a>(
     me: &str,
     events: impl IntoIterator<Item = Ev<'a>>,
@@ -1828,14 +1823,10 @@ fn render_digest(
 
 /// The text of Digest.lua for these characters (newest sessions first, the
 /// last 60 or all from the last 14 days, whichever is more; plus `recent`
-/// and `first` for the level estimates, which are never trimmed). Under
-/// 200 KB: when it would not be, each character keeps fewer sessions.
-pub fn digest_lua(chars: &[(String, Overview)], made: i64) -> String {
-    digest_lua_with(chars, made, &BTreeMap::new())
-}
-
-/// `digest_lua`, plus each character's `alts` and `days` and the top-level `accounts` (game
-/// account folder to its characters). A character of yours is no groupmate: it leaves `mates`.
+/// and `first` for the level estimates, which are never trimmed), each character's `alts` and
+/// `days` and the top-level `accounts` (game account folder to its characters). Under 200 KB:
+/// when it would not be, each character keeps fewer sessions. A character of yours is no
+/// groupmate: it leaves `mates`.
 pub fn digest_lua_with(
     chars: &[(String, Overview)],
     made: i64,
