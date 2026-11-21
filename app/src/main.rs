@@ -6,6 +6,7 @@ mod addons;
 mod agg;
 mod commands;
 mod launch;
+mod layers;
 mod loot;
 mod ops;
 mod settings;
@@ -43,6 +44,8 @@ fn main() {
             commands::sessions,
             commands::map_data,
             commands::map_image,
+            commands::map_labels,
+            commands::map_layers,
             commands::charts,
             commands::trends,
             loot::loot,

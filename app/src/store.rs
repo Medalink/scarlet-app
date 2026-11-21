@@ -2,9 +2,11 @@
 //! sorted by time, with name and zone maps, sessions, timeline lines and map
 //! polylines. Loaded once, swapped atomically after an export.
 
+use crate::layers::{self, Layers};
+use scarlet::addons;
 use scarlet::archive::{self, Event};
 use scarlet::events::{self, Ev};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 /// One event with its character index.
@@ -57,6 +59,8 @@ pub struct Store {
     pub names: HashMap<String, String>,
     /// Polylines grouped by map, in time order.
     pub polylines: Vec<MapLine>,
+    /// The Survey look's layers per (character, map).
+    pub layers: Layers,
     /// Code -> count, for the filter chips.
     pub code_counts: BTreeMap<String, u64>,
     pub first_ms: i64,
@@ -82,6 +86,7 @@ impl Store {
         let mut code_counts: BTreeMap<String, u64> = BTreeMap::new();
         let mut sessions: Vec<Session> = Vec::new();
         let mut polylines: Vec<MapLine> = Vec::new();
+        let mut layer_data = Layers::new();
 
         let Ok(entries) = std::fs::read_dir(dir) else {
             return Store::empty(dir);
@@ -109,11 +114,18 @@ impl Store {
 
             // Pass 1: names and zones, so pass 2 renders with them.
             let mut parsed: Vec<Event> = Vec::new();
+            let mut fishing: HashSet<String> = HashSet::new();
             for p in &payloads {
                 let Ok(pl) = archive::read_payload(p) else {
                     continue;
                 };
                 for e in pl.events {
+                    if e.code == "SN"
+                        && let [id, name, ..] = e.fields.as_slice()
+                        && name == "Fishing"
+                    {
+                        fishing.insert(id.clone());
+                    }
                     if let Some((kind, id, n)) = archive::name_of(&e) {
                         names.insert(events::name_key(kind, &id), n);
                     } else if e.code == "Z"
@@ -130,7 +142,9 @@ impl Store {
             // Pass 2: rows, sessions and polylines.
             let mut cur_session: u32 = u32::MAX;
             let mut open: Option<usize> = None;
+            let mut feed = layers::Feed::new(ch, fishing);
             for mut e in parsed {
+                feed.line(&mut layer_data, e.ms, &e.code, &e.fields);
                 if !matches!(e.code.as_str(), "P" | "SN" | "IN") {
                     *code_counts.entry(e.code.clone()).or_default() += 1;
                 }
@@ -220,6 +234,9 @@ impl Store {
                     fields: std::mem::take(&mut e.fields),
                 });
             }
+            for ev in addons::read_payloads(&cd) {
+                feed.addon(&mut layer_data, &ev.key, &ev.code, &ev.fields);
+            }
         }
 
         rows.sort_by_key(|r| r.ms);
@@ -274,6 +291,7 @@ impl Store {
             zones,
             names,
             polylines: merged,
+            layers: layer_data,
             code_counts,
             first_ms,
             last_ms,
@@ -290,6 +308,7 @@ impl Store {
             zones: BTreeMap::new(),
             names: HashMap::new(),
             polylines: vec![],
+            layers: Layers::new(),
             code_counts: BTreeMap::new(),
             first_ms: 0,
             last_ms: 0,

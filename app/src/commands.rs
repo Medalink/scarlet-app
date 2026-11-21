@@ -637,6 +637,32 @@ pub fn map_data(app: AppHandle, map: u32, ch: Option<String>) -> Vec<Poly> {
     })
 }
 
+/// The place names the client's tables give one map, written next to its art as
+/// `<uiMapID>.labels.json`; empty when the file is missing or unreadable.
+#[tauri::command]
+pub fn map_labels(app: AppHandle, map: u32) -> Vec<serde_json::Value> {
+    with_store(&app, |st| {
+        let path = maps_dir(st).join(format!("{map}.labels.json"));
+        let json = std::fs::read_to_string(path)
+            .ok()
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok());
+        match json.map(|mut j| j["labels"].take()) {
+            Some(serde_json::Value::Array(labels)) => labels,
+            _ => Vec::new(),
+        }
+    })
+}
+
+/// What the Survey look draws on one map besides the walked lines, for one
+/// character or all of them. Positions are map coordinates times 10000.
+#[tauri::command]
+pub fn map_layers(app: AppHandle, map: u32, ch: Option<String>) -> crate::layers::LayersOut {
+    with_store(&app, |st| {
+        let c = ch.and_then(|n| st.char_index(&n));
+        crate::layers::collect(&st.layers, map, c)
+    })
+}
+
 fn downsample(pts: &[(f32, f32)], cap: usize) -> Vec<(f32, f32)> {
     if pts.len() <= cap {
         return pts.to_vec();

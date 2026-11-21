@@ -29,6 +29,22 @@ cargo build --release
 target\release\scarlet-app.exe
 ```
 
+## Map place names
+
+The Map view's Survey look letters each map from `<maps folder>/<uiMapID>.labels.json`, next to the
+art and `index.json`, and adds the subzones the player's own lines name. `tools/map-labels.mjs`
+writes those files from the client's map and area tables exported as CSV (UiMap, UiMapAssignment,
+UiMapXMapArt, WorldMapOverlay, AreaTable, AreaPOI, TaxiNodes):
+
+```
+node tools/map-labels.mjs <tables dir> <maps dir>
+node tools/map-labels.mjs <tables dir> <maps dir> --ids 1413,1411
+```
+
+Cities and battlegrounds have no area rectangles in the client's tables, so their label files are
+empty and the map then shows only the names the player's own lines carry. Without a label file the
+map is lettered from the player's lines alone.
+
 ## License
 
 GPL-3.0. See `LICENSE`.
