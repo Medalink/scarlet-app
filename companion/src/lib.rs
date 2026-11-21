@@ -7,6 +7,7 @@ pub mod archive;
 pub mod events;
 pub mod export;
 pub mod gamedir;
+pub mod import;
 pub mod inventory;
 pub mod loot;
 pub mod lua;

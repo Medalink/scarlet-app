@@ -312,6 +312,10 @@ pub struct Overview {
     /// The latest `RO` line; absent before one was recorded and at the level cap.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rested: Option<Rested>,
+    /// History read from other addons (docs/FORMAT.md, "Imported history"). Never part of any
+    /// number above.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub imported: Option<crate::import::View>,
 }
 
 /// Played seconds at the level cap before the overview leads with max level data.
@@ -1289,6 +1293,7 @@ impl Builder {
             before: self.imported.then_some(self.before),
             cap: cap_block,
             rested: if at_cap { None } else { self.rested },
+            imported: None,
         }
     }
 }

@@ -436,6 +436,7 @@ pub fn overview(app: AppHandle, ch: Option<String>) -> Option<CharOverview> {
         );
         // Another recorded character is the player's own (a dual box), not a groupmate.
         ov.mates.retain(|m| !st.chars.contains(&m.name));
+        ov.imported = scarlet::import::read_view(&st.data_dir.join(&name));
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_or(0, |d| d.as_secs() as i64);

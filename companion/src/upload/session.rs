@@ -7,7 +7,8 @@ use super::keys::{self, KeyStore};
 use super::state::{self, CharState, LogEntry, UploadState, now};
 use super::{Error, Result};
 use scarlet_part::build::{Built, Options, build_parts};
-use scarlet_part::load::load_dir;
+use scarlet_part::imports;
+use scarlet_part::load::{load_dir, load_imports};
 use scarlet_part::pseudo::hex;
 use scarlet_part::wire;
 use serde_json::{Value, json};
@@ -179,7 +180,11 @@ impl Session {
             name_key: self.name_key,
         };
         let character = loaded.character.clone();
-        let built = build_parts(&character, loaded.main, loaded.addon, &opts);
+        let mut built = build_parts(&character, loaded.main, loaded.addon, &opts);
+        let imported = load_imports(&dir.join("imports").join("payloads"), &character);
+        built
+            .parts
+            .extend(imports::build_parts(&character, imported, &opts));
         Ok((character, built))
     }
 

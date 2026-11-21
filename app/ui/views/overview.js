@@ -312,7 +312,7 @@ function goldMod(ov, cls = "last", focus = false) {
       `<p class="sub">${signed(a.perHour)} an hour</p>` +
       sub;
   }
-  const pts = ov.gold.slice(-GOLD_POINTS);
+  const pts = goldPoints(ov);
   let plot = "";
   if (pts.length > 1) {
     plot = `<div class="gold-plot">
@@ -324,21 +324,33 @@ function goldMod(ov, cls = "last", focus = false) {
   return mod(cls, "Gold", `<p class="big">${moneyHtml(ov.money)}</p>${sub}${plot}`);
 }
 
+function goldPoints(ov) {
+  const own = ov.gold.slice(-GOLD_POINTS);
+  const before = ((ov.imported && ov.imported.gold) || []).filter((p) => !own.length || p.t < own[0].t).slice(-GOLD_POINTS);
+  const source = ov.imported ? ov.imported.sources.join(" and ") : "";
+  return [...before.map((p) => ({ ...p, from: source })), ...own];
+}
+
 function wireGold(body, ov) {
   const svg = body.querySelector("#g-svg");
   if (!svg) return;
   const out = body.querySelector("#g-out");
-  const pts = ov.gold.slice(-GOLD_POINTS);
+  const pts = goldPoints(ov);
+  const lead = pts.filter((p) => p.from).length;
   const lo = Math.min(...pts.map((p) => p.m));
   const hi = Math.max(...pts.map((p) => p.m));
   const gx = (i) => (i / (pts.length - 1)) * 300;
   const gy = (m) => 94 - ((m - lo) / (hi - lo || 1)) * 86;
-  const line = pts.map((p, i) => `${i ? "L" : "M"}${gx(i).toFixed(1)} ${gy(p.m).toFixed(1)}`).join("");
-  svg.innerHTML = `<path d="${line}L300 100L0 100Z" fill="rgba(217,178,95,0.1)"/>
+  const trace = (from, to) => pts.slice(from, to).map((p, k) => `${k ? "L" : "M"}${gx(from + k).toFixed(1)} ${gy(p.m).toFixed(1)}`).join("");
+  const start = Math.max(lead - 1, 0);
+  const line = trace(start, pts.length);
+  const earlier = lead > 1 ? trace(0, lead) : "";
+  svg.innerHTML = `<path d="${line}L300 100L${gx(start).toFixed(1)} 100Z" fill="rgba(217,178,95,0.1)"/>
+    ${earlier ? `<path d="${earlier}" fill="none" stroke="#d9b25f" stroke-width="2" stroke-dasharray="5 4" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>` : ""}
     <path d="${line}" fill="none" stroke="#d9b25f" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>
     <line id="g-x" y1="0" y2="100" stroke="rgba(240,241,243,0.5)" stroke-width="1" vector-effect="non-scaling-stroke" visibility="hidden"/>`;
   const rest = () => {
-    out.innerHTML = `Between ${moneyHtml(lo)} and ${moneyHtml(hi)} over the last ${plural(pts.length, "session", "sessions")}`;
+    out.innerHTML = `Between ${moneyHtml(lo)} and ${moneyHtml(hi)} over the last ${plural(pts.length - lead, "session", "sessions")}${lead ? ` and ${plural(lead, "earlier day", "earlier days")} from ${esc(pts[0].from)}` : ""}`;
     svg.querySelector("#g-x").setAttribute("visibility", "hidden");
   };
   svg.addEventListener("pointermove", (e) => {
@@ -348,7 +360,9 @@ function wireGold(body, ov) {
     cross.setAttribute("x1", gx(i));
     cross.setAttribute("x2", gx(i));
     cross.setAttribute("visibility", "visible");
-    out.innerHTML = `<b>${day(pts[i].t * 1000)} ${hm(pts[i].t * 1000)}</b> · ${moneyHtml(pts[i].m)}`;
+    out.innerHTML = pts[i].from
+      ? `<b>${day(pts[i].t * 1000)}</b> · ${moneyHtml(pts[i].m)} · ${esc(pts[i].from)}`
+      : `<b>${day(pts[i].t * 1000)} ${hm(pts[i].t * 1000)}</b> · ${moneyHtml(pts[i].m)}`;
   });
   svg.addEventListener("pointerleave", rest);
   rest();
@@ -601,6 +615,36 @@ function historyMod(ov) {
   return mod("w12 first last", "Play history", `<div class="history"><table><thead><tr>${cols.join("")}</tr></thead><tbody>${body}</tbody></table></div>${more}`, head);
 }
 
+
+const IMPORT_DAYS = 14;
+const IMPORT_ITEMS = 10;
+
+function importedMod(ov) {
+  const im = ov.imported;
+  if (!im || (!im.sales && !im.buys && !im.gold.length)) return "";
+  const source = im.sources.join(" and ");
+  const seen = im.dropped.sales + im.dropped.buys;
+  const lines = [
+    im.sales || im.buys
+      ? `<p class="sub">${plural(im.sales, "sale", "sales")} for ${moneyHtml(im.sales_copper)} and ${plural(im.buys, "purchase", "purchases")} for ${moneyHtml(im.buys_copper)}, ${dateStr(im.first)} to ${dateStr(im.last)}.</p>`
+      : "",
+    `<p class="sub">${esc(source)} kept these and Scarlet did not.${seen ? ` ${num(seen)} more matched what Scarlet recorded and are not counted twice.` : ""} Boards and totals leave them out.</p>`,
+  ].join("");
+  const days = im.days.slice(0, IMPORT_DAYS);
+  const dayTable = days.length
+    ? `<h3>Sales and purchases by day</h3><div class="history"><table><thead><tr>${[th("Day"), th("Sold", "num"), th("Received", "num"), th("Bought", "num"), th("Paid", "num")].join("")}</tr></thead><tbody>${days
+        .map((d) => `<tr><td>${day(d.d * 1000)}</td><td class="num">${num(d.sold)}</td><td class="num">${moneyHtml(d.sold_copper)}</td><td class="num">${num(d.bought)}</td><td class="num">${moneyHtml(d.bought_copper)}</td></tr>`)
+        .join("")}</tbody></table></div>`
+    : "";
+  const sold = im.items.filter((i) => i.sold > 0).sort((a, b) => b.sold_copper - a.sold_copper).slice(0, IMPORT_ITEMS);
+  const itemTable = sold.length
+    ? `<h3>Sale prices by item</h3><div class="history"><table><thead><tr>${[th("Item"), th("Sold", "num"), th("Each", "num"), th("Received", "num")].join("")}</tr></thead><tbody>${sold
+        .map((i) => `<tr><td>${esc(i.name || `Item ${i.id}`)}</td><td class="num">${num(i.sold)}</td><td class="num">${i.low === i.high ? moneyHtml(i.low) : `${moneyHtml(i.low)} to ${moneyHtml(i.high)}`}</td><td class="num">${moneyHtml(i.sold_copper)}</td></tr>`)
+        .join("")}</tbody></table></div>`
+    : "";
+  return mod("w12 first last", `Imported from ${source}`, lines + dayTable + itemTable);
+}
+
 // Page --------------------------------------------------------------------------------
 
 function draw(body) {
@@ -615,9 +659,9 @@ function draw(body) {
   const sawLevelling = !(ov.firstLevel && ov.cap && ov.firstLevel >= ov.cap.level);
   const layout = focus
     ? `${header(ov, name, eta)}${capStrip(ov)}
-    <div class="sheet">${goldMod(ov, "first", true)}${capRunsMod(ov)}${capDeathsMod(ov)}${capRepMod(ov)}${capLegacyMod(ov)}${matesMod(ov, "last")}${heatMod(ov)}${zonesMod(ov)}${sawLevelling ? levelsChart(ov, true) : ""}${historyMod(ov)}</div>`
+    <div class="sheet">${goldMod(ov, "first", true)}${capRunsMod(ov)}${capDeathsMod(ov)}${capRepMod(ov)}${capLegacyMod(ov)}${matesMod(ov, "last")}${heatMod(ov)}${zonesMod(ov)}${sawLevelling ? levelsChart(ov, true) : ""}${historyMod(ov)}${importedMod(ov)}</div>`
     : `${header(ov, name, eta)}${week(ov)}
-    <div class="sheet">${levelsChart(ov)}${goldMod(ov)}${runsMod(ov)}${matesMod(ov)}${deathsMod(ov)}${heatMod(ov)}${zonesMod(ov)}${historyMod(ov)}</div>`;
+    <div class="sheet">${levelsChart(ov)}${goldMod(ov)}${runsMod(ov)}${matesMod(ov)}${deathsMod(ov)}${heatMod(ov)}${zonesMod(ov)}${historyMod(ov)}${importedMod(ov)}</div>`;
   body.insertAdjacentHTML("beforeend", layout);
   wireLevels(body, ov);
   wireGold(body, ov);

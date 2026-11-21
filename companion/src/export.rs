@@ -4,6 +4,7 @@
 use crate::addons;
 use crate::archive;
 use crate::events;
+use crate::import;
 use crate::inventory::{self, Inventory};
 use crate::lua::{self, Lua};
 use crate::overview::{self, Overview};
@@ -308,6 +309,8 @@ pub fn export_new_all(wows: &[PathBuf], out: &Path) -> Result<bool, Box<dyn Erro
         );
     }
 
+    let touched: Vec<String> = runs.keys().cloned().collect();
+    refresh_imports(wows, out, &mut state, &touched, &own);
     save_state(&state_path, &state)?;
     let wrote = !runs.is_empty() || !addon_runs.is_empty();
     if runs.is_empty() && addon_runs.is_empty() {
@@ -390,9 +393,84 @@ fn write_inventory(dir: &Path, name: &str, evs: &[archive::Event]) {
 
 fn write_overview(dir: &Path, ov: &Overview) -> Result<(), Box<dyn Error>> {
     let tmp = dir.join("overview.json.tmp");
-    fs::write(&tmp, serde_json::to_string(ov)?)?;
+    let mut ov = ov.clone();
+    ov.imported = import::read_view(dir);
+    fs::write(&tmp, serde_json::to_string(&ov)?)?;
     fs::rename(&tmp, dir.join("overview.json"))?;
     Ok(())
+}
+
+fn refresh_imports(
+    wows: &[PathBuf],
+    out: &Path,
+    state: &mut State,
+    touched: &[String],
+    own: &[String],
+) {
+    let games: Vec<PathBuf> = wows.iter().map(|w| crate::gamedir::game_dir(w)).collect();
+    let mut sources_changed = false;
+    let mut any = false;
+    for game in &games {
+        for (path, _) in import::find_files(game) {
+            any = true;
+            let stamp = fs::metadata(&path)
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
+                .map_or(0, |d| d.as_secs());
+            let key = format!("{}#import", state_key(&path));
+            if state.0.get(&key) != Some(&stamp) {
+                sources_changed = true;
+                state.0.insert(key, stamp);
+            }
+        }
+    }
+    if !any {
+        return;
+    }
+    let (mut by, notes) = import::read_all(&games, own);
+    for note in notes {
+        eprintln!("scarlet: import: {note}");
+    }
+    for name in own {
+        let dir = out.join(name);
+        let redo = sources_changed
+            || touched.contains(name)
+            || (by.contains_key(name) && !dir.join("imports").join("view.json").is_file());
+        if !redo || !dir.join("payloads").is_dir() {
+            continue;
+        }
+        let recs = by.remove(name).unwrap_or_default();
+        let evs = match load_events(&dir, name) {
+            Ok(e) => e,
+            Err(e) => {
+                eprintln!("scarlet: {name}: import: {e}");
+                continue;
+            }
+        };
+        let built = import::build(recs, &evs);
+        if let Err(e) = import::write(&dir, name, &built) {
+            eprintln!("scarlet: {name}: import: {e}");
+            continue;
+        }
+        if !built.kept.is_empty() || built.view.dropped != import::Dropped::default() {
+            println!(
+                "{name}: imported {} sales, {} purchases, {} gold points ({} already recorded)",
+                built.view.sales,
+                built.view.buys,
+                built.view.gold.len(),
+                built.view.dropped.sales
+                    + built.view.dropped.buys
+                    + built.view.dropped.other
+                    + built.view.dropped.gold
+            );
+        }
+        if !evs.is_empty()
+            && let Err(e) = write_overview(&dir, &build_overview(name, &evs, own))
+        {
+            eprintln!("scarlet: {name}: overview: {e}");
+        }
+    }
 }
 
 /// The numbers of one session row the addon keeps in SavedVariables
