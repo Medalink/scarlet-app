@@ -8,6 +8,10 @@
 //! - a folder holding `.git` (a checkout),
 //! - a junction or symlink, the folder itself or anything inside it (a dev checkout).
 //!
+//! Settings > Addon has Install, Update and Reinstall buttons (`addon_install`) for the first
+//! two kinds above and for a folder installed by hand, which the player confirms first because
+//! the app manages it from then on. They write the same way and ignore the "keep current" switch.
+//!
 //! An update writes the zip's files and removes only files the previous marker listed and the
 //! zip no longer has. `Digest.lua`, which the companion writes, is in neither, so it stays. The
 //! zip is checked against the updater key (minisign) before a byte of it is written.
@@ -24,7 +28,7 @@ use std::io::Read;
 use std::os::windows::fs::MetadataExt;
 use std::path::{Component, Path, PathBuf};
 use std::sync::Mutex;
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 
 pub const MARKER: &str = ".scarlet-app.json";
 const MANAGER: &str = "scarlet-app";
@@ -293,16 +297,28 @@ fn unpack(zip: &[u8]) -> Result<Packed, String> {
     Ok(Packed { files })
 }
 
-fn download(offer: &AddonOffer) -> Result<Vec<u8>, String> {
+fn download(
+    offer: &AddonOffer,
+    mut progress: impl FnMut(u64, Option<u64>),
+) -> Result<Vec<u8>, String> {
+    let failed = |e: &dyn std::fmt::Display| format!("Could not download the addon: {e}");
     let mut resp = updater::http_agent()
         .get(&offer.url)
         .call()
-        .map_err(|e| format!("Could not download the addon: {e}"))?;
-    resp.body_mut()
-        .with_config()
-        .limit(MAX_ZIP)
-        .read_to_vec()
-        .map_err(|e| format!("Could not download the addon: {e}"))
+        .map_err(|e| failed(&e))?;
+    let total = resp.body().content_length();
+    let mut reader = resp.body_mut().with_config().limit(MAX_ZIP).reader();
+    let mut out = Vec::new();
+    let mut chunk = [0u8; 64 * 1024];
+    loop {
+        let n = reader.read(&mut chunk).map_err(|e| failed(&e))?;
+        if n == 0 {
+            break;
+        }
+        out.extend_from_slice(&chunk[..n]);
+        progress(out.len() as u64, total);
+    }
+    Ok(out)
 }
 
 // ---- writing -----------------------------------------------------------------------------------
@@ -360,6 +376,7 @@ fn apply(
     if let Some(m) = old {
         for rel in &m.files {
             if new_rel.contains(rel)
+                || rel.eq_ignore_ascii_case("Digest.lua")
                 || rel
                     .split('/')
                     .any(|p| p == ".." || p.is_empty() || p.contains(':'))
@@ -463,7 +480,7 @@ pub fn run(app: &AppHandle) {
     }) {
         return;
     }
-    let result = download(&offer)
+    let result = download(&offer, |_, _| {})
         .and_then(|zip| {
             verify(app, &zip, &offer)?;
             unpack(&zip)
@@ -526,9 +543,16 @@ pub struct FolderStatus {
     name: String,
     /// missing, ours, by-hand, curseforge, wago, git, linked
     manager: &'static str,
-    version: Option<String>,
-    /// What the app does about it, in plain words.
-    text: String,
+    /// Who keeps the folder current; none when it is not installed.
+    kept_by: Option<&'static str>,
+    installed: Option<String>,
+    /// The version on the player's track.
+    latest: Option<String>,
+    can_install: bool,
+    can_update: bool,
+    can_reinstall: bool,
+    /// Installing over this folder makes Scarlet its manager, which the player confirms first.
+    takeover: bool,
 }
 
 #[derive(Serialize)]
@@ -537,51 +561,68 @@ pub struct Status {
     /// Why nothing is shown: no WoW folder, or no addon folder to look in.
     problem: Option<String>,
     folders: Vec<FolderStatus>,
-    /// The addon version the feed offers.
-    offered: Option<String>,
+    /// release or beta
+    track: &'static str,
     last: Option<String>,
     last_ms: Option<i64>,
     last_error: bool,
 }
 
-fn describe(class: &Class, version: Option<&str>, keep: bool) -> (&'static str, String) {
-    let v = version
-        .map(|v| format!("Version {v}"))
-        .unwrap_or_else(|| "Version unknown".into());
+fn kept_by(class: &Class) -> Option<&'static str> {
     match class {
-        Class::Missing if keep => (
-            "missing",
-            "Not installed. Scarlet installs it while this is on.".into(),
-        ),
-        Class::Missing => ("missing", "Not installed.".into()),
-        Class::Ours(_) if keep => (
-            "ours",
-            format!("{v}. Installed by Scarlet, which keeps it current."),
-        ),
-        Class::Ours(_) => (
-            "ours",
-            format!("{v}. Installed by Scarlet; updates are off."),
-        ),
-        Class::ByHand => (
-            "by-hand",
-            format!("{v}. Installed by hand; Scarlet leaves it alone."),
-        ),
-        Class::Curse => (
-            "curseforge",
-            format!("{v}. Managed by CurseForge; Scarlet leaves it alone."),
-        ),
-        Class::Wago => (
-            "wago",
-            format!("{v}. Managed by Wago; Scarlet leaves it alone."),
-        ),
-        Class::Git => (
-            "git",
-            format!("{v}. A git checkout; Scarlet leaves it alone."),
-        ),
-        Class::Linked => (
-            "linked",
-            format!("{v}. A linked folder (junction or symlink); Scarlet leaves it alone."),
-        ),
+        Class::Missing => None,
+        Class::Ours(_) => Some("Scarlet"),
+        Class::ByHand => Some("Nobody, installed by hand"),
+        Class::Curse => Some("CurseForge"),
+        Class::Wago => Some("Wago"),
+        Class::Git => Some("A git checkout"),
+        Class::Linked => Some("A linked folder"),
+    }
+}
+
+fn manager_key(class: &Class) -> &'static str {
+    match class {
+        Class::Missing => "missing",
+        Class::Ours(_) => "ours",
+        Class::ByHand => "by-hand",
+        Class::Curse => "curseforge",
+        Class::Wago => "wago",
+        Class::Git => "git",
+        Class::Linked => "linked",
+    }
+}
+
+/// True when the buttons may write here: a missing folder, one Scarlet installed, or a plain
+/// folder of an addon put there by hand.
+fn writable(class: &Class, dir: &Path) -> bool {
+    match class {
+        Class::Missing | Class::Ours(_) => true,
+        Class::ByHand => fs::symlink_metadata(dir).is_ok_and(|m| m.is_dir() && !is_reparse(&m)),
+        _ => false,
+    }
+}
+
+fn folder_status(name: String, dir: &Path, latest: Option<&Version>) -> FolderStatus {
+    let class = classify(dir);
+    let installed = installed_version(dir, &class);
+    let writable = latest.is_some() && writable(&class, dir);
+    let missing = class == Class::Missing;
+    let newer = latest.is_some_and(|l| {
+        installed
+            .as_deref()
+            .and_then(|v| Version::parse(v).ok())
+            .is_none_or(|h| *l > h)
+    });
+    FolderStatus {
+        name,
+        manager: manager_key(&class),
+        kept_by: kept_by(&class),
+        installed,
+        latest: latest.map(Version::to_string),
+        can_install: writable && missing,
+        can_update: writable && !missing && newer,
+        can_reinstall: writable && !missing,
+        takeover: class == Class::ByHand,
     }
 }
 
@@ -591,6 +632,7 @@ pub fn status(app: &AppHandle) -> Status {
         (s.wow.clone(), s.keep_addon)
     };
     let offer = updater::current_feed().and_then(|f| f.addon);
+    let latest = offer.as_ref().and_then(|o| Version::parse(&o.version).ok());
     let last = LAST.lock().unwrap_or_else(|e| e.into_inner()).clone();
     let mut out = Status {
         keep,
@@ -600,7 +642,7 @@ pub fn status(app: &AppHandle) -> Status {
             settings::folder_problem(&wow)
         },
         folders: Vec::new(),
-        offered: offer.as_ref().map(|o| o.version.clone()),
+        track: updater::track(app).key(),
         last: last.as_ref().map(|l| l.text.clone()),
         last_ms: last.as_ref().map(|l| l.ms),
         last_error: last.is_some_and(|l| l.error),
@@ -614,17 +656,85 @@ pub fn status(app: &AppHandle) -> Status {
         .map_or_else(|| vec![MAIN.to_string()], offered_folders);
     for name in names {
         let dir = addons.join(&name);
-        let class = classify(&dir);
-        let version = installed_version(&dir, &class);
-        let (manager, text) = describe(&class, version.as_deref(), keep);
-        out.folders.push(FolderStatus {
-            name,
-            manager,
-            version,
-            text,
-        });
+        out.folders.push(folder_status(name, &dir, latest.as_ref()));
     }
     out
+}
+
+#[derive(Serialize, Clone)]
+struct Progress<'a> {
+    folder: &'a str,
+    /// download or write
+    stage: &'static str,
+    done: u64,
+    total: Option<u64>,
+}
+
+/// The Install, Update and Reinstall buttons: puts the track's zip in one folder. A folder that
+/// is installed by hand needs `takeover`, which the player confirmed; after it Scarlet manages
+/// the folder. Folders of CurseForge, Wago, a git checkout or a link are never written.
+#[tauri::command(async)]
+pub fn addon_install(app: AppHandle, folder: String, takeover: bool) -> Result<Status, String> {
+    let _one = RUNNING.lock().unwrap_or_else(|e| e.into_inner());
+    let wow = state(&app).settings.lock().unwrap().wow.clone();
+    if let Some(p) = settings::folder_problem(&wow) {
+        return Err(p);
+    }
+    let offer = updater::current_feed()
+        .and_then(|f| f.addon)
+        .ok_or("There is no addon to install. Check for updates first.")?;
+    Version::parse(&offer.version).map_err(|_| {
+        format!(
+            "The feed's addon version {:?} is not a version.",
+            offer.version
+        )
+    })?;
+    if !offered_folders(&offer).contains(&folder) {
+        return Err(format!("{folder} is not part of the addon."));
+    }
+    let dir = addons_dir(&wow).join(&folder);
+    let class = classify(&dir);
+    if !writable(&class, &dir) {
+        return Err(format!(
+            "Scarlet leaves the {folder} folder alone: {}.",
+            kept_by(&class).unwrap_or("not ours")
+        ));
+    }
+    if class == Class::ByHand && !takeover {
+        return Err(format!("{folder} was installed by hand; confirm first."));
+    }
+    let emit = |stage, done, total| {
+        let _ = app.emit(
+            "addon-progress",
+            Progress {
+                folder: &folder,
+                stage,
+                done,
+                total,
+            },
+        );
+    };
+    emit("download", 0, None);
+    let zip = download(&offer, |done, total| emit("download", done, total))?;
+    emit("write", 0, None);
+    verify(&app, &zip, &offer)?;
+    let packed = unpack(&zip)?;
+    let files: Vec<(&str, &[u8])> = packed
+        .files
+        .iter()
+        .filter(|(f, _, _)| *f == folder)
+        .map(|(_, r, b)| (r.as_str(), b.as_slice()))
+        .collect();
+    if files.is_empty() {
+        return Err(format!("The addon zip has no {folder} folder."));
+    }
+    let old = match &class {
+        Class::Ours(m) => Some(m),
+        _ => None,
+    };
+    apply(&dir, &offer.version, &files, old)
+        .map_err(|e| format!("Could not write {folder}: {e}"))?;
+    Ok(status(&app))
 }
 
 #[tauri::command(async)]

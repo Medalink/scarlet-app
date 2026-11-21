@@ -573,6 +573,11 @@ ul, ol { list-style: none; }
 .notes-all { margin-top: 18px; font-size: 14px; color: var(--text); }
 .notes-all summary { cursor: pointer; color: var(--fg); }
 .addon-list { margin-top: 14px; }
+.addon-row { max-width: 90ch; padding: 14px 0; border-top: 1px solid var(--line); }
+.addon-row .kv .k { width: 130px; }
+.addon-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 36px; margin-bottom: 6px; font-size: 16px; color: var(--fg); }
+.addon-head .row { align-items: center; gap: 10px; }
+.addon-row .status { margin-top: 6px; min-height: 0; }
 .section-title + .kv, .section-title + .field { margin-top: 0; }
 
 /* Settings pages ----------------------------------------------------------- */

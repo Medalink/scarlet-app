@@ -22,6 +22,12 @@ async function listenOnce() {
   listening = true;
   const { listen } = window.__TAURI__.event;
   await listen("update-changed", () => redraw?.());
+  await listen("addon-progress", (e) => {
+    const busy = installing.get(e.payload.folder);
+    if (!busy) return;
+    busy.label = progressLabel(e.payload);
+    if (busy.button?.isConnected) busy.button.textContent = busy.label;
+  });
   await listen("update-progress", (e) => {
     progress = e.payload;
     if (statusEl?.isConnected) statusEl.textContent = downloading();
@@ -96,6 +102,90 @@ function notesList(parent, info) {
   parent.appendChild(d);
 }
 
+// Folders with an install running: the label on the button, and the button so progress can change it.
+const installing = new Map();
+// The last failure of a folder, kept until its next try, so a redraw does not lose it.
+const failures = new Map();
+// The version a folder was at after the player's last install there.
+const installed = new Map();
+
+const kb = (n) => bytes(n);
+const progressLabel = (p) =>
+  p.stage === "write"
+    ? "Installing…"
+    : p.done
+      ? `Downloading… ${kb(p.done)}${p.total ? ` of ${kb(p.total)}` : ""}`
+      : "Downloading…";
+
+function folderRow(f, track, onChange) {
+  const trackName = track === "beta" ? "Beta" : "Release";
+  const row = el("div", "addon-row");
+  const head = el("div", "addon-head");
+  head.appendChild(text("b", "", f.name));
+  const actions = el("div", "row");
+  head.appendChild(actions);
+  row.appendChild(head);
+  line(row, "Installed", f.installed ? f.installed : f.manager === "missing" ? "Not installed" : "Unknown");
+  line(row, `Latest ${trackName}`, f.latest || "Unknown");
+  if (f.kept_by) line(row, "Kept current by", f.kept_by);
+  const err = el("div", "status err");
+  err.textContent = failures.get(f.name) || "";
+  row.appendChild(err);
+  // Shown while the folder still holds the version the player installed here.
+  if (installed.get(f.name) === f.installed && f.manager === "ours") {
+    row.appendChild(text("div", "status ok", "It loads the next time WoW starts or you type /reload."));
+  }
+
+  const run = async (takeover) => {
+    failures.delete(f.name);
+    installed.delete(f.name);
+    err.textContent = "";
+    installing.set(f.name, { label: "Downloading…", button: null });
+    drawActions();
+    try {
+      const done = await invoke("addon_install", { folder: f.name, takeover });
+      installed.set(f.name, done.folders.find((x) => x.name === f.name)?.installed);
+    } catch (e) {
+      failures.set(f.name, String(e));
+    }
+    installing.delete(f.name);
+    onChange();
+  };
+
+  const button = (name, primary, onclick) => {
+    const b = el("button", primary ? "btn primary" : "btn", name);
+    b.type = "button";
+    b.onclick = onclick;
+    return b;
+  };
+
+  const drawActions = (confirming = false) => {
+    actions.textContent = "";
+    const busy = installing.get(f.name);
+    if (busy) {
+      const b = button(busy.label, true, null);
+      b.disabled = true;
+      busy.button = b;
+      actions.appendChild(b);
+      return;
+    }
+    if (confirming) {
+      actions.append(
+        text("span", "when", "Scarlet will manage this copy from now on."),
+        button("Continue", true, () => run(true)),
+        button("Cancel", false, () => drawActions()),
+      );
+      return;
+    }
+    const go = f.takeover ? () => drawActions(true) : () => run(false);
+    if (f.can_install) actions.appendChild(button("Install", true, go));
+    if (f.can_update) actions.appendChild(button(`Update to ${f.latest}`, true, go));
+    if (f.can_reinstall) actions.appendChild(button("Reinstall", !f.can_update, go));
+  };
+  drawActions();
+  return row;
+}
+
 function addonBlock(parent, a, onChange) {
   const sw = el("span", "switch");
   sw.innerHTML = `<span class="track"><span class="knob"></span></span><span class="lab">Keep the addon up to date</span>`;
@@ -109,11 +199,7 @@ function addonBlock(parent, a, onChange) {
   if (a.problem) {
     list.appendChild(text("div", "status", a.problem));
   } else {
-    for (const f of a.folders) {
-      const row = el("div", "kv");
-      row.append(text("span", "k", f.name), text("span", "v", f.text));
-      list.appendChild(row);
-    }
+    for (const f of a.folders) list.appendChild(folderRow(f, a.track, onChange));
   }
   parent.appendChild(list);
   if (a.last) {

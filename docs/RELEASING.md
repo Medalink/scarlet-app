@@ -146,6 +146,11 @@ the feed (checking its signature against the same key, and that the signature is
 - Everything else is left alone and Settings says so: a folder without that file (installed by hand), a TOC with
   `X-Curse-Project-ID` (CurseForge) or `X-Wago-ID` (Wago), a folder holding `.git`, and a junction or symlink,
   the folder itself or anything in it.
+- Settings > Addon shows each folder's installed version, the latest version on the chosen track and who keeps it
+  current. A folder that is missing, installed by Scarlet or installed by hand has buttons: Install, `Update to x.y.z`
+  (when the latest is newer) and Reinstall, which fetch the track's zip the same checked way and write it without the
+  "Keep the addon up to date" switch. A hand-installed folder asks first, since Scarlet manages it from then on.
+  The other folders have no buttons and are never written, whatever the command is asked.
 - The zip `release.ps1` builds never carries `X-Curse-Project-ID` or `X-Wago-ID`, so a folder the app installed is
   never taken for CurseForge's or Wago's. When the listings exist, their apps and this one share the folder by that rule.
 

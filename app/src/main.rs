@@ -118,6 +118,7 @@ fn main() {
             updater::release_notes,
             addon_sync::addon_status,
             addon_sync::set_keep_addon,
+            addon_sync::addon_install,
             upload::upload_get,
             upload::upload_set_enabled,
             upload::upload_set_server,
