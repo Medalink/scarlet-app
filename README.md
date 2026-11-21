@@ -29,6 +29,14 @@ cargo build --release
 target\release\scarlet-app.exe
 ```
 
+## Dependencies
+
+Every locked crate must have been on crates.io for at least 7 days. After `cargo update`, run
+`node tools/deps-age.mjs` (it checks both lockfiles and exits 1 on a younger crate, naming the
+older version to move it to with `cargo update -p <name>@<version> --precise <older>`).
+`--report` also lists locked crates with a newer old-enough version. Git and path dependencies
+are not checked; the repo has no npm packages.
+
 ## Map art
 
 Settings has a Map art choice. Scarlet dark, the default, shows the Survey look only. OpenMap adds the
