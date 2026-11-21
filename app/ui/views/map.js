@@ -1,8 +1,24 @@
-// Map: P points per uiMapID as glowing polylines over the map's art (when
-// a `maps` folder holds it) on a dark canvas, with session colours, zoom
+// Map: P points per uiMapID as glowing polylines over the map's art, redrawn as a dark
+// survey sheet (when a `maps` folder holds it), with session colours, zoom
 // and pan. A teleport on the map is a dashed jump between its two points.
 
 import { invoke, el, num, esc, PALETTE, state } from "../lib.js";
+import { styleMap } from "./mapstyle.js";
+
+// Styled art by map id, oldest first. A styled map is about 11 MB of GPU bitmap, so few are kept.
+const styled = new Map();
+const KEEP = 6;
+
+// The art with its colours muted, the paths staying the brightest thing on the map.
+function darken(c, px, img) {
+  const d = px.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const l = 0.3 * d[i] + 0.59 * d[i + 1] + 0.11 * d[i + 2];
+    for (let k = 0; k < 3; k++) d[i + k] = (l + (d[i + k] - l) * 0.8) * 0.9;
+  }
+  c.putImageData(px, 0, 0);
+  return img;
+}
 
 export async function render(body) {
   body.innerHTML = "";
@@ -43,8 +59,16 @@ export async function render(body) {
   // its shape and a point (x, y) sits at (x, y * asp).
   let art = null;
 
-  // Art from the `maps` folder. A map without a file keeps the plain canvas.
+  // Art from the `maps` folder, redrawn as a survey sheet (mapstyle.js). A map without a
+  // file keeps the plain canvas; if the restyle throws, the art is darkened instead.
+  // Styled maps are kept (a few, newest last) so going back to one is instant.
   async function loadArt(map) {
+    const hit = styled.get(map);
+    if (hit) {
+      styled.delete(map);
+      styled.set(map, hit);
+      return hit;
+    }
     try {
       const raw = await invoke("map_image", { map });
       if (!raw.byteLength) return null;
@@ -52,20 +76,28 @@ export async function render(body) {
       const img = document.createElement("canvas");
       img.width = bmp.width;
       img.height = bmp.height;
-      const c = img.getContext("2d");
+      const c = img.getContext("2d", { willReadFrequently: true });
       c.drawImage(bmp, 0, 0);
       const asp = bmp.height / bmp.width;
       bmp.close();
-      // Mute the colours a little so the paths stay the brightest thing on the map.
       const px = c.getImageData(0, 0, img.width, img.height);
-      const d = px.data;
-      for (let i = 0; i < d.length; i += 4) {
-        const l = 0.3 * d[i] + 0.59 * d[i + 1] + 0.11 * d[i + 2];
-        for (let k = 0; k < 3; k++) d[i + k] = (l + (d[i + k] - l) * 0.8) * 0.9;
+      let out;
+      try {
+        const t0 = performance.now();
+        out = styleMap(px.data, img.width, img.height);
+        console.debug(`map ${map} styled in ${Math.round(performance.now() - t0)} ms`);
+      } catch {
+        out = darken(c, px, img);
       }
-      c.putImageData(px, 0, 0);
       // A bitmap stays on the GPU, so redraws while moving do not upload the pixels again.
-      return { img: await createImageBitmap(img), asp };
+      const art = { img: await createImageBitmap(out), asp };
+      styled.set(map, art);
+      while (styled.size > KEEP) {
+        const [old, gone] = styled.entries().next().value;
+        gone.img.close();
+        styled.delete(old);
+      }
+      return art;
     } catch {
       return null;
     }
