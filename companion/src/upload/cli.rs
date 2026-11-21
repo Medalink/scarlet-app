@@ -347,7 +347,10 @@ fn set(a: &Args) -> Result<()> {
     }
     let cfg = config::update(&a.settings, |c| {
         if let Some(s) = &a.server {
-            c.server = s.trim().to_string();
+            c.server = match s.trim() {
+                "" => config::DEFAULT_SERVER.to_string(),
+                s => s.to_string(),
+            };
         }
         if a.enable {
             c.enabled = true;

@@ -196,11 +196,11 @@ pub fn upload_set_enabled(app: AppHandle, on: bool) -> Result<UploadView, String
 
 #[tauri::command(async)]
 pub fn upload_set_server(app: AppHandle, server: String) -> Result<UploadView, String> {
-    let server = server.trim().to_string();
-    let enabled = settings::load().upload.enabled;
-    if (enabled || !server.is_empty())
-        && let Some(p) = config::server_problem(&server)
-    {
+    let server = match server.trim() {
+        "" => config::DEFAULT_SERVER.to_string(),
+        s => s.to_string(),
+    };
+    if let Some(p) = config::server_problem(&server) {
         return Err(p);
     }
     change(&app, |c| c.server = server)?;

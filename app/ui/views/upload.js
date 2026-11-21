@@ -77,12 +77,6 @@ export async function renderUpload(body) {
     addrIn.onchange = () => act(() => invoke("upload_set_server", { server: addrIn.value }));
     addr.appendChild(addrIn);
     box.appendChild(addr);
-    if (!v.server) {
-      const p = el("div", "status", "The Scarlet website has no public address yet, so uploading cannot be turned on.");
-      p.style.marginTop = "-8px";
-      box.appendChild(p);
-    }
-
     const gl = el("div");
     gl.style.marginTop = "20px";
     for (const g of v.groups) {

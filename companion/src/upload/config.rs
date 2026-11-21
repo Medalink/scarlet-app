@@ -7,14 +7,32 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 
+/// The Scarlet website. A settings file with no address, or an empty one, uses it.
+pub const DEFAULT_SERVER: &str = "https://scarletweb.io";
+
+fn default_server() -> String {
+    DEFAULT_SERVER.into()
+}
+
+fn server_or_default<'de, D: serde::Deserializer<'de>>(
+    d: D,
+) -> std::result::Result<String, D::Error> {
+    let s = String::deserialize(d)?;
+    Ok(if s.trim().is_empty() {
+        default_server()
+    } else {
+        s
+    })
+}
+
 /// What the player chose. Everything is off until `enabled` is turned on; a group or
 /// character that is not listed is on.
-#[derive(Serialize, Deserialize, Clone, Default, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct UploadConfig {
     #[serde(default)]
     pub enabled: bool,
-    /// The website's address, such as `https://example.org`. Empty until the site has one.
-    #[serde(default)]
+    /// The website's address; `DEFAULT_SERVER` unless the player typed another.
+    #[serde(default = "default_server", deserialize_with = "server_or_default")]
     pub server: String,
     /// Sharing group key → on. Only groups that were switched are listed.
     #[serde(default)]
@@ -55,6 +73,17 @@ pub fn is_switchable(key: &str) -> bool {
         .list
         .iter()
         .any(|g| g.key == key && g.switchable)
+}
+
+impl Default for UploadConfig {
+    fn default() -> Self {
+        UploadConfig {
+            enabled: false,
+            server: default_server(),
+            groups: BTreeMap::new(),
+            characters: BTreeMap::new(),
+        }
+    }
 }
 
 impl UploadConfig {
