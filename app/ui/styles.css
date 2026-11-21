@@ -649,3 +649,6 @@ table.alts tr.click:focus-visible { outline-offset: -2px; }
 .moves .mv-when { grid-column: 1; color: var(--muted); }
 .moves .mv-amt { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
 table.alts th.gap, table.alts td.gap { padding-left: 28px; }
+
+table.talents th.num, table.talents td.num { padding-right: 16px; }
+table.talents td[colspan] { white-space: normal; }

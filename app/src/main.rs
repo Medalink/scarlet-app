@@ -17,6 +17,7 @@ mod ops;
 mod roster;
 mod settings;
 mod store;
+mod talents;
 mod updater;
 mod upload;
 mod watch;
@@ -104,6 +105,7 @@ fn main() {
             commands::charts,
             commands::trends,
             loot::loot,
+            talents::talents,
             ops::compress_export,
             ops::compress_logs,
             ops::toggle_watch,

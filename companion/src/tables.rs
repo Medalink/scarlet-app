@@ -7,6 +7,7 @@
 use crate::archive::Event;
 use crate::events;
 use crate::loot::{self, LootBook};
+use crate::talents;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
@@ -457,6 +458,7 @@ pub fn write_char_tables(events: &[Event], me: &str, dir: &Path) -> std::io::Res
     fs::write(dir.join("names.csv"), name_rows)?;
     fs::write(dir.join("stats.csv"), stat_rows)?;
     fs::write(dir.join("statistics.csv"), statistic_rows)?;
+    fs::write(dir.join("talents.csv"), talents::from_events(events).csv())?;
     Ok(())
 }
 

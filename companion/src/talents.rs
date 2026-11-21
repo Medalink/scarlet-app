@@ -1,0 +1,470 @@
+//! A character's talents from its S, L, TG, TA, TY, TD, TQ and SN lines: the build by tab,
+//! the order points were taken in, and respecs. Feeds the app's Talents view and talents.csv.
+
+use crate::archive::Event;
+use crate::tables::csv;
+use serde::Serialize;
+use std::collections::{HashMap, HashSet, hash_map::Entry};
+
+pub const CODES: [&str; 8] = ["S", "L", "TG", "TA", "TY", "TD", "TQ", "SN"];
+const BURST_GAP_MS: i64 = 60_000;
+const OFFER_WINDOW_MS: i64 = 600_000;
+const RESET_WINDOW_MS: i64 = 120_000;
+const RESPEC_POINTS: u32 = 2;
+
+pub struct Line<'a> {
+    pub ms: i64,
+    pub code: &'a str,
+    pub fields: &'a [String],
+}
+
+fn field<'a>(l: &Line<'a>, i: usize) -> &'a str {
+    l.fields.get(i).map(String::as_str).unwrap_or("")
+}
+
+fn number(s: &str) -> Option<u32> {
+    s.trim().parse().ok()
+}
+
+/// One TA line: a node's rank in a talent group.
+#[derive(Serialize, Clone)]
+pub struct Change {
+    pub ms: i64,
+    pub session: Option<u32>,
+    pub level: Option<u32>,
+    pub group: u32,
+    pub node_id: String,
+    pub entry_id: String,
+    pub spell_id: String,
+    pub spell: String,
+    pub tab_id: String,
+    pub tab: String,
+    pub rank: u32,
+    pub old_rank: Option<u32>,
+    pub max_ranks: u32,
+    /// `baseline`, `pick`, `refund`, `swap` (another entry of a choice node) or `unseen`
+    /// (a baseline that differs from what the earlier lines left).
+    pub kind: &'static str,
+    /// The points the group holds after this line; empty on a baseline.
+    pub point_no: Option<u32>,
+}
+
+/// The points a group already held when its first baseline was read.
+#[derive(Serialize)]
+pub struct Held {
+    pub ms: i64,
+    pub level: Option<u32>,
+    pub group: u32,
+    pub nodes: u32,
+    pub points: u32,
+}
+
+#[derive(Serialize)]
+pub struct Respec {
+    pub ms: i64,
+    pub level: Option<u32>,
+    pub group: u32,
+    pub points: u32,
+    pub cost_copper: Option<i64>,
+    /// `refund` for points taken back one by one, `reset` or `spec change` for the client's own.
+    pub kind: &'static str,
+}
+
+#[derive(Serialize)]
+pub struct BuildNode {
+    pub node_id: String,
+    pub spell_id: String,
+    pub name: String,
+    pub rank: u32,
+    pub max_ranks: u32,
+    pub x: Option<i64>,
+    pub y: Option<i64>,
+}
+
+#[derive(Serialize)]
+pub struct TabBuild {
+    pub id: String,
+    pub name: String,
+    pub spent: u32,
+    pub available: Option<u32>,
+    pub nodes: Vec<BuildNode>,
+}
+
+#[derive(Serialize)]
+pub struct Build {
+    pub ms: i64,
+    pub group: u32,
+    pub groups: u32,
+    pub spec: String,
+    pub unspent_class: Option<u32>,
+    pub unspent_spec: Option<u32>,
+    pub tabs: Vec<TabBuild>,
+}
+
+#[derive(Serialize, Default)]
+pub struct Talents {
+    pub build: Option<Build>,
+    pub held: Vec<Held>,
+    pub changes: Vec<Change>,
+    pub respecs: Vec<Respec>,
+    /// True when the addon wrote TD lines, so build nodes carry positions.
+    pub layout: bool,
+}
+
+#[derive(Clone)]
+struct Node {
+    spell: String,
+    tab: String,
+    rank: u32,
+    max: u32,
+}
+
+struct Burst {
+    last: i64,
+    respec: Respec,
+}
+
+fn is_respec(b: &Burst) -> bool {
+    b.respec.points >= RESPEC_POINTS || b.respec.kind != "refund"
+}
+
+pub fn from_events(events: &[Event]) -> Talents {
+    build(
+        events
+            .iter()
+            .filter(|e| CODES.contains(&e.code.as_str()))
+            .map(|e| Line {
+                ms: e.ms,
+                code: &e.code,
+                fields: &e.fields,
+            }),
+    )
+}
+
+type Place<'a> = (Option<i64>, Option<i64>, &'a str);
+
+struct Names<'a> {
+    spells: HashMap<&'a str, &'a str>,
+    tabs: HashMap<&'a str, &'a str>,
+    places: HashMap<&'a str, Place<'a>>,
+    shown: HashSet<&'a str>,
+}
+
+impl Names<'_> {
+    fn shown_tab(&self, node: &str, tab: &str) -> String {
+        if self.shown.is_empty() || self.shown.contains(tab) {
+            return tab.to_string();
+        }
+        match self.places.get(node) {
+            Some((_, _, t)) if !t.is_empty() => t.to_string(),
+            _ => tab.to_string(),
+        }
+    }
+
+    fn tab_name(&self, id: &str) -> String {
+        match self.tabs.get(id) {
+            Some(n) if !n.is_empty() => n.to_string(),
+            _ if id.is_empty() => String::new(),
+            _ => format!("Tab {id}"),
+        }
+    }
+
+    fn spell(&self, id: &str) -> String {
+        self.spells
+            .get(id)
+            .map(|s| s.to_string())
+            .unwrap_or_default()
+    }
+}
+
+fn names<'a>(lines: &[Line<'a>]) -> Names<'a> {
+    let mut n = Names {
+        spells: HashMap::new(),
+        tabs: HashMap::new(),
+        places: HashMap::new(),
+        shown: HashSet::new(),
+    };
+    for l in lines {
+        match l.code {
+            "SN" => {
+                n.spells.insert(field(l, 0), field(l, 1));
+            }
+            "TY" => {
+                n.tabs.insert(field(l, 0), field(l, 1));
+            }
+            "TD" => {
+                n.places.insert(
+                    field(l, 1),
+                    (
+                        field(l, 2).parse().ok(),
+                        field(l, 3).parse().ok(),
+                        field(l, 6),
+                    ),
+                );
+            }
+            "TG" => {
+                for t in field(l, 6).split(',') {
+                    if let Some(id) = t.split(':').next().filter(|id| !id.is_empty()) {
+                        n.shown.insert(id);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    n
+}
+
+pub fn build<'a>(lines: impl IntoIterator<Item = Line<'a>>) -> Talents {
+    let lines: Vec<Line<'a>> = lines.into_iter().collect();
+    let names = names(&lines);
+    let mut out = Talents {
+        layout: !names.places.is_empty(),
+        ..Talents::default()
+    };
+
+    let mut level: Option<u32> = None;
+    let mut session: Option<u32> = None;
+    let mut state: HashMap<u32, HashMap<String, Node>> = HashMap::new();
+    let mut previous: HashMap<u32, HashMap<String, Node>> = HashMap::new();
+    let mut based: HashMap<u32, Option<u32>> = HashMap::new();
+    let mut first_based: HashMap<u32, (Option<u32>, usize)> = HashMap::new();
+    let mut offer: Option<(i64, i64)> = None;
+    let mut reset: Option<(i64, &'static str)> = None;
+    let mut burst: Option<Burst> = None;
+    let mut last_tg: Option<&Line> = None;
+
+    for l in &lines {
+        match l.code {
+            "S" => {
+                session = Some(session.map_or(0, |s| s + 1));
+                level = number(field(l, 3)).or(level);
+            }
+            "L" => level = number(field(l, 0)).or(level),
+            "TG" => last_tg = Some(l),
+            "TQ" => match field(l, 0) {
+                "p" => offer = field(l, 1).parse().ok().map(|c| (l.ms, c)),
+                "r" if field(l, 1) != "1" => reset = Some((l.ms, "reset")),
+                "i" if field(l, 1) != "1" => reset = Some((l.ms, "spec change")),
+                _ => {}
+            },
+            "TA" => {
+                let Some(group) = number(field(l, 0)) else {
+                    continue;
+                };
+                let node_id = field(l, 1);
+                let rank = number(field(l, 3)).unwrap_or(0);
+                let old_rank = number(field(l, 4));
+                let tab_id = names.shown_tab(node_id, field(l, 7));
+                let baseline = field(l, 8) == "s";
+
+                if baseline && based.get(&group) != Some(&session) {
+                    based.insert(group, session);
+                    previous.insert(group, state.remove(&group).unwrap_or_default());
+                    if let Entry::Vacant(first) = first_based.entry(group) {
+                        first.insert((session, out.held.len()));
+                        out.held.push(Held {
+                            ms: l.ms,
+                            level,
+                            group,
+                            nodes: 0,
+                            points: 0,
+                        });
+                    }
+                }
+                let kind = if baseline {
+                    let known = previous.get(&group).and_then(|p| p.get(node_id));
+                    let first = first_based.get(&group).is_some_and(|f| f.0 == session);
+                    match known {
+                        Some(k) if k.rank == rank => "baseline",
+                        None if first => "baseline",
+                        _ => "unseen",
+                    }
+                } else if rank > old_rank.unwrap_or(0) {
+                    "pick"
+                } else if rank < old_rank.unwrap_or(0) {
+                    "refund"
+                } else {
+                    "swap"
+                };
+                if kind == "baseline"
+                    && let Some(&(first_session, at)) = first_based.get(&group)
+                    && first_session == session
+                {
+                    out.held[at].nodes += 1;
+                    out.held[at].points += rank;
+                }
+
+                let nodes = state.entry(group).or_default();
+                if rank == 0 {
+                    nodes.remove(node_id);
+                } else {
+                    nodes.insert(
+                        node_id.to_string(),
+                        Node {
+                            spell: field(l, 6).to_string(),
+                            tab: tab_id.clone(),
+                            rank,
+                            max: number(field(l, 5)).unwrap_or(0),
+                        },
+                    );
+                }
+                let point_no = (!baseline).then(|| nodes.values().map(|n| n.rank).sum());
+
+                if kind == "refund" {
+                    let taken = old_rank.unwrap_or(0).saturating_sub(rank);
+                    match &mut burst {
+                        Some(b) if b.respec.group == group && l.ms - b.last <= BURST_GAP_MS => {
+                            b.respec.points += taken;
+                            b.last = l.ms;
+                        }
+                        _ => {
+                            if let Some(b) = burst.take()
+                                && is_respec(&b)
+                            {
+                                out.respecs.push(b.respec);
+                            }
+                            burst = Some(Burst {
+                                last: l.ms,
+                                respec: Respec {
+                                    ms: l.ms,
+                                    level,
+                                    group,
+                                    points: taken,
+                                    cost_copper: offer
+                                        .filter(|(at, _)| l.ms - at <= OFFER_WINDOW_MS)
+                                        .map(|(_, cost)| cost),
+                                    kind: match reset {
+                                        Some((at, k)) if l.ms - at <= RESET_WINDOW_MS => k,
+                                        _ => "refund",
+                                    },
+                                },
+                            });
+                        }
+                    }
+                }
+
+                out.changes.push(Change {
+                    ms: l.ms,
+                    session,
+                    level,
+                    group,
+                    node_id: node_id.to_string(),
+                    entry_id: field(l, 2).to_string(),
+                    spell_id: field(l, 6).to_string(),
+                    spell: names.spell(field(l, 6)),
+                    tab: names.tab_name(&tab_id),
+                    tab_id,
+                    rank,
+                    old_rank,
+                    max_ranks: number(field(l, 5)).unwrap_or(0),
+                    kind,
+                    point_no,
+                });
+            }
+            _ => {}
+        }
+    }
+    if let Some(b) = burst
+        && is_respec(&b)
+    {
+        out.respecs.push(b.respec);
+    }
+    out.build = last_tg.map(|tg| build_of(tg, &names, &mut state));
+    out
+}
+
+fn build_of(tg: &Line, names: &Names, state: &mut HashMap<u32, HashMap<String, Node>>) -> Build {
+    let group = number(field(tg, 1)).unwrap_or(1);
+    let nodes = state.remove(&group).unwrap_or_default();
+    let mut tabs: Vec<TabBuild> = Vec::new();
+    for t in field(tg, 6).split(',').filter(|t| !t.is_empty()) {
+        let mut it = t.split(':');
+        let id = it.next().unwrap_or("");
+        let spent = it.next().and_then(number);
+        let available = it.next().and_then(number);
+        tabs.push(TabBuild {
+            id: id.to_string(),
+            name: names.tab_name(id),
+            spent: spent.unwrap_or(0),
+            available,
+            nodes: Vec::new(),
+        });
+    }
+    let mut ids: Vec<&String> = nodes.keys().collect();
+    ids.sort();
+    for id in ids {
+        let n = &nodes[id];
+        let at = match tabs.iter().position(|t| t.id == n.tab) {
+            Some(at) => at,
+            None => {
+                tabs.push(TabBuild {
+                    id: n.tab.clone(),
+                    name: names.tab_name(&n.tab),
+                    spent: 0,
+                    available: None,
+                    nodes: Vec::new(),
+                });
+                tabs.len() - 1
+            }
+        };
+        let (x, y) = names
+            .places
+            .get(id.as_str())
+            .map_or((None, None), |p| (p.0, p.1));
+        tabs[at].nodes.push(BuildNode {
+            node_id: id.clone(),
+            spell_id: n.spell.clone(),
+            name: names.spell(&n.spell),
+            rank: n.rank,
+            max_ranks: n.max,
+            x,
+            y,
+        });
+    }
+    for t in &mut tabs {
+        t.nodes
+            .sort_by_key(|n| (n.y.unwrap_or(i64::MAX), n.x.unwrap_or(i64::MAX)));
+        if t.spent == 0 {
+            t.spent = t.nodes.iter().map(|n| n.rank).sum();
+        }
+    }
+    Build {
+        ms: tg.ms,
+        group,
+        groups: number(field(tg, 2)).unwrap_or(1),
+        spec: field(tg, 4).to_string(),
+        unspent_class: number(field(tg, 7)),
+        unspent_spec: number(field(tg, 8)),
+        tabs,
+    }
+}
+
+impl Talents {
+    pub fn csv(&self) -> String {
+        let mut out = String::from(
+            "ms,session,level,group,node_id,entry_id,spell_id,spell,tab_id,tab,rank,old_rank,max_ranks,kind,point_no\n",
+        );
+        let opt = |v: Option<u32>| v.map(|n| n.to_string()).unwrap_or_default();
+        for c in &self.changes {
+            out.push_str(&csv(&[
+                c.ms.to_string(),
+                opt(c.session),
+                opt(c.level),
+                c.group.to_string(),
+                c.node_id.clone(),
+                c.entry_id.clone(),
+                c.spell_id.clone(),
+                c.spell.clone(),
+                c.tab_id.clone(),
+                c.tab.clone(),
+                c.rank.to_string(),
+                opt(c.old_rank),
+                c.max_ranks.to_string(),
+                c.kind.to_string(),
+                opt(c.point_no),
+            ]));
+        }
+        out
+    }
+}
