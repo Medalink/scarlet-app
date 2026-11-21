@@ -39,7 +39,8 @@ export async function renderUpload(body) {
   let v = await invoke("upload_get");
   let asking = null; // a group just switched off that the player must answer for
   let confirming = false; // "Delete everything" waits for a second click
-  let linkText = "";
+  let linkCode = "";
+  let linkAt = 0;
   let linked = false;
   let msg = { cls: "status", text: "" };
 
@@ -77,6 +78,51 @@ export async function renderUpload(body) {
     addrIn.onchange = () => act(() => invoke("upload_set_server", { server: addrIn.value }));
     addr.appendChild(addrIn);
     box.appendChild(addr);
+
+    const bar = el("div");
+    bar.style.cssText = "display:flex;gap:10px;flex-wrap:wrap;margin-top:4px;align-items:center";
+    const now = el("button", "btn primary", v.busy ? "Uploading…" : "Upload now");
+    now.type = "button";
+    now.disabled = v.busy || !v.enabled;
+    now.onclick = () => act(() => invoke("upload_now"));
+    const link = el("button", "btn", linked ? "Linked to your account" : "Link to my account");
+    link.type = "button";
+    link.disabled = !v.enabled || linked;
+    link.onclick = () =>
+      act(async () => {
+        const r = await invoke("upload_link");
+        linked = r.linked;
+        linkCode = r.linked ? "" : r.code;
+        linkAt = Date.now();
+        return null;
+      });
+    bar.append(now, link);
+    box.appendChild(bar);
+
+    if (linkCode) {
+      const card = el("div", "linkcode");
+      const code = el("div", "code", linkCode);
+      const copy = el("button", "btn", "Copy");
+      copy.type = "button";
+      copy.onclick = async () => {
+        try {
+          await navigator.clipboard.writeText(linkCode);
+          copy.textContent = "Copied";
+        } catch {
+          copy.textContent = "Select and copy";
+        }
+      };
+      const row = el("div", "row");
+      row.append(code, copy);
+      card.append(el("div", "lab", "Code"), row, el("div", "note", "Confirm it on the page that opened in your browser."));
+      box.appendChild(card);
+    }
+
+    const st = el("div", msg.cls, "");
+    st.textContent = msg.text || v.error || v.note || "";
+    if (!msg.text && v.error) st.className = "status err";
+    box.appendChild(st);
+
     const gl = el("div");
     gl.style.marginTop = "20px";
     for (const g of v.groups) {
@@ -143,23 +189,8 @@ export async function renderUpload(body) {
       box.appendChild(cl);
     }
 
-    const bar = el("div");
-    bar.style.cssText = "display:flex;gap:10px;flex-wrap:wrap;margin-top:20px;align-items:center";
-    const now = el("button", "btn primary", v.busy ? "Uploading…" : "Upload now");
-    now.type = "button";
-    now.disabled = v.busy || !v.enabled;
-    now.onclick = () => act(() => invoke("upload_now"));
-    const link = el("button", "btn", linked ? "Linked to your account" : "Link to my account");
-    link.type = "button";
-    link.disabled = !v.enabled || linked;
-    link.onclick = () =>
-      act(async () => {
-        const r = await invoke("upload_link");
-        linked = r.linked;
-        linkText = r.linked ? "" : `Code ${r.code}. Confirm it in the browser page that just opened.`;
-        return null;
-      });
-    bar.append(now, link);
+    const danger = el("div");
+    danger.style.cssText = "display:flex;gap:10px;flex-wrap:wrap;margin-top:20px;align-items:center";
     if (confirming) {
       const del = el("button", "btn", "Delete from the website");
       del.type = "button";
@@ -174,7 +205,7 @@ export async function renderUpload(body) {
         confirming = false;
         draw();
       };
-      bar.append(del, cancel);
+      danger.append(del, cancel);
     } else {
       const all = el("button", "btn", "Delete everything I uploaded");
       all.type = "button";
@@ -182,20 +213,14 @@ export async function renderUpload(body) {
         confirming = true;
         draw();
       };
-      bar.appendChild(all);
+      danger.appendChild(all);
     }
-    box.appendChild(bar);
+    box.appendChild(danger);
     if (confirming) {
       box.appendChild(
         el("div", "note", "This removes every part, every row and the characters you uploaded. Your data in this app stays.")
       );
     }
-    if (linkText) box.appendChild(el("div", "note", linkText));
-
-    const st = el("div", msg.cls, "");
-    st.textContent = msg.text || v.error || v.note || "";
-    if (!msg.text && v.error) st.className = "status err";
-    box.appendChild(st);
   }
 
   draw();
@@ -205,9 +230,21 @@ export async function renderUpload(body) {
   } catch {
     /* the link state is a convenience; the button still works */
   }
-  // While an upload runs, follow it until it ends.
+  // While an upload runs, follow it until it ends; while a code is shown, notice when it is confirmed.
   const timer = setInterval(async () => {
     if (!box.isConnected) return clearInterval(timer);
+    if (linkCode && !linked && Date.now() - linkAt < 10 * 60 * 1000) {
+      try {
+        if (await invoke("upload_linked")) {
+          linked = true;
+          linkCode = "";
+          say("Linked to your account.");
+          draw();
+        }
+      } catch {
+        /* checked again on the next tick */
+      }
+    }
     if (!v.busy) return;
     v = await invoke("upload_get");
     draw();

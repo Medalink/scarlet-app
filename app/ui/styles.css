@@ -537,6 +537,11 @@ ul, ol { list-style: none; }
 
 .size-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0 28px; border-top: 1px solid var(--line2); }
 
+.linkcode { margin-top: 16px; padding: 16px 20px; border: 1px solid var(--line2); border-left: 2px solid var(--accent); background: var(--panel); max-width: 520px; }
+.linkcode .lab { color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: 0.08em; }
+.linkcode .row { display: flex; align-items: center; gap: 16px; margin: 6px 0 8px; }
+.linkcode .code { font-family: var(--mono); font-size: 34px; font-weight: 600; letter-spacing: 0.12em; color: var(--fg); user-select: all; }
+
 .status { color: var(--muted); font-size: 14px; margin-top: 12px; min-height: 20px; }
 .status.ok { color: var(--fg); }
 .status.err { color: var(--accent); }
