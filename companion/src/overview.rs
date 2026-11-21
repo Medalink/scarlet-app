@@ -787,9 +787,13 @@ pub fn build<'a>(me: &str, events: impl IntoIterator<Item = Ev<'a>>) -> Overview
 
 // Level estimates ------------------------------------------------------------
 
-/// Played seconds the pace is measured over, and the days the calendar rate is.
+/// Played seconds `recent` covers, the days the calendar rate is measured
+/// over, the played seconds the estimates need in all and on one level to
+/// count it, and the largest rise a level.
 const PACE_SECONDS: i64 = 36_000;
 const MIN_PLAYED: i64 = 900;
+const MIN_LEVEL_PLAYED: i64 = 900;
+const MAX_GROWTH: f64 = 1.05;
 const DAY_WINDOW: i64 = 14;
 const MAX_DAYS: f64 = 3650.0;
 const MAX_LEVEL: i64 = 60;
@@ -892,10 +896,12 @@ fn date_text(ts: i64, now: i64) -> String {
 }
 
 /// Time to the next level, the next multiple of 10 and level 60 from the
-/// pace in `rows` (newest first, the merged history), for a character at
-/// `level` with `xp` of `xp_max` on the bar. `first` is the start of the
-/// oldest recorded session. Same rule as Overview.lua.
+/// level-weighted pace in `levels`, for a character at `level` with `xp` of
+/// `xp_max` on the bar. `rows` (newest first, the merged history) give the
+/// days played; `first` is the start of the oldest recorded session. Same
+/// rule as Overview.lua.
 pub fn level_eta(
+    levels: &BTreeMap<u32, LevelTotal>,
     rows: &[RecentRow],
     first: i64,
     level: i64,
@@ -907,24 +913,12 @@ pub fn level_eta(
     if !(1..MAX_LEVEL).contains(&level) || xp_max <= 0 {
         return eta;
     }
-    let (mut played, mut gained, mut full) = (0, 0, false);
-    let mut day_played = 0;
     let day_start = now - DAY_WINDOW * 86_400;
-    for r in rows {
-        if !full {
-            played += r.p;
-            gained += r.x;
-            full = played >= PACE_SECONDS;
-        }
-        if r.t >= day_start {
-            day_played += r.p;
-        }
-    }
-    if played < MIN_PLAYED || gained <= 0 {
+    let day_played: i64 = rows.iter().filter(|r| r.t >= day_start).map(|r| r.p).sum();
+    let Some(pace) = Pace::fit(levels, level) else {
         eta.basis = "No level times yet: they need 15m played with XP recorded".into();
         return eta;
-    }
-    let per_second = gained as f64 / played as f64;
+    };
     let oldest = if first > 0 {
         first
     } else {
@@ -942,11 +936,10 @@ pub fn level_eta(
         targets.push(MAX_LEVEL);
     }
     for target in targets {
-        let mut left = (xp_max - xp).max(0);
+        let mut secs = (xp_max - xp).max(0) as f64 / pace.rate(level);
         for n in level + 1..target {
-            left += NEED[(n - 1) as usize];
+            secs += NEED[(n - 1) as usize] as f64 / pace.rate(n);
         }
-        let secs = left as f64 / per_second;
         let (time, minutes) = span(secs);
         let date = if rate > 0.0 && secs / rate <= MAX_DAYS {
             format!(
@@ -963,12 +956,98 @@ pub fn level_eta(
             date,
         });
     }
-    eta.basis = format!(
-        "At your pace over the last {} played: {} XP an hour",
-        span(played as f64).0,
-        commas((per_second * 3600.0 + 0.5).floor() as i64)
+    let hourly = commas((pace.rate(level) * 3600.0 + 0.5).floor() as i64);
+    let basis = format!(
+        "Based on {} played: {hourly} XP an hour",
+        pace.levels_text()
     );
+    eta.basis = if pace.flat() {
+        basis
+    } else {
+        format!(
+            "{basis} at level {level}, rising {:.1}% a level",
+            (pace.slope.exp() - 1.0) * 100.0
+        )
+    };
     eta
+}
+
+/// XP per played second as a function of level: `exp(a + b * n)`.
+struct Pace {
+    a: f64,
+    slope: f64,
+    /// Levels the fit used (all levels played when the pace is flat).
+    points: usize,
+}
+
+impl Pace {
+    fn rate(&self, n: i64) -> f64 {
+        (self.a + self.slope * n as f64).exp()
+    }
+
+    /// "7 levels", or "1 level".
+    fn levels_text(&self) -> String {
+        match self.points {
+            1 => "1 level".into(),
+            n => format!("{n} levels"),
+        }
+    }
+
+    fn flat(&self) -> bool {
+        self.slope == 0.0
+    }
+
+    /// The level-weighted fit of docs/OVERVIEW.md; none without enough played
+    /// time or XP. `levels` holds the per-level totals, `level` is the current one.
+    fn fit(levels: &BTreeMap<u32, LevelTotal>, level: i64) -> Option<Pace> {
+        let (mut played, mut gained) = (0i64, 0i64);
+        let mut pts: Vec<(f64, f64, f64)> = Vec::new();
+        for (&n, t) in levels {
+            if i64::from(n) > level {
+                continue;
+            }
+            let s = &t.share;
+            let x = s.xk + s.xd + s.xq + s.xe + s.xo;
+            played += s.p;
+            gained += x;
+            if s.p >= MIN_LEVEL_PLAYED && x > 0 {
+                pts.push((f64::from(n), s.p as f64, (x as f64 / s.p as f64).ln()));
+            }
+        }
+        if played < MIN_PLAYED || gained <= 0 {
+            return None;
+        }
+        if pts.len() < 3 {
+            return Some(Pace {
+                a: (gained as f64 / played as f64).ln(),
+                slope: 0.0,
+                points: levels
+                    .iter()
+                    .filter(|(n, t)| i64::from(**n) <= level && t.share.p > 0)
+                    .count(),
+            });
+        }
+        let w: f64 = pts.iter().map(|q| q.1).sum();
+        let mean_n = pts.iter().map(|q| q.1 * q.0).sum::<f64>() / w;
+        let mean_y = pts.iter().map(|q| q.1 * q.2).sum::<f64>() / w;
+        let sxx: f64 = pts.iter().map(|q| q.1 * (q.0 - mean_n).powi(2)).sum();
+        let sxy: f64 = pts
+            .iter()
+            .map(|q| q.1 * (q.0 - mean_n) * (q.2 - mean_y))
+            .sum();
+        let raw = sxy / sxx;
+        let slope = raw.clamp(0.0, MAX_GROWTH.ln());
+        let a = if slope == raw {
+            mean_y - slope * mean_n
+        } else {
+            pts.iter().map(|q| q.1 * (q.2 - slope * q.0)).sum::<f64>() / w
+        };
+        Some(Pace {
+            a,
+            slope,
+            points: pts.len(),
+        })
+    }
 }
 
 impl Overview {
@@ -980,6 +1059,7 @@ impl Overview {
     /// The level estimates from this overview's sessions at `now`.
     pub fn eta(&self, now: i64) -> Eta {
         level_eta(
+            &self.levels,
             &recent_rows(&self.sessions, now),
             self.first_session(),
             self.level,
