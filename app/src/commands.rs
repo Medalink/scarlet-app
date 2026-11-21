@@ -670,7 +670,7 @@ pub fn map_data(app: AppHandle, map: u32, ch: Option<String>) -> Vec<Poly> {
 
 /// The place names the client's tables give one map, written next to its art as
 /// `<uiMapID>.labels.json`; empty when the file is missing or unreadable.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn map_labels(app: AppHandle, map: u32) -> Vec<serde_json::Value> {
     with_store(&app, |st| {
         let path = maps_dir(st).join(format!("{map}.labels.json"));
@@ -686,7 +686,7 @@ pub fn map_labels(app: AppHandle, map: u32) -> Vec<serde_json::Value> {
 
 /// What the Survey look draws on one map besides the walked lines, for one
 /// character or all of them. Positions are map coordinates times 10000.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn map_layers(app: AppHandle, map: u32, ch: Option<String>) -> crate::layers::LayersOut {
     with_store(&app, |st| {
         let c = ch.and_then(|n| st.char_index(&n));

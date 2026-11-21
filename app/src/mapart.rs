@@ -24,7 +24,7 @@ fn install(app: &AppHandle) -> Option<Install> {
     Install::find(&wow)
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn map_art_status(app: AppHandle) -> ArtStatus {
     let s = state(&app).settings.lock().unwrap().clone();
     let found = Install::find(&s.wow);
@@ -63,7 +63,7 @@ pub async fn map_image_openmap(app: AppHandle, map: u32) -> tauri::ipc::Response
 
 /// A map's pre-rendered dark sheet from the app's `dark` resource folder; empty when the folder has
 /// none, and the view then draws the sheet itself from whichever art it has.
-#[tauri::command]
+#[tauri::command(async)]
 pub fn map_image_dark(app: AppHandle, map: u32) -> tauri::ipc::Response {
     let bytes = app
         .path()
