@@ -209,6 +209,8 @@ pub fn word(code: &str) -> &str {
         "TG" => "spec",
         "TA" => "talent",
         "TY" => "talentname",
+        "TV" => "talentlayout",
+        "TD" => "talentnode",
         "TQ" => "respec",
         "TI" => "title",
         "EQ" => "equipset",
@@ -2692,6 +2694,26 @@ fn details(code: &str, f: &[String], names: &HashMap<String, String>) -> String 
             s
         }
         "TY" => format!("{} ({})", g(1), g(0)),
+        "TV" => format!(
+            "tree {} for class {}: {} nodes, layout {}",
+            g(0),
+            g(1),
+            g(2),
+            g(3)
+        ),
+        "TD" => {
+            let mut s = format!("tree {} node {} at {}, {}", g(0), g(1), g(2), g(3));
+            if !g(6).is_empty() {
+                s.push_str(&format!(" in {}", label('g', g(6), names, "tab")));
+            }
+            let entries = g(7).split(',').filter(|e| !e.is_empty()).count();
+            let edges = g(8).split(',').filter(|e| !e.is_empty()).count();
+            s.push_str(&format!(
+                " ({} ranks, {entries} entries, {edges} edges)",
+                g(5)
+            ));
+            s
+        }
         "TQ" => match g(0) {
             "p" => format!("respec offered for {} (type {})", coin(g(1)), g(2)),
             "r" => if g(1) == "1" {
