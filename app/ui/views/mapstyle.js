@@ -29,6 +29,7 @@ export const P = {
   hlo: 7, hhi: 11, // hatching strength that counts as sea
   strip: 60,          // half-size pixels from the sheet's edge
   wbody: 3,           // water narrower than twice this (half-size pixels) is a river line
+  fadedLo: 10, seaMin: 2500, // with o.sea: colour change that marks faded ground, and the least a sea there covers (half-size pixels)
   river: 0.5,
   line: 1,
   // The art's own pen work laid back over the sheet in the line colour.
@@ -36,8 +37,8 @@ export const P = {
   inkLo: 8, inkHi: 28, inkLong: 34, inkAlpha: 0.22,
 };
 
-const clamp = (v, a = 0, b = 1) => (v < a ? a : v > b ? b : v);
-const sstep = (e0, e1, v) => { const t = clamp((v - e0) / (e1 - e0)); return t * t * (3 - 2 * t); };
+export const clamp = (v, a = 0, b = 1) => (v < a ? a : v > b ? b : v);
+export const sstep = (e0, e1, v) => { const t = clamp((v - e0) / (e1 - e0)); return t * t * (3 - 2 * t); };
 
 function boxBlur(src, w, h, r, tmp, out) {
   const n = 2 * r + 1;
@@ -61,7 +62,7 @@ function boxBlur(src, w, h, r, tmp, out) {
   return out;
 }
 // Three box blurs make a close Gaussian.
-function gauss(src, w, h, sigma) {
+export function gauss(src, w, h, sigma) {
   const r = Math.max(1, Math.round((Math.sqrt(4 * sigma * sigma + 1) - 1) / 2));
   const tmp = new Float32Array(w * h), a = new Float32Array(w * h), b = new Float32Array(w * h);
   boxBlur(src, w, h, r, tmp, a); boxBlur(a, w, h, r, tmp, b); boxBlur(b, w, h, r, tmp, a);
@@ -90,14 +91,14 @@ function grow(s, w, h, k) {
   return out;
 }
 // A wide blur, run on a copy k times smaller.
-function wide(src, w, h, sigma, k) {
+export function wide(src, w, h, sigma, k) {
   const s = shrink(src, w, h, k);
   s.a = gauss(s.a, s.W, s.H, sigma / k);
   return grow(s, w, h, k);
 }
 
 // The p-th percentile of a over the pixels where mask is set, by histogram.
-function percentile(a, p, mask) {
+export function percentile(a, p, mask) {
   const hist = new Uint32Array(1024); let n = 0, lo = Infinity, hi = -Infinity;
   for (let i = 0; i < a.length; i++) if (!mask || mask[i]) { if (a[i] < lo) lo = a[i]; if (a[i] > hi) hi = a[i]; }
   if (!(hi > lo)) return hi > -Infinity ? hi : 0;
@@ -109,7 +110,7 @@ function percentile(a, p, mask) {
 }
 
 // Marching squares over g for many levels in one pass; each level's segments go to paths[group(level index)].
-function isoMany(g, cols, rows, step, levels, groupOf, paths) {
+export function isoMany(g, cols, rows, step, levels, groupOf, paths) {
   const L = levels.length;
   for (let j = 0; j < rows - 1; j++) {
     for (let i = 0; i < cols - 1; i++) {
@@ -138,7 +139,7 @@ function isoMany(g, cols, rows, step, levels, groupOf, paths) {
 }
 
 // Keeps the connected pieces of a mask that span at least `min` pixels: drops letters, icons, specks.
-function keepLong(mask, w, h, min) {
+export function keepLong(mask, w, h, min) {
   const out = new Uint8Array(w * h), seen = new Uint8Array(w * h), stack = new Int32Array(w * h), members = new Int32Array(w * h);
   for (let s = 0; s < w * h; s++) {
     if (!mask[s] || seen[s]) continue;
@@ -160,7 +161,7 @@ function keepLong(mask, w, h, min) {
   return out;
 }
 
-function toCanvas(rgba, w, h) {
+export function toCanvas(rgba, w, h) {
   const c = document.createElement("canvas"); c.width = w; c.height = h;
   const cx = c.getContext("2d"), im = cx.createImageData(w, h);
   im.data.set(rgba); cx.putImageData(im, 0, 0);
@@ -168,7 +169,7 @@ function toCanvas(rgba, w, h) {
 }
 
 // Square erosion (grow = 0) or dilation (grow = 1) of a mask by r pixels, by running counts.
-function morph(m, w, h, r, grow) {
+export function morph(m, w, h, r, grow) {
   const t = new Uint8Array(w * h), out = new Uint8Array(w * h), run = new Int32Array(Math.max(w, h) + 1);
   const pass = (src, dst, len, lines, at) => {
     for (let l = 0; l < lines; l++) {
@@ -185,7 +186,7 @@ function morph(m, w, h, r, grow) {
 }
 
 // Zhang-Suen thinning of a mask to one-pixel lines, then the lines as smoothed polylines.
-function trace(mask, w, h, minLen) {
+export function trace(mask, w, h, minLen) {
   let live = [];
   for (let i = 0; i < w * h; i++) if (mask[i]) { const x = i % w, y = (i / w) | 0; if (x > 0 && y > 0 && x < w - 1 && y < h - 1) live.push(i); else mask[i] = 0; }
   const N = [-w, -w + 1, 1, w + 1, w, w - 1, -1, -w - 1];
@@ -246,25 +247,33 @@ function trace(mask, w, h, minLen) {
 // What the art says. Every field returned is half size (w2 x h2).
 export function read(px, w, h, o = P) {
   const n = w * h, w2 = w >> 1, h2 = h >> 1, m = w2 * h2;
-  const L = new Float32Array(n), wc = new Float32Array(n);
-  const R2 = new Float32Array(m), G2 = new Float32Array(m), B2 = new Float32Array(m);
+  // o.sea is the same sheet before its neighbours were faded out (the art as OpenMap draws it).
+  // Water is read from it, so a sea the fade took for land is still sea; the rest is read from px.
+  const sea = o.sea || px;
+  const L = new Float32Array(n), Lw = sea === px ? L : new Float32Array(n), wc = new Float32Array(n);
+  const R2 = new Float32Array(m), G2 = new Float32Array(m), B2 = new Float32Array(m), faded = new Float32Array(m);
   for (let y = 0; y < h; y++) {
     const row = (y >> 1) * w2, in2 = y < h2 * 2;
     for (let x = 0; x < w; x++) {
-      const i = y * w + x, r = px[i * 4], g = px[i * 4 + 1], b = px[i * 4 + 2], l = (r + g + b) / 3;
-      L[i] = l;
+      const i = y * w + x, r = px[i * 4], g = px[i * 4 + 1], b = px[i * 4 + 2];
+      const sr = sea[i * 4], sg = sea[i * 4 + 1], sb = sea[i * 4 + 2], l = (sr + sg + sb) / 3;
+      L[i] = (r + g + b) / 3; Lw[i] = l;
       // The water wash is the only cool colour on the sheet: blue near red, green at or above red,
       // and never bright (pale sand and snow-white paper are).
-      const br = b / (r + 1), gr = g / (r + 1);
+      const br = sb / (sr + 1), gr = sg / (sr + 1);
       wc[i] = br > 0.5 && gr > 0.8 && l < 175 && l > 55 ? sstep(0.5, 0.68, br) * sstep(0.8, 0.9, gr) * sstep(175, 150, l) : 0;
-      if (in2 && x < w2 * 2) { const k = row + (x >> 1); R2[k] += r * 0.25; G2[k] += g * 0.25; B2[k] += b * 0.25; }
+      if (in2 && x < w2 * 2) {
+        const k = row + (x >> 1);
+        R2[k] += r * 0.25; G2[k] += g * 0.25; B2[k] += b * 0.25;
+        faded[k] += (Math.abs(r - sr) + Math.abs(g - sg) + Math.abs(b - sb)) / 12;
+      }
     }
   }
   // Box means of lightness along the sheet (A) and down it (V), 9 pixels long. A level pen line
   // survives the first and is wiped out by the second; any other stroke does the opposite or neither.
   const A = new Float32Array(n), V = new Float32Array(n);
-  for (let y = 0; y < h; y++) { const o2 = y * w; let acc = 0; for (let x = 0; x < 9; x++) acc += L[o2 + x]; for (let x = 4; x < w - 5; x++) { A[o2 + x] = acc / 9; acc += L[o2 + x + 5] - L[o2 + x - 4]; } }
-  for (let x = 0; x < w; x++) { let acc = 0; for (let y = 0; y < 9; y++) acc += L[y * w + x]; for (let y = 4; y < h - 5; y++) { V[y * w + x] = acc / 9; acc += L[(y + 5) * w + x] - L[(y - 4) * w + x]; } }
+  for (let y = 0; y < h; y++) { const o2 = y * w; let acc = 0; for (let x = 0; x < 9; x++) acc += Lw[o2 + x]; for (let x = 4; x < w - 5; x++) { A[o2 + x] = acc / 9; acc += Lw[o2 + x + 5] - Lw[o2 + x - 4]; } }
+  for (let x = 0; x < w; x++) { let acc = 0; for (let y = 0; y < 9; y++) acc += Lw[y * w + x]; for (let y = 4; y < h - 5; y++) { V[y * w + x] = acc / 9; acc += Lw[(y + 5) * w + x] - Lw[(y - 4) * w + x]; } }
   // Pooled to half size: water colour by max (keeps the wash between pen lines), hatching and
   // texture by mean.
   const wraw = new Float32Array(m), hat = new Float32Array(m), tex = new Float32Array(m), L2 = new Float32Array(m), ink = new Float32Array(m);
@@ -273,7 +282,7 @@ export function read(px, w, h, o = P) {
       let wm = 0, hs = 0, ts = 0, dark = 0;
       for (let dy = 0; dy < 2; dy++)
         for (let dx = 0; dx < 2; dx++) {
-          const x = i * 2 + dx, y = j * 2 + dy, p = y * w + x, l = L[p];
+          const x = i * 2 + dx, y = j * 2 + dy, p = y * w + x, l = Lw[p];
           if (wc[p] > wm) wm = wc[p];
           if (l < 46) dark++;
           if (x < 6 || y < 6 || x >= w - 6 || y >= h - 6) continue;
@@ -310,6 +319,30 @@ export function read(px, w, h, o = P) {
   }
   const w1 = gauss(wcol, w2, h2, 1.1), wa = gauss(wany, w2, h2, 1.3), all = new Uint8Array(m);
   for (let i = 0; i < m; i++) all[i] = Math.max(w1[i], wa[i]) > 0.5 ? 1 : 0;
+  // Where the neighbours were faded out, only a sea counts: water there is kept when it is large
+  // or runs on from water the fade left alone. A neighbour's ponds and rivers go with its land.
+  if (sea !== px) {
+    const seen = new Uint8Array(m), stack = new Int32Array(m), members = new Int32Array(m), gone = new Uint8Array(m);
+    for (let s0 = 0; s0 < m; s0++) {
+      if (!all[s0] || seen[s0]) continue;
+      let top = 0, cnt = 0, kept = 0;
+      stack[top++] = s0; seen[s0] = 1;
+      while (top) {
+        const p = stack[--top], x = p % w2, y = (p / w2) | 0;
+        members[cnt++] = p;
+        if (faded[p] < o.fadedLo) kept++;
+        for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+          const X = x + dx, Y = y + dy;
+          if (X < 0 || Y < 0 || X >= w2 || Y >= h2) continue;
+          const q = Y * w2 + X;
+          if (all[q] && !seen[q]) { seen[q] = 1; stack[top++] = q; }
+        }
+      }
+      if (cnt < o.seaMin && kept < 6) for (let i = 0; i < cnt; i++) gone[members[i]] = 1;
+    }
+    const near = morph(gone, w2, h2, 2, 1);
+    for (let i = 0; i < m; i++) if (near[i]) { if (gone[i]) all[i] = 0; wany[i] = 0; wcol[i] = 0; w1[i] = 0; wa[i] = 0; }
+  }
   // Water wide enough to survive an erosion is a body (sea, lake) and gets a coast line; the
   // narrow rest is a river and gets the sheet's blue line down its middle.
   const core = morph(morph(all, w2, h2, o.wbody, 0), w2, h2, o.wbody + 2, 1), rmask = new Uint8Array(m), solid = new Float32Array(m);
@@ -403,7 +436,7 @@ export function read(px, w, h, o = P) {
       + clamp(((m20[i] - m70[i]) / 255) * 5, -1, 1) * 0.12 * o.roll * inland * (1 - mtn[i]);
     H[i] *= edge[i] * 0.6 + 0.4;
   }
-  return { w: w2, h: h2, L, l4, H, body, cst, edge, mtn, zone, rivers, wcol, hb, tex, energy, dsm, rmask, inky, dry };
+  return { w: w2, h: h2, full: [w, h], px, faded, L, L2, l4, R2, G2, B2, H, body, cst, edge, shore, mtn, zone, rivers, wcol, hb, tex, energy, dsm, rmask, inky, dry };
 }
 
 // The blend mask: where the painting has pen work darker than the ground round it (roads, walls,
@@ -496,6 +529,8 @@ export function styleMap(px, w, h, o = P) {
     lc.drawImage(lift(f, w, h, o), 0, 0, w * S, h * S);
     lc.restore();
   }
+  // The shipped sheets' detail (tools/survey-detail.js) is drawn here, under the coast line.
+  if (o.detail) { lc.save(); o.detail(lc, f, lw, o); lc.restore(); }
   tick();
   const coast = [new Path2D()];
   isoMany(gauss(f.cst, W, Hh, 0.7), W, Hh, 1, [0.5], [0], coast);
