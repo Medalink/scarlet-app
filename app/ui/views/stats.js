@@ -1,7 +1,18 @@
 // Stats: stat cards by section, the movement breakdown and the
 // either-or time splits (combat, group, resting, AFK).
 
-import { invoke, el, esc, stackedBar, dur, state } from "../lib.js";
+import { invoke, el, esc, stackedBar, dur, num, moneyHtml, state } from "../lib.js";
+
+// The companion sends each value as text. A plain count gets its thousands separators and an
+// amount like "259g 79s 38c" its coin colours; anything else shows as sent.
+function show(value) {
+  const t = String(value);
+  if (/^\d{4,}$/.test(t)) return num(Number(t));
+  const m = t.match(/^(?:(\d+)g)? ?(?:(\d+)s)? ?(?:(\d+)c)?$/);
+  // A lone "42s" is a duration, not silver: an amount has gold or copper in it.
+  if (m && (m[1] || m[3])) return moneyHtml((+m[1] || 0) * 10000 + (+m[2] || 0) * 100 + (+m[3] || 0));
+  return esc(t);
+}
 
 export async function render(body) {
   body.innerHTML = "";
@@ -12,7 +23,7 @@ export async function render(body) {
     const grid = el("div", "grid");
     for (const [label, value] of s.cards) {
       const c = el("div", "card");
-      c.innerHTML = `<div class="value">${esc(value)}</div><div class="label">${esc(label)}</div>`;
+      c.innerHTML = `<div class="value">${show(value)}</div><div class="label">${esc(label)}</div>`;
       grid.appendChild(c);
     }
     body.appendChild(grid);
