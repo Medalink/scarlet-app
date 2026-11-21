@@ -390,7 +390,11 @@ fn crosscheck(name: &str, ov: &Overview, rows: &[AddonRow]) {
                 );
             }
         };
-        diff("p", a.p, c.p, 5);
+        // The companion adds the reload before the next session (docs/OVERVIEW.md, Played); rows the
+        // addon wrote before it did the same lack it, up to two minutes.
+        if !(0..=120).contains(&(c.p - a.p)) {
+            diff("p", a.p, c.p, 5);
+        }
         diff("k", a.k, c.k, 0);
         diff("dd", a.dd, c.dd, 0);
         diff("q", a.q, c.q, 0);
