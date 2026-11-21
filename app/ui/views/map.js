@@ -141,8 +141,8 @@ export async function render(body) {
   let art = null;
 
   // The art bytes of one source, or null when it has none for the map.
-  async function fetchArt(cmd, map) {
-    const raw = await invoke(cmd, { map });
+  async function fetchArt(cmd, map, extra) {
+    const raw = await invoke(cmd, { map, ...extra });
     return raw.byteLength ? raw : null;
   }
 
@@ -171,7 +171,8 @@ export async function render(body) {
           return keep(key, { img: bmp, asp: bmp.height / bmp.width, source: "dark" });
         }
         for (const s of openmap ? ["openmap", "legacy"] : ["legacy", "openmap"]) {
-          raw = await fetchArt(s === "openmap" ? "map_image_openmap" : "map_image", map);
+          // A sheet drawn from OpenMap's art keeps to the zone's own land, not its neighbours'.
+          raw = s === "openmap" ? await fetchArt("map_image_openmap", map, { land: true }) : await fetchArt("map_image", map);
           if (raw) { source = s; break; }
         }
       }

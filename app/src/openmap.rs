@@ -15,11 +15,13 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 /// Bumped when the cutting changes, so caches made by an older one are not reused.
-pub const CUT: u32 = 1;
+pub const CUT: u32 = 2;
 /// Where the pictures go; the OpenMap TOC version and `CUT` name the folder below it.
 const CACHE: &str = "openmap";
 /// What shows where no tile has art (open sea beyond the baked zones): the sea the tiles fade into.
 const SEA: [f32; 3] = [124.0, 136.0, 132.0];
+/// The map sheet's own parchment, which the old source showed round a zone's land.
+const PARCHMENT: [f32; 3] = [152.0, 108.0, 32.0];
 /// Sharpest mip used; a world-sized picture is cut from tiles this far down.
 const MAX_MIP: u32 = 6;
 /// Decoded tiles kept between maps; one decoded 512 px tile is 1 MiB.
@@ -490,6 +492,7 @@ fn cut_rgb(
     art: &ZoneArt,
     e: &Entry,
     tiles: &mut Tiles,
+    land: bool,
 ) -> Result<(Vec<u8>, bool), String> {
     let ((u0, du), (v0, dv)) =
         placement(e).ok_or("the map is not on a continent the world map shows")?;
@@ -543,7 +546,146 @@ fn cut_rgb(
             }
         }
     }
+    if land {
+        // A land mask that is there but will not read leaves the picture unmasked and unkept.
+        match inst.land_mask(e.id) {
+            Ok(Some(mask)) => keep_land(&mut out, w, h, &mask),
+            Ok(None) => {}
+            Err(_) => tiles.failed = true,
+        }
+    }
     Ok((out, !tiles.failed))
+}
+
+/// A zone's land as OpenMap bakes it (`MapZoneLand\<id>.tga`, "each zone's land without its painted
+/// sea"): the alpha is 1 on the zone's own land, over the sheet's whole area, top row first.
+pub struct Mask {
+    w: usize,
+    h: usize,
+    a: Vec<u8>,
+}
+
+impl Install {
+    /// The zone's land mask: `Ok(None)` when the addon has none for this map (continents, the world),
+    /// an error when the file is there but is not an uncompressed 32-bit TGA.
+    fn land_mask(&self, id: u32) -> Result<Option<Mask>, String> {
+        let path = self
+            .dir
+            .join("Media/Textures/Forever/MapZoneLand")
+            .join(format!("{id}.tga"));
+        let f = match fs::read(&path) {
+            Ok(f) => f,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(format!("{}: {e}", path.display())),
+        };
+        let bad = || format!("{}: not an uncompressed 32-bit TGA", path.display());
+        if f.len() < 18 || f[1] != 0 || f[2] != 2 || f[16] != 32 {
+            return Err(bad());
+        }
+        let (w, h) = (
+            u16::from_le_bytes([f[12], f[13]]) as usize,
+            u16::from_le_bytes([f[14], f[15]]) as usize,
+        );
+        let at = 18 + f[0] as usize;
+        let px = f
+            .get(at..at + w * h * 4)
+            .filter(|_| w > 0 && h > 0)
+            .ok_or_else(bad)?;
+        // Bit 5 of the descriptor set: rows run top to bottom; clear: bottom to top.
+        let top_first = f[17] & 0x20 != 0;
+        let mut a = Vec::with_capacity(w * h);
+        for y in 0..h {
+            let row = if top_first { y } else { h - 1 - y };
+            a.extend((0..w).map(|x| px[(row * w + x) * 4 + 3]));
+        }
+        Ok(Some(Mask { w, h, a }))
+    }
+}
+
+/// Fades the picture to nothing outside the zone's own land, so a map shows its zone and not the
+/// neighbours' art the tiles also hold. Outside the mask the colour is that of the pixels about it that
+/// are also outside it (averaged, so their texture is gone); where that is blue-grey it is the sea,
+/// kept, and where it is not it is neighbouring land, which becomes the one parchment tone, as the
+/// old sheets showed it. The zone's own pixels do not bleed into it.
+fn keep_land(rgb: &mut [u8], w: usize, h: usize, mask: &Mask) {
+    let n = w * h;
+    // The mask over the picture, bilinear.
+    let mut m = vec![0f32; n];
+    for y in 0..h {
+        let fy =
+            ((y as f32 + 0.5) / h as f32 * mask.h as f32 - 0.5).clamp(0.0, mask.h as f32 - 1.0);
+        let (y0, ty) = (fy as usize, fy.fract());
+        let y1 = (y0 + 1).min(mask.h - 1);
+        for x in 0..w {
+            let fx =
+                ((x as f32 + 0.5) / w as f32 * mask.w as f32 - 0.5).clamp(0.0, mask.w as f32 - 1.0);
+            let (x0, tx) = (fx as usize, fx.fract());
+            let x1 = (x0 + 1).min(mask.w - 1);
+            let at = |xx: usize, yy: usize| mask.a[yy * mask.w + xx] as f32 / 255.0;
+            m[y * w + x] = (at(x0, y0) * (1.0 - tx) + at(x1, y0) * tx) * (1.0 - ty)
+                + (at(x0, y1) * (1.0 - tx) + at(x1, y1) * tx) * ty;
+        }
+    }
+    // Planes: the outside weight, and the colour times it, blurred together.
+    let mut planes: Vec<Vec<f32>> = vec![vec![0f32; n]; 4];
+    for i in 0..n {
+        let out = 1.0 - m[i];
+        planes[3][i] = out;
+        for k in 0..3 {
+            planes[k][i] = rgb[i * 3 + k] as f32 * out;
+        }
+    }
+    let radius = (w.max(h) / 30).max(1);
+    for p in &mut planes {
+        for _ in 0..3 {
+            box_blur(p, w, h, radius);
+        }
+    }
+    for i in 0..n {
+        let wgt = planes[3][i];
+        for k in 0..3 {
+            let around = if wgt > 1e-3 {
+                planes[k][i] / wgt
+            } else {
+                SEA[k]
+            };
+            // Sea, blue-grey, stays as it is; any other colour is neighbouring land and becomes
+            // one parchment tone, so it does not draw contours of its own.
+            let sea = if wgt > 1e-3 {
+                ((planes[2][i] - planes[0][i]) / wgt + 20.0) / 30.0
+            } else {
+                1.0
+            }
+            .clamp(0.0, 1.0);
+            let flat = PARCHMENT[k] * (1.0 - sea) + around * sea;
+            rgb[i * 3 + k] = (rgb[i * 3 + k] as f32 * m[i] + flat * (1.0 - m[i]))
+                .round()
+                .clamp(0.0, 255.0) as u8;
+        }
+    }
+}
+
+/// One box blur pass of `radius` along rows and then columns; the picture's edge counts as it is.
+fn box_blur(p: &mut [f32], w: usize, h: usize, radius: usize) {
+    let r = radius as isize;
+    let mut line = vec![0f32; w.max(h)];
+    let mut pass = |len: usize, at: &dyn Fn(usize) -> usize, p: &mut [f32]| {
+        for i in 0..len {
+            line[i] = p[at(i)];
+        }
+        let get = |i: isize| line[i.clamp(0, len as isize - 1) as usize];
+        let mut sum: f32 = (-r..=r).map(get).sum();
+        for i in 0..len {
+            p[at(i)] = sum / (2 * r + 1) as f32;
+            sum += get(i as isize + r + 1) - get(i as isize - r);
+        }
+    };
+    for y in 0..h {
+        pass(w, &|x| y * w + x, p);
+    }
+    for x in 0..w {
+        pass(h, &|y| y * w + x, p);
+    }
 }
 
 fn encode(rgb: &[u8], w: u32, h: u32) -> Vec<u8> {
@@ -557,11 +699,17 @@ fn tiles() -> &'static Mutex<Tiles> {
     T.get_or_init(|| Mutex::new(Tiles::default()))
 }
 
-/// The picture of one map as WebP, from the cache when it is there, else cut now and cached.
-pub fn image(inst: &Install, data: &Path, id: u32) -> Option<Vec<u8>> {
+/// The picture of one map as WebP, from the cache when it is there, else cut now and cached. `land`
+/// fades the art outside the zone's own land (see `keep_land`): the source of the dark sheets, which
+/// are not to carry the neighbouring zones; the Game map look keeps the art as OpenMap draws it.
+pub fn image(inst: &Install, data: &Path, id: u32, land: bool) -> Option<Vec<u8>> {
     let e = maps().iter().find(|m| m.id == id && !m.city)?;
     let dir = inst.cache_dir(data);
-    let file = dir.join(format!("{id}.webp"));
+    let file = dir.join(if land {
+        format!("{id}-land.webp")
+    } else {
+        format!("{id}.webp")
+    });
     if let Some(bytes) = cached(&file) {
         return Some(bytes);
     }
@@ -571,7 +719,7 @@ pub fn image(inst: &Install, data: &Path, id: u32) -> Option<Vec<u8>> {
     if let Some(bytes) = cached(&file) {
         return Some(bytes);
     }
-    let (rgb, complete) = cut_rgb(inst, &art, e, &mut t).ok()?;
+    let (rgb, complete) = cut_rgb(inst, &art, e, &mut t, land).ok()?;
     let bytes = encode(&rgb, e.w, e.h);
     // A picture with a hole in it is shown this once, not kept.
     if complete {
@@ -674,13 +822,14 @@ fn prune(keep: &Path) {
 pub fn build_all(
     inst: &Install,
     dir: &Path,
+    land: bool,
     mut each: impl FnMut(u32, usize),
 ) -> Result<(), String> {
     let art = inst.zone_art()?;
     fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let mut t = Tiles::default();
     for e in maps().iter().filter(|m| !m.city) {
-        let rgb = match cut_rgb(inst, &art, e, &mut t) {
+        let rgb = match cut_rgb(inst, &art, e, &mut t, land) {
             Ok((rgb, true)) => rgb,
             Ok((_, false)) => return Err(format!("a tile of {} would not load", e.name)),
             Err(_) => continue,

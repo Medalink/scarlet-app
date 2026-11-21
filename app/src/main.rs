@@ -26,7 +26,8 @@ fn main() {
     let mut args = std::env::args();
     if args.any(|a| a == "--openmap-cut") {
         if let Some(dir) = args.next() {
-            mapart::cut_to(std::path::Path::new(&dir));
+            let plain = args.next().is_some_and(|a| a == "--plain");
+            mapart::cut_to(std::path::Path::new(&dir), !plain);
         }
         return;
     }

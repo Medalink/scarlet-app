@@ -46,16 +46,21 @@ pub fn set_map_art(app: AppHandle, art: String) -> Result<String, String> {
 }
 
 /// One map's picture cut out of the OpenMap install, as WebP; empty when OpenMap is not installed or
-/// does not have the map. The first cut of a map takes about a tenth of a second and is cached.
+/// does not have the map. With `land` the art outside the zone's own land is faded (the source of a
+/// dark sheet); without it the art is as OpenMap draws it. The first cut of a map takes about a tenth of a second and is cached.
 #[tauri::command]
-pub async fn map_image_openmap(app: AppHandle, map: u32) -> tauri::ipc::Response {
+pub async fn map_image_openmap(
+    app: AppHandle,
+    map: u32,
+    land: Option<bool>,
+) -> tauri::ipc::Response {
     let (wow, data) = {
         let s = state(&app).settings.lock().unwrap();
         (s.wow.clone(), s.data.clone())
     };
     // Finding the install reads files too, so it runs on the blocking thread with the cut.
     let bytes = tauri::async_runtime::spawn_blocking(move || {
-        Install::find(&wow).and_then(|i| openmap::image(&i, &data, map))
+        Install::find(&wow).and_then(|i| openmap::image(&i, &data, map, land.unwrap_or(false)))
     })
     .await
     .ok()
@@ -122,10 +127,12 @@ pub fn open_openmap_page() -> Result<(), String> {
     }
 }
 
-/// `scarlet-app --openmap-cut <folder>`: cuts every map out of the OpenMap install in Settings into
-/// the folder, with no window, and writes `cut.log` there (the build has no console). For measuring
-/// a full cache and for tools that want the pictures as files.
-pub fn cut_to(dir: &std::path::Path) {
+/// `scarlet-app --openmap-cut <folder> [--plain]`: cuts every map out of the OpenMap install in Settings
+/// into the folder, with no window, and writes `cut.log` there (the build has no console). The pictures
+/// are the sources of the dark sheets, with the art outside each zone's land faded; `--plain` keeps the
+/// art as OpenMap draws it (the Game map look). For measuring a full cache and for tools that want the
+/// pictures as files.
+pub fn cut_to(dir: &std::path::Path, land: bool) {
     let log = dir.join("cut.log");
     let _ = std::fs::create_dir_all(dir);
     let s = settings::load();
@@ -135,7 +142,7 @@ pub fn cut_to(dir: &std::path::Path) {
     };
     let t = std::time::Instant::now();
     let (mut maps, mut bytes) = (0u32, 0usize);
-    let r = openmap::build_all(&inst, dir, |_, n| {
+    let r = openmap::build_all(&inst, dir, land, |_, n| {
         maps += 1;
         bytes += n;
     });
