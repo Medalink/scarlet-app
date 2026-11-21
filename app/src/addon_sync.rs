@@ -1,4 +1,6 @@
-//! Keeps the Scarlet addon in the WoW folder current from the addon zip of the update feed.
+//! Keeps the Scarlet addon current in every WoW folder (the main one and each of `more_wow`)
+//! from the addon zip of the update feed. One download serves them all; each folder is judged
+//! on its own by the rules below.
 //!
 //! The app writes into `<WoW>\_forever_\Interface\AddOns\<folder>` only when the folder is
 //! missing (it installs it) or the app installed it itself (it holds `.scarlet-app.json`, which
@@ -449,9 +451,9 @@ pub fn run(app: &AppHandle) {
     if !updater::enabled(app) {
         return;
     }
-    let (wow, keep) = {
+    let (wows, primary, keep) = {
         let s = state(app).settings.lock().unwrap();
-        (s.wow.clone(), s.keep_addon)
+        (s.folders(), s.wow.clone(), s.keep_addon)
     };
     if !keep {
         return;
@@ -459,7 +461,11 @@ pub fn run(app: &AppHandle) {
     let Some(offer) = updater::current_feed().and_then(|f| f.addon) else {
         return;
     };
-    if settings::folder_problem(&wow).is_some() {
+    let wows: Vec<PathBuf> = wows
+        .into_iter()
+        .filter(|w| settings::folder_problem(w).is_none())
+        .collect();
+    if wows.is_empty() {
         return;
     }
     let Ok(version) = Version::parse(&offer.version) else {
@@ -472,24 +478,54 @@ pub fn run(app: &AppHandle) {
         );
         return;
     };
-    let addons = addons_dir(&wow);
     let names = offered_folders(&offer);
-    if !names.iter().any(|n| {
-        let dir = addons.join(n);
-        wants(&classify(&dir), &dir, &version)
-    }) {
+    let behind: Vec<&PathBuf> = wows
+        .iter()
+        .filter(|w| {
+            let addons = addons_dir(w);
+            names.iter().any(|n| {
+                let dir = addons.join(n);
+                wants(&classify(&dir), &dir, &version)
+            })
+        })
+        .collect();
+    if behind.is_empty() {
         return;
     }
-    let result = download(&offer, |_, _| {})
-        .and_then(|zip| {
-            verify(app, &zip, &offer)?;
-            unpack(&zip)
-        })
-        .and_then(|packed| sync_folders(&addons, &offer.version, &version, &packed));
-    match result {
-        Ok(text) if text.is_empty() => {}
-        Ok(text) => say(text, false),
-        Err(e) => say(e, true),
+    let packed = match download(&offer, |_, _| {}).and_then(|zip| {
+        verify(app, &zip, &offer)?;
+        unpack(&zip)
+    }) {
+        Ok(p) => p,
+        Err(e) => {
+            say(e, true);
+            return;
+        }
+    };
+    let mut done: Vec<String> = Vec::new();
+    let mut failed: Vec<String> = Vec::new();
+    for wow in behind {
+        let whose = if settings::folder_key(wow) == settings::folder_key(&primary) {
+            String::new()
+        } else {
+            format!(" in {}", wow.display())
+        };
+        match sync_folders(&addons_dir(wow), &offer.version, &version, &packed) {
+            Ok(lines) => done.extend(lines.into_iter().map(|l| format!("{l}{whose}"))),
+            Err(e) => failed.push(format!("{e}{whose}")),
+        }
+    }
+    if !failed.is_empty() {
+        failed.extend(done);
+        say(failed.join("; "), true);
+    } else if !done.is_empty() {
+        say(
+            format!(
+                "{}. It loads the next time WoW starts or you type /reload.",
+                done.join("; ")
+            ),
+            false,
+        );
     }
 }
 
@@ -498,7 +534,7 @@ fn sync_folders(
     offer_text: &str,
     offer: &Version,
     packed: &Packed,
-) -> Result<String, String> {
+) -> Result<Vec<String>, String> {
     let mut folders: Vec<&str> = packed.files.iter().map(|(f, _, _)| f.as_str()).collect();
     folders.dedup();
     let folders: BTreeSet<&str> = folders.into_iter().collect();
@@ -526,21 +562,14 @@ fn sync_folders(
             None => format!("{folder} installed at {offer_text}"),
         });
     }
-    Ok(if done.is_empty() {
-        String::new()
-    } else {
-        format!(
-            "{}. It loads the next time WoW starts or you type /reload.",
-            done.join("; ")
-        )
-    })
+    Ok(done)
 }
 
 // ---- Settings ----------------------------------------------------------------------------------
 
 #[derive(Serialize)]
 pub struct FolderStatus {
-    name: String,
+    pub name: String,
     /// missing, ours, by-hand, curseforge, wago, git, linked
     manager: &'static str,
     /// Who keeps the folder current; none when it is not installed.
@@ -624,6 +653,27 @@ fn folder_status(name: String, dir: &Path, latest: Option<&Version>) -> FolderSt
         can_reinstall: writable && !missing,
         takeover: class == Class::ByHand,
     }
+}
+
+/// The addon folders of one WoW folder as the Settings folder list shows them. Empty when the
+/// folder holds no game to look in.
+pub fn folder_addons(wow: &Path) -> Vec<FolderStatus> {
+    if settings::folder_problem(wow).is_some() {
+        return Vec::new();
+    }
+    let offer = updater::current_feed().and_then(|f| f.addon);
+    let latest = offer.as_ref().and_then(|o| Version::parse(&o.version).ok());
+    let addons = addons_dir(wow);
+    let names = offer
+        .as_ref()
+        .map_or_else(|| vec![MAIN.to_string()], offered_folders);
+    names
+        .into_iter()
+        .map(|name| {
+            let dir = addons.join(&name);
+            folder_status(name, &dir, latest.as_ref())
+        })
+        .collect()
 }
 
 pub fn status(app: &AppHandle) -> Status {

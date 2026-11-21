@@ -123,10 +123,22 @@ async function general(body) {
   };
 }
 
-// Every WoW folder on this PC with its game accounts, their characters and the clients running:
-// one Scarlet covers all of them. A running client's folder is added by itself; Add folder is for
-// one that is not running.
+let boxesRedraw = null;
+let boxesListening = false;
+
+function addonText(a) {
+  const ver = a.installed ? `${a.name} ${a.installed}` : a.manager === "missing" ? `${a.name} not installed` : `${a.name} version unknown`;
+  if (a.manager === "ours") return a.can_update ? `${ver}, ${a.latest} on the next sync` : ver;
+  if (a.manager === "missing") return a.latest ? `${ver}, ${a.latest} on the next sync` : ver;
+  return `${ver}, kept by ${a.kept_by.toLowerCase()}`;
+}
+
 async function drawBoxes(body, box, s, dataIn) {
+  boxesRedraw = () => (box.isConnected ? drawBoxes(body, box, s, dataIn) : (boxesRedraw = null));
+  if (!boxesListening) {
+    boxesListening = true;
+    window.__TAURI__.event.listen("update-changed", () => boxesRedraw?.());
+  }
   const list = await invoke("wow_folders");
   const extra = list.filter((f) => !f.primary).map((f) => f.path);
   const save = async (more) => {
@@ -134,6 +146,20 @@ async function drawBoxes(body, box, s, dataIn) {
     await general(body);
   };
   box.innerHTML = "";
+  const st = el("div", "status");
+  const addFolder = async () => {
+    st.className = "status";
+    st.textContent = "";
+    try {
+      const picked = await invoke("browse_wow");
+      if (picked === null) return;
+      if (list.some((f) => f.path.toLowerCase() === picked.toLowerCase())) return;
+      await save([...extra, picked]);
+    } catch (e) {
+      st.className = "status err";
+      st.textContent = String(e);
+    }
+  };
   const head = el("div", "split-head");
   head.innerHTML = `<span>WoW folders</span><span>${list.reduce((n, f) => n + f.running, 0)} running</span>`;
   box.appendChild(head);
@@ -146,7 +172,18 @@ async function drawBoxes(body, box, s, dataIn) {
     state.textContent = f.problem ? f.problem : f.running ? `${f.running} running` : "not running";
     state.classList.toggle("on", f.running > 0 && !f.problem);
     top.append(title, state);
+    const ctl = el("button", "btn", f.primary ? "+" : "×");
+    ctl.type = "button";
+    ctl.setAttribute("aria-label", f.primary ? "Add a WoW folder" : "Remove this folder");
+    if (f.primary) ctl.onclick = addFolder;
+    else ctl.onclick = () => save(extra.filter((p) => p !== f.path)).catch(() => {});
+    top.appendChild(ctl);
     card.appendChild(top);
+    for (const a of f.addon) {
+      const line = el("div", "dim");
+      line.textContent = addonText(a);
+      card.appendChild(line);
+    }
     if (!f.problem && !f.accounts.length) {
       const none = el("div", "dim");
       none.textContent = "No game accounts yet.";
@@ -160,31 +197,9 @@ async function drawBoxes(body, box, s, dataIn) {
       t.appendChild(tr);
     }
     if (f.accounts.length) card.appendChild(t);
-    if (!f.primary) {
-      const rm = el("button", "btn", "Remove");
-      rm.type = "button";
-      rm.onclick = () => save(extra.filter((p) => p !== f.path)).catch(() => {});
-      card.appendChild(rm);
-    }
     box.appendChild(card);
   }
-  const add = el("button", "btn", "Add folder…");
-  add.type = "button";
-  const st = el("div", "status");
-  add.onclick = async () => {
-    st.className = "status";
-    st.textContent = "";
-    try {
-      const picked = await invoke("browse_wow");
-      if (picked === null) return;
-      if (list.some((f) => f.path.toLowerCase() === picked.toLowerCase())) return;
-      await save([...extra, picked]);
-    } catch (e) {
-      st.className = "status err";
-      st.textContent = String(e);
-    }
-  };
-  box.append(add, st);
+  box.appendChild(st);
 }
 
 // Map art: Scarlet's own dark sheets, or the real map art read from the player's OpenMap addon.

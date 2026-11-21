@@ -34,8 +34,8 @@ const DRIVE_FIXED: u32 = 3;
 #[derive(Serialize, Deserialize, Clone)]
 pub struct Settings {
     pub wow: PathBuf,
-    /// More World of Warcraft folders on this PC (a second install, or another Battle.net
-    /// login's). One Scarlet reads them all; `wow` stays the one the addon and map art use.
+    /// More World of Warcraft folders the player added in Settings (a second install). One
+    /// Scarlet reads them all and keeps the addon in each; `wow` stays the one map art uses.
     #[serde(default)]
     pub more_wow: Vec<PathBuf>,
     pub data: PathBuf,

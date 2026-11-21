@@ -202,7 +202,6 @@ pub fn save_view(app: AppHandle, view: String) {
 /// The number of WoW Forever clients running now, in every folder, for the sidebar.
 #[tauri::command(async)]
 pub fn wow_clients(app: AppHandle) -> usize {
-    crate::discover::adopt_running(&app);
     let folders = state(&app).settings.lock().unwrap().folders();
     crate::launch::running_clients(&folders).iter().sum()
 }
@@ -222,6 +221,8 @@ pub struct FolderView {
     /// Clients running from this folder.
     running: usize,
     problem: Option<String>,
+    /// The Scarlet addon folders in this WoW folder: version, or not installed.
+    addon: Vec<crate::addon_sync::FolderStatus>,
     accounts: Vec<AccountView>,
 }
 
@@ -251,6 +252,7 @@ pub fn wow_folders(app: AppHandle) -> Vec<FolderView> {
             primary: settings::folder_key(wow) == settings::folder_key(&primary),
             running,
             problem: settings::folder_problem(wow),
+            addon: crate::addon_sync::folder_addons(wow),
             accounts: scarlet::export::accounts(wow)
                 .into_iter()
                 .map(|a| AccountView {
