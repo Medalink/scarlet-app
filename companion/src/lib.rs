@@ -11,5 +11,6 @@ pub mod loot;
 pub mod lua;
 pub mod overview;
 pub mod tables;
+pub mod upload;
 
 pub const DEFAULT_WOW: &str = r"F:\Games\World of Warcraft";
