@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { launch } from "./cdp.mjs";
-import { CHARACTERS, LATER, lineCount, writeWow } from "./scenario.mjs";
+import { CHARACTERS, GUILD, LATER, lineCount, savedVariablesPath, writeWow } from "./scenario.mjs";
 
 const REPO = path.resolve(import.meta.dirname, "..");
 const WINDOWS = process.platform === "win32";
@@ -32,7 +32,11 @@ const VIEWS = [
   { key: "charts", shows: /Experience over time 95 1,605 .* Top spells cast Heroic Strike 1 /, never: /Experience over time No data/ },
   { key: "loot", shows: /Drop rates .* Solo Stonetusk Boar .* Chunk of Boar Meat 100% 1\/1 .* Testa Fixture Solo 3 /, never: /No creature loot with an item list|No loot recorded yet/ },
   { key: "talents", shows: /Arms · 3 points, 2 available .* Improved Heroic Strike 2\/3 Deflection 2\/2 .* Picked 1→2\/3/, never: /No talent lines recorded|Select a character/ },
-  { key: "items", shows: /Linen Cloth 2589 23 Testa Fixture 3 in bags Warband bank 20 .* Warband bank Testa Fixture 1 .* 12g ?34s/, never: /No bags or bank recorded yet|No items match/ },
+  {
+    key: "items",
+    shows: /Linen Cloth 2589 28 Testa Fixture 3 in bags Warband bank \(E2EONE\) 20 Warband bank \(E2ETWO\) 5 .* Wool Cloth 2592 7 Guild bank 7 .* Warband bank \(E2EONE\) Testa Fixture 1 .* 12g ?34s .* Warband bank \(E2ETWO\) Probe Lane 1 .* 5g .* Guild bank Probe Lane 1 .* 98g ?76s/,
+    never: /No bags or bank recorded yet|No items match|Guild bank \(|account unknown/,
+  },
   { key: "addons", shows: /GatherMate2 1 .* GatherMate2 Testa Fixture \(2447\) map 1429 at 43\.9, 67\.0/, never: /No lines from other addons/ },
   { key: "compress", shows: /Export now .* 2 file\(s\) .* Payloads .* [1-9]\d* events loaded/, never: /Data folder .* · 0 events loaded/ },
   { key: "settings", shows: /WoW folders .* E2EONE .* E2ETWO/, never: /No game accounts yet/ },
@@ -171,6 +175,17 @@ const CHECKS = [
   },
   {
     lane: "cli",
+    name: "a guild bank read before the guild line is filed under the guild",
+    run(ctx) {
+      for (const c of CHARACTERS) {
+        const inventory = JSON.parse(read(path.join(ctx.site.cli.out, c.name, "inventory.json")));
+        expectEqual(`${c.name}: guild_name in inventory.json`, inventory.guild_name, GUILD);
+        expectEqual(`${c.name}: guild_money_name in inventory.json`, inventory.guild_money_name, GUILD);
+      }
+    },
+  },
+  {
+    lane: "cli",
     name: "the addon files are written",
     run(ctx) {
       const dir = path.join(ctx.site.cli.wow, "_forever_", "Interface", "AddOns", "ScarletData");
@@ -283,6 +298,27 @@ const CHECKS = [
       }
       expectEqual("group_by_account in settings.json", saved.group_by_account, true);
       await open(app, "overview", new RegExp(`^(?=.*game account E2EONE)(?=.*game account E2ETWO)(?=.*${SHOWN.testa})(?=.*${SHOWN.probe})`, "i"));
+    },
+  },
+  {
+    lane: "app",
+    name: "characters of unlisted game accounts keep their own warband banks",
+    async run(ctx) {
+      const app = running(ctx);
+      const wow = ctx.site.app.wow;
+      await selectCharacter(app, "");
+      for (const c of CHARACTERS) fs.rmSync(savedVariablesPath(wow, c));
+      try {
+        await open(app, "settings", /WoW folders/);
+        await open(
+          app,
+          "items",
+          /Linen Cloth 2589 28 Testa Fixture 3 in bags Warband bank \(account unknown, Probe Lane\) 5 Warband bank \(account unknown, Testa Fixture\) 20 .* Guild bank Probe Lane 1/,
+          /Warband bank \(E2E|Guild bank \(/,
+        );
+      } finally {
+        writeWow(wow);
+      }
     },
   },
   {

@@ -91,7 +91,16 @@ pub fn build<'a>(events: impl IntoIterator<Item = Ev<'a>>) -> Inventory {
     let mut inv = Inventory::default();
     let mut names: BTreeMap<i64, String> = BTreeMap::new();
     let mut last: Option<&str> = None;
-    let mut guild = String::new();
+    let events: Vec<Ev<'a>> = events.into_iter().collect();
+    let mut guild = events
+        .iter()
+        .find(|(_, code, f)| {
+            *code == "GU"
+                && matches!(f.first().map(String::as_str), Some("s" | "j" | "k"))
+                && f.get(1).is_some_and(|name| !name.is_empty())
+        })
+        .and_then(|(_, _, f)| f.get(1).cloned())
+        .unwrap_or_default();
     for (ms, code, f) in events {
         let field = |i: usize| f.get(i).map_or("", String::as_str);
         match code {

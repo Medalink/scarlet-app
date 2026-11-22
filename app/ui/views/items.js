@@ -5,7 +5,8 @@ import { invoke, el, esc, displayName, num, dateTime, moneyHtml } from "../lib.j
 
 const when = (secs) => (secs ? dateTime(secs * 1000) : "–");
 
-function placeLabel(view, place, scope) {
+function placeLabel(view, place, scope, accountUnknown) {
+  if (accountUnknown) return `${place} (account unknown, ${esc(displayName(scope))})`;
   const several = view.shared.filter((s) => s.place === place).length > 1;
   return several && scope ? `${place} (${esc(scope)})` : place;
 }
@@ -19,7 +20,7 @@ function holders(row, view) {
     if (h.auctions) parts.push(`${num(h.auctions)} in auctions`);
     return `${esc(displayName(h.character))} ${parts.join(", ")}`;
   });
-  const places = row.places.map((p) => `${placeLabel(view, p.place, p.scope)} ${num(p.count)}`);
+  const places = row.places.map((p) => `${placeLabel(view, p.place, p.scope, p.account_unknown)} ${num(p.count)}`);
   return [...lines, ...places].join("<br>");
 }
 
@@ -44,7 +45,7 @@ function sharedBanks(view) {
   p.innerHTML = "<h3>Warband and guild banks</h3>";
   const rows = view.shared
     .map(
-      (s) => `<tr><td>${placeLabel(view, s.place, s.scope)}</td><td>${s.read_by ? esc(displayName(s.read_by)) : "–"}</td>
+      (s) => `<tr><td>${placeLabel(view, s.place, s.scope, s.account_unknown)}</td><td>${s.read_by ? esc(displayName(s.read_by)) : "–"}</td>
         <td class="num">${num(s.stacks)}</td><td class="gap">${when(s.at)}</td><td class="num">${s.money == null ? "–" : moneyHtml(s.money)}</td></tr>`
     )
     .join("");

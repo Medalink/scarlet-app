@@ -22,6 +22,7 @@ pub struct Holder {
 pub struct Place {
     place: &'static str,
     scope: String,
+    account_unknown: bool,
     count: i64,
 }
 
@@ -48,6 +49,7 @@ pub struct Carrier {
 pub struct SharedBank {
     place: &'static str,
     scope: String,
+    account_unknown: bool,
     read_by: String,
     at: i64,
     stacks: usize,
@@ -65,6 +67,7 @@ pub struct Items {
 struct Shared<'a> {
     place: &'static str,
     scope: String,
+    account_unknown: bool,
     read_by: &'a str,
     at: i64,
     list: &'a BTreeMap<i64, i64>,
@@ -101,7 +104,10 @@ fn shared_banks<'a>(
         accounts
             .iter()
             .find(|(_, chars)| chars.iter().any(|c| c == name))
-            .map_or_else(String::new, |(account, _)| account.clone())
+            .map_or_else(
+                || (String::new(), name.to_string()),
+                |(account, _)| (account.clone(), String::new()),
+            )
     };
     let warband_lists = newest_per(
         loaded
@@ -136,7 +142,8 @@ fn shared_banks<'a>(
     }));
     static NO_ITEMS: BTreeMap<i64, i64> = BTreeMap::new();
     let mut out = Vec::new();
-    let scopes: BTreeSet<&String> = warband_lists.keys().chain(warband_money.keys()).collect();
+    let scopes: BTreeSet<&(String, String)> =
+        warband_lists.keys().chain(warband_money.keys()).collect();
     for scope in scopes {
         let (list_at, read_by, list) = match warband_lists.get(scope) {
             Some((at, (name, inv))) => (*at, *name, &inv.warband),
@@ -145,7 +152,12 @@ fn shared_banks<'a>(
         let money = warband_money.get(scope);
         out.push(Shared {
             place: "Warband bank",
-            scope: scope.clone(),
+            scope: if scope.1.is_empty() {
+                scope.0.clone()
+            } else {
+                scope.1.clone()
+            },
+            account_unknown: !scope.1.is_empty(),
             read_by,
             at: list_at.max(money.map_or(0, |(at, _)| *at)),
             list,
@@ -162,6 +174,7 @@ fn shared_banks<'a>(
         out.push(Shared {
             place: "Guild bank",
             scope: scope.clone(),
+            account_unknown: false,
             read_by,
             at: list_at.max(money.map_or(0, |(at, _)| *at)),
             list,
@@ -245,6 +258,7 @@ fn search(
             row.places.push(Place {
                 place: bank.place,
                 scope: bank.scope.clone(),
+                account_unknown: bank.account_unknown,
                 count: *count,
             });
         }
@@ -280,6 +294,7 @@ fn search(
         .map(|bank| SharedBank {
             place: bank.place,
             scope: bank.scope.clone(),
+            account_unknown: bank.account_unknown,
             read_by: bank.read_by.to_string(),
             at: bank.at,
             stacks: bank.list.len(),

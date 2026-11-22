@@ -441,14 +441,24 @@ fn build(st: &Store, accounts: Vec<(String, Vec<String>)>, group_by_account: boo
         });
     }
 
+    let newest_balance = |of: &[String]| {
+        warband_reads
+            .iter()
+            .filter(|(c, _, _)| of.contains(&st.chars[*c]))
+            .max_by_key(|(_, ms, _)| *ms)
+            .map(|(_, _, balance)| *balance)
+    };
     let warband: i64 = groups
         .iter()
-        .filter_map(|g| {
-            warband_reads
-                .iter()
-                .filter(|(c, _, _)| g.characters.contains(&st.chars[*c]))
-                .max_by_key(|(_, ms, _)| *ms)
-                .map(|(_, _, balance)| *balance)
+        .flat_map(|g| {
+            if g.account.is_empty() {
+                g.characters
+                    .iter()
+                    .filter_map(|name| newest_balance(std::slice::from_ref(name)))
+                    .collect::<Vec<_>>()
+            } else {
+                newest_balance(&g.characters).into_iter().collect()
+            }
         })
         .sum();
 

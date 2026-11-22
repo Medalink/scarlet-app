@@ -8,6 +8,7 @@ import zlib from "node:zlib";
 
 const ELWYNN = 1429;
 const WESTFALL = 1436;
+export const GUILD = "Ember Guard";
 
 const session = (start, lines) => ({ start, lines });
 
@@ -25,6 +26,7 @@ export const CHARACTERS = [
         [0, "ST", 5, 3500, 26, 21, 24, 20, 21, 180, 220, 100, 8],
         [1, "Z", ELWYNN, 0, "none", 0, "Elwynn Forest", "Goldshire"],
         [1, "SZ", ELWYNN, "Goldshire", 4210, 6580],
+        [2, "GU", "s", GUILD, "Initiate", 0, 0],
         [3, "TP", 5400, 900],
         [10, "QN", 783, "A Threat Within"],
         [10, "Q", 1, 783],
@@ -69,9 +71,12 @@ export const CHARACTERS = [
         [121, "I", 769, -1, "v", 54, 4],
         [121, "M", 4, 0, 3843],
         [129, "IN", 6948, "Hearthstone"],
+        [129, "IN", 2592, "Wool Cloth"],
         [130, "BC", "b", "2589:3,6948:1"],
         [130, "BC", "w", "2589:20"],
+        [130, "BC", "g", "2592:4"],
         [130, "BK", "a", 2, 123456],
+        [130, "BK", "a", 1, 250000],
         [130, "RO", 0, 3600, 1],
         [130, "ES"],
       ]),
@@ -129,6 +134,12 @@ export const CHARACTERS = [
         [32, "M", 9, 0, 129],
         [39, "IN", 6948, "Hearthstone"],
         [40, "BC", "b", "6948:1"],
+        [40, "IN", 2592, "Wool Cloth"],
+        [40, "BC", "w", "2589:5"],
+        [40, "BC", "g", "2592:7"],
+        [40, "BK", "a", 2, 50000],
+        [40, "BK", "a", 1, 987654],
+        [40, "GU", "s", GUILD, "Initiate", 0, 0],
         [40, "RO", 0, 1400, 0],
         [40, "ES"],
       ]),
