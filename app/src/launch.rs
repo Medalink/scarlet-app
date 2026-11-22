@@ -39,6 +39,10 @@ const APP_MUTEX: &str = r"Local\ScarletApp";
 /// Held by the watcher, so the sign-in copy and the one the app starts never both run.
 const WATCH_MUTEX: &str = r"Local\ScarletWowWatch";
 pub const FLAG: &str = "--on-wow";
+/// Passed by a window that restarts itself, so the new one waits for it to close.
+pub const RESTARTED: &str = "--restarted";
+/// How many times a restarted window tries for the window mutex, 100 ms apart.
+pub const RESTART_WAIT_TRIES: u32 = 100;
 const POLL: Duration = Duration::from_secs(3);
 
 fn wide(s: &str) -> Vec<u16> {

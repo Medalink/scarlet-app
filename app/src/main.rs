@@ -64,10 +64,17 @@ fn main() {
         }
         return;
     }
+    updater::note_start();
     // One Scarlet window: a second launch brings the open one to the front and exits.
-    if !launch::claim_app() {
-        launch::focus_existing();
-        return;
+    let restarted = std::env::args().any(|a| a == launch::RESTARTED);
+    let mut tries = 0;
+    while !launch::claim_app() {
+        if !restarted || tries >= launch::RESTART_WAIT_TRIES {
+            launch::focus_existing();
+            return;
+        }
+        tries += 1;
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
 
     // A portable copy keeps temp off C:. Safe here: before any thread spawns.
@@ -126,6 +133,7 @@ fn main() {
             updater::update_info,
             updater::update_check,
             updater::update_install,
+            updater::restart_rebuilt,
             updater::set_track,
             updater::release_notes,
             addon_sync::addon_status,

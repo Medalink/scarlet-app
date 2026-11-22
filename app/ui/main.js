@@ -59,6 +59,7 @@ function buildNav() {
 }
 
 let wowClients = 0;
+let rebuilt = false;
 
 function updateFoot() {
   const st = state.store;
@@ -122,12 +123,12 @@ function headStats() {
   $("#head-stats").textContent = `${num(st.events)} events · ${a} – ${b}`;
 }
 
-// The build's version, and a link to Settings while an update is waiting.
 function showVersion(info) {
   $("#ver").textContent = info.dev ? "dev" : `v${info.version}`;
   const upd = $("#upd");
-  upd.hidden = !info.offered;
-  upd.textContent = info.offered ? `Update ${info.offered.version}` : "";
+  rebuilt = info.rebuilt;
+  upd.hidden = !info.offered && !rebuilt;
+  upd.textContent = rebuilt ? "Restart to update" : info.offered ? `Update ${info.offered.version}` : "";
 }
 
 async function boot() {
@@ -159,7 +160,7 @@ async function boot() {
   setInterval(askClients, 5000);
 
   const { listen } = window.__TAURI__.event;
-  $("#upd").onclick = () => (location.hash = "settings/updates");
+  $("#upd").onclick = () => (rebuilt ? invoke("restart_rebuilt") : (location.hash = "settings/updates"));
   await listen("update-changed", (e) => showVersion(e.payload));
   await listen("store-changed", async () => {
     await loadState();

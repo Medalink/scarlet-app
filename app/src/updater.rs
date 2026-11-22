@@ -16,8 +16,8 @@ use crate::commands::state;
 use crate::settings;
 use semver::Version;
 use serde::{Deserialize, Serialize};
-use std::sync::Mutex;
-use std::time::{Duration, Instant};
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant, SystemTime};
 use tauri::{AppHandle, Emitter};
 use tauri_plugin_updater::{Update, UpdaterExt};
 
@@ -28,6 +28,7 @@ pub const BASE_ENV: &str = "SCARLET_UPDATE_BASE";
 const RECHECK: Duration = Duration::from_secs(6 * 3600);
 const NOTES_KEPT: usize = 8;
 const NOTES_CACHE: Duration = Duration::from_secs(600);
+const REBUILT_POLL: Duration = Duration::from_secs(30);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Track {
@@ -257,6 +258,13 @@ pub fn kick(app: AppHandle) {
 
 /// Checks a little after start and every few hours while the app is open.
 pub fn spawn(app: AppHandle) {
+    let watcher = app.clone();
+    std::thread::spawn(move || {
+        while !rebuilt() {
+            std::thread::sleep(REBUILT_POLL);
+        }
+        let _ = watcher.emit("update-changed", info(&watcher));
+    });
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_secs(10));
         loop {
@@ -264,6 +272,48 @@ pub fn spawn(app: AppHandle) {
             std::thread::sleep(RECHECK);
         }
     });
+}
+
+static STARTED_AS: OnceLock<Option<(u64, SystemTime)>> = OnceLock::new();
+
+fn exe_stamp() -> Option<(u64, SystemTime)> {
+    let meta = std::fs::metadata(std::env::current_exe().ok()?).ok()?;
+    Some((meta.len(), meta.modified().ok()?))
+}
+
+/// Records the exe this process runs, for [`rebuilt`]. Call before anything can replace it.
+pub fn note_start() {
+    STARTED_AS.get_or_init(exe_stamp);
+}
+
+/// True once a newer build has replaced this exe on disk, as `scripts/dev-update.ps1` does
+/// to a dev copy while it runs.
+pub fn rebuilt() -> bool {
+    let start = STARTED_AS.get_or_init(exe_stamp);
+    start.is_some() && exe_stamp().is_some_and(|now| Some(now) != *start)
+}
+
+/// Starts the exe on disk and closes this window; the new process waits for this one to exit.
+#[tauri::command]
+pub fn restart_rebuilt(app: AppHandle) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    use windows_sys::Win32::System::Threading::DETACHED_PROCESS;
+    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    let mut cmd = std::process::Command::new(&exe);
+    cmd.args(
+        std::env::args_os()
+            .skip(1)
+            .filter(|a| a != crate::launch::RESTARTED),
+    )
+    .arg(crate::launch::RESTARTED)
+    .creation_flags(DETACHED_PROCESS);
+    if let Some(dir) = exe.parent() {
+        cmd.current_dir(dir);
+    }
+    cmd.spawn()
+        .map_err(|e| format!("Scarlet could not restart: {e}"))?;
+    app.exit(0);
+    Ok(())
 }
 
 #[derive(Serialize, Clone)]
@@ -289,6 +339,8 @@ pub struct Info {
     offered: Option<Offered>,
     /// On a beta of a release that is not out yet while on the Release track.
     ahead_of_track: bool,
+    /// A newer build replaced this exe on disk; a restart runs it.
+    rebuilt: bool,
 }
 
 pub fn info(app: &AppHandle) -> Info {
@@ -312,6 +364,7 @@ pub fn info(app: &AppHandle) -> Info {
             date: s.date.clone(),
         }),
         ahead_of_track: ahead,
+        rebuilt: rebuilt(),
     }
 }
 

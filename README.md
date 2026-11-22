@@ -29,6 +29,10 @@ cargo build --release
 target\release\scarlet-app.exe
 ```
 
+On medaviper, `scripts/dev-update.ps1 -Install` keeps `app\target\release\scarlet-app.exe` at the newest main: a
+scheduled task rebuilds it in a clone of its own after a ship, once no game has run for 10 minutes, and an open Scarlet
+shows "Restart to update".
+
 ## Checks before a ship
 
 ```
