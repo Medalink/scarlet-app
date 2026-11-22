@@ -1,6 +1,7 @@
 // The checks to run before a ship: the real `scarlet` command and, on Windows, the real app on a desktop of its own.
 //   node e2e/run.mjs [--only cli|app] [--no-build] [--exe <scarlet-app.exe>] [--cli <scarlet>] [--keep <dir>]
-// Exit 0 when every check passes, 1 when one fails, 2 on a usage error.
+// Exit 0 when every check passes, 1 when one fails, 2 on a usage error, 3 when a window of the app was found on the
+// desktop in use.
 import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
@@ -289,6 +290,7 @@ const CHECKS = [
       const app = running(ctx);
       const code = await app.close();
       ctx.app = null;
+      if (code === 3) ctx.breach = true;
       if (code === null) throw new Error("the app was still running 3 s after the close button");
       expectEqual("exit code of the app", code, 0);
       expectEqual("files changed in the repository", gitStatus(), ctx.repoBefore);
@@ -306,7 +308,7 @@ async function keepEvidence(ctx, check, number) {
   } catch (error) {
     console.log(`  no screenshot: ${error.message}`);
   }
-  if (ctx.app.exitCode() === 3) console.log("  THE LAUNCHER EXITED 3: a window of the app was found on the desktop in use");
+  if (ctx.app.exitCode() === 3) ctx.breach = true;
   ctx.keep = true;
 }
 
@@ -361,6 +363,14 @@ function options() {
   }
 }
 
+function removeFolder(dir) {
+  try {
+    fs.rmSync(dir, { recursive: true, force: true, maxRetries: 50, retryDelay: 100 });
+  } catch (error) {
+    console.log(`files kept in ${dir}: ${error.message}`);
+  }
+}
+
 async function main() {
   const given = options();
   let lanes = given.only ? [given.only] : ["cli", "app"];
@@ -390,11 +400,15 @@ async function main() {
   try {
     result = await runChecks(checks, ctx);
   } finally {
-    await ctx.app?.close().catch(() => {});
-    if (!ctx.keep && !result.failed) fs.rmSync(dir, { recursive: true, force: true });
-    else console.log(`files kept in ${dir}`);
+    if ((await ctx.app?.close().catch(() => null)) === 3) ctx.breach = true;
+    if (ctx.keep || result.failed) console.log(`files kept in ${dir}`);
+    else removeFolder(dir);
   }
   console.log(`e2e: ${checks.length} checks, ${result.failed} failed, checks ${result.seconds.toFixed(1)}s, build ${buildSeconds.toFixed(1)}s`);
+  if (ctx.breach) {
+    console.log("THE LAUNCHER EXITED 3: a window of the app was found on the desktop in use");
+    process.exit(3);
+  }
   process.exit(result.failed ? 1 : 0);
 }
 
