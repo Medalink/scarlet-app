@@ -250,7 +250,7 @@ impl Session {
     }
 
     fn sync_character(&mut self, name: &str, report: &mut CharReport) -> Result<()> {
-        for _ in 0..3 {
+        for _ in 0..=config::all_groups().len() {
             let (character, built) = self.build(name)?;
             report.name = character.clone();
             report.parts = built.parts.len();
