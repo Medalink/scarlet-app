@@ -15,6 +15,7 @@ pub mod inventory;
 pub mod lifetime;
 pub mod loot;
 pub mod lua;
+pub mod mastercraft;
 pub mod overview;
 pub mod tables;
 pub mod talents;

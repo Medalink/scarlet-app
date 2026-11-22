@@ -10,6 +10,7 @@ use crate::foreverfishing;
 use crate::import;
 use crate::inventory::{self, Inventory};
 use crate::lua::{self, Lua};
+use crate::mastercraft;
 use crate::overview::{self, Overview};
 use crate::tables;
 use flate2::read::{DeflateDecoder, ZlibDecoder};
@@ -528,7 +529,7 @@ fn count_sources(wows: &[PathBuf], out: &Path) -> Vec<CountSources> {
     let mut found = Vec::new();
     for wow in wows {
         for account in crate::gamedir::account_dirs(&crate::gamedir::game_dir(wow)) {
-            let files: Vec<PathBuf> = [foreverfishing::FILE]
+            let files: Vec<PathBuf> = [foreverfishing::FILE, mastercraft::FILE]
                 .iter()
                 .map(|f| account.join("SavedVariables").join(f))
                 .filter(|p| p.is_file())
@@ -598,6 +599,35 @@ fn feed_forever_fishing(file: &Path, exported: &[String], out: &Path) -> bool {
     wrote
 }
 
+fn feed_mastercraft(file: &Path, exported: &[String], out: &Path) -> bool {
+    let Some(modified) = fs::metadata(file)
+        .and_then(|m| m.modified())
+        .ok()
+        .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs() as i64)
+    else {
+        return false;
+    };
+    let Some(db) = read_table(file, mastercraft::TABLE) else {
+        return false;
+    };
+    let Some(total) = mastercraft::life(&db, modified) else {
+        return false;
+    };
+    let dirs: Vec<PathBuf> = exported.iter().map(|name| out.join(name)).collect();
+    match counts::feed_account(&dirs, vec![total]) {
+        Ok(0) => false,
+        Ok(n) => {
+            println!("{n} Mastercraft fishing totals archived");
+            true
+        }
+        Err(e) => {
+            eprintln!("scarlet: Mastercraft: counts: {e}");
+            false
+        }
+    }
+}
+
 fn refresh_counts(wows: &[PathBuf], out: &Path, state: &mut State) -> bool {
     let mut wrote = false;
     for src in count_sources(wows, out) {
@@ -610,8 +640,12 @@ fn refresh_counts(wows: &[PathBuf], out: &Path, state: &mut State) -> bool {
         }
         state.0.extend(stamps);
         for file in &src.files {
-            if file.file_name().is_some_and(|n| n == foreverfishing::FILE) {
-                wrote |= feed_forever_fishing(file, &src.exported, out);
+            match file.file_name().and_then(|n| n.to_str()) {
+                Some(foreverfishing::FILE) => {
+                    wrote |= feed_forever_fishing(file, &src.exported, out);
+                }
+                Some(mastercraft::FILE) => wrote |= feed_mastercraft(file, &src.exported, out),
+                _ => {}
             }
         }
     }

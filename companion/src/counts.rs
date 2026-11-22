@@ -14,9 +14,11 @@ const DAY_S: i64 = 86_400;
 
 pub const FISHING_LOG: &str = "fl";
 pub const FOREVER_FISHING: &str = "ff";
+pub const MASTERCRAFT: &str = "mc";
 pub const SESSION: &str = "session";
 pub const LIFE: &str = "life";
 pub const CHARACTER: &str = "c";
+pub const ACCOUNT: &str = "a";
 pub const FISHING: &str = "fishing";
 
 /// One statement an addon makes, with the addon's own numeric fields as it wrote them.
@@ -254,6 +256,42 @@ pub fn feed(char_dir: &Path, read: Vec<Record>) -> Result<usize, String> {
     Ok(changed)
 }
 
+/// Feeds records of account scope into the archive of every exported character of one game account
+/// folder, so each carries the same text. The once-a-day and only-when-changed rule for a `life`
+/// total is applied to what the characters' archives hold together, and a character that lacks an
+/// earlier record of the account takes it from the others. Returns how many records were added or
+/// replaced across the archives. An archive that does not read stays as it is.
+pub fn feed_account(char_dirs: &[PathBuf], read: Vec<Record>) -> Result<usize, String> {
+    if read.is_empty() {
+        return Ok(0);
+    }
+    let mut archives: Vec<(&PathBuf, Archive)> = char_dirs
+        .iter()
+        .filter_map(|dir| Some((dir, Archive::load(dir).ok()?)))
+        .collect();
+    let mut shared = Archive::default();
+    for (_, archive) in &archives {
+        for rec in archive.records.values().filter(|r| r.scope == ACCOUNT) {
+            shared.records.insert(rec.key(), rec.clone());
+        }
+    }
+    shared.merge(read);
+    let mut changed = 0;
+    for (dir, archive) in &mut archives {
+        let before = changed;
+        for rec in shared.records.values() {
+            if archive.records.get(&rec.key()) != Some(rec) {
+                archive.records.insert(rec.key(), rec.clone());
+                changed += 1;
+            }
+        }
+        if changed > before {
+            archive.save(dir).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(changed)
+}
+
 /// Rebuilds a character's `counts/payloads/counts.scl` from its archive, or removes it when the
 /// archive maps to no line. Returns whether the file changed.
 pub fn rebuild(char_dir: &Path, name: &str) -> Result<bool, String> {
@@ -278,12 +316,13 @@ fn field(rec: &Record, name: &str) -> Option<i64> {
 }
 
 fn scarlet_amounts(rec: &Record) -> Vec<(&'static str, i64)> {
-    if rec.window != SESSION || rec.kind != FISHING {
+    if rec.kind != FISHING {
         return Vec::new();
     }
-    match rec.origin.as_str() {
-        FISHING_LOG => fishing_log_amounts(rec),
-        FOREVER_FISHING => forever_fishing_amounts(rec),
+    match (rec.origin.as_str(), rec.window.as_str()) {
+        (FISHING_LOG, SESSION) => fishing_log_amounts(rec),
+        (FOREVER_FISHING, SESSION) => forever_fishing_amounts(rec),
+        (MASTERCRAFT, LIFE) => mastercraft_amounts(rec),
         _ => Vec::new(),
     }
 }
@@ -312,6 +351,17 @@ fn forever_fishing_amounts(rec: &Record) -> Vec<(&'static str, i64)> {
         ("casts", "casts"),
         ("landed", "successfulCasts"),
         ("items", "catches"),
+    ]
+    .into_iter()
+    .filter_map(|(metric, source)| Some((metric, field(rec, source)?)))
+    .collect()
+}
+
+fn mastercraft_amounts(rec: &Record) -> Vec<(&'static str, i64)> {
+    [
+        ("casts", "casts"),
+        ("landed", "catches"),
+        ("items", "gained"),
     ]
     .into_iter()
     .filter_map(|(metric, source)| Some((metric, field(rec, source)?)))
