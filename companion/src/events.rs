@@ -129,6 +129,7 @@ pub fn word(code: &str) -> &str {
         "LA" => "legacyach",
         "LN" => "legacynod",
         "LO" => "lootsrc",
+        "LW" => "peerloot",
         "PR" => "api",
         "TW" => "totem",
         "IL" => "lock",
@@ -855,6 +856,26 @@ fn shot_moment(v: &str) -> &str {
     }
 }
 
+fn loot_items(v: &str, names: &HashMap<String, String>) -> String {
+    v.split(',')
+        .filter(|t| !t.is_empty())
+        .map(|t| {
+            let (what, qty) = t.split_once('x').unwrap_or((t, ""));
+            let name = match what.strip_prefix('c') {
+                _ if what == "m" => "coin".to_string(),
+                Some(cur) => format!("currency {cur}"),
+                None => label('i', what, names, "item"),
+            };
+            if qty.is_empty() || what == "m" {
+                name
+            } else {
+                format!("{name} x{qty}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 fn details(code: &str, f: &[String], names: &HashMap<String, String>) -> String {
     let g = |i: usize| f.get(i).map(String::as_str).unwrap_or("");
     let spell = |i: usize| label('s', g(i), names, "spell");
@@ -1467,28 +1488,36 @@ fn details(code: &str, f: &[String], names: &HashMap<String, String>) -> String 
                 "i" => format!("from a bag item ({slots} slots)"),
                 _ => format!("from elsewhere ({slots} slots)"),
             };
-            let items: Vec<String> = g(3)
-                .split(',')
-                .filter(|t| !t.is_empty())
-                .map(|t| {
-                    let (what, qty) = t.split_once('x').unwrap_or((t, ""));
-                    let name = match what.strip_prefix('c') {
-                        _ if what == "m" => "coin".to_string(),
-                        Some(cur) => format!("currency {cur}"),
-                        None => label('i', what, names, "item"),
-                    };
-                    if qty.is_empty() || what == "m" {
-                        name
-                    } else {
-                        format!("{name} x{qty}")
-                    }
-                })
-                .collect();
+            let items = loot_items(g(3), names);
             if items.is_empty() {
                 from
             } else {
-                format!("{from}: {}", items.join(", "))
+                format!("{from}: {items}")
             }
+        }
+        "LW" => {
+            let slots = g(3);
+            let from = match g(1) {
+                "c" => format!("from {} ({slots} slots)", label('n', g(2), names, "npc")),
+                "g" if g(2) == FISHING_BOBBER => format!("from the fishing bobber ({slots} slots)"),
+                "g" => format!("from object {} ({slots} slots)", g(2)),
+                _ => format!("from elsewhere ({slots} slots)"),
+            };
+            let items = loot_items(g(4), names);
+            let mut s = if items.is_empty() {
+                format!("{}'s Scarlet read {from}", g(0))
+            } else {
+                format!("{}'s Scarlet read {from}: {items}", g(0))
+            };
+            if g(5) == "1" {
+                s.push_str(" (already read)");
+            }
+            if let Ok(late) = g(6).parse::<i64>()
+                && late > 0
+            {
+                s.push_str(&format!(", sent {late} s late"));
+            }
+            s
         }
         "PR" => {
             if g(1) == "1" {

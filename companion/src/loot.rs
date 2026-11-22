@@ -79,7 +79,8 @@ pub struct LootBook {
     master: String,
     /// (npcID, rule) -> kills.
     kills: BTreeMap<(String, Rule), u64>,
-    /// (npcID, rule) -> corpses you looted with a known item list.
+    /// (npcID, rule) -> corpses looted by you or reported by a group member's
+    /// Scarlet, with a known item list.
     looted: BTreeMap<(String, Rule), u64>,
     /// (npcID, itemID, rule) -> (corpses it dropped from, quantity).
     drops: BTreeMap<(String, String, Rule), (u64, u64)>,
@@ -105,7 +106,8 @@ pub struct DropRow {
 }
 
 impl DropRow {
-    /// Corpses it dropped from per corpse looted.
+    /// Corpses it dropped from per corpse looted (by you or reported by a
+    /// group member's Scarlet).
     pub fn rate(&self) -> Option<f64> {
         (self.looted > 0).then(|| self.drops as f64 / self.looted as f64)
     }
@@ -208,6 +210,29 @@ impl LootBook {
         r.closed |= outcome;
     }
 
+    fn window(&mut self, npc: &str, items: &str) {
+        let npc = npc.to_string();
+        let mut counts: BTreeMap<&str, u64> = BTreeMap::new();
+        for tok in items.split(',') {
+            let (what, qty) = tok.split_once('x').unwrap_or((tok, ""));
+            if what.starts_with(|c: char| c.is_ascii_digit()) {
+                *counts.entry(what).or_default() += qty.parse().unwrap_or(1);
+            }
+        }
+        *self
+            .looted
+            .entry((npc.clone(), self.rule.clone()))
+            .or_default() += 1;
+        for (item, qty) in counts {
+            let e = self
+                .drops
+                .entry((npc.clone(), item.to_string(), self.rule.clone()))
+                .or_default();
+            e.0 += 1;
+            e.1 += qty;
+        }
+    }
+
     /// Apply one event. Codes this module does not read are ignored.
     pub fn apply(&mut self, ms: i64, code: &str, f: &[String]) {
         let g = |i: usize| f.get(i).map(String::as_str).unwrap_or("");
@@ -243,30 +268,8 @@ impl LootBook {
                     .or_default() += 1;
             }
             // A second read of the same corpse (skinning, reopening) is not a new drop.
-            "LO" if g(0) == "c" && !g(3).is_empty() && g(4) != "1" => {
-                // Lines from before the window's items were written (empty
-                // items) say nothing about drops, so they count nowhere.
-                let npc = g(1).to_string();
-                let mut items: BTreeMap<&str, u64> = BTreeMap::new();
-                for tok in g(3).split(',') {
-                    let (what, qty) = tok.split_once('x').unwrap_or((tok, ""));
-                    if what.starts_with(|c: char| c.is_ascii_digit()) {
-                        *items.entry(what).or_default() += qty.parse().unwrap_or(1);
-                    }
-                }
-                *self
-                    .looted
-                    .entry((npc.clone(), self.rule.clone()))
-                    .or_default() += 1;
-                for (item, qty) in items {
-                    let e = self
-                        .drops
-                        .entry((npc.clone(), item.to_string(), self.rule.clone()))
-                        .or_default();
-                    e.0 += 1;
-                    e.1 += qty;
-                }
-            }
+            "LO" if g(0) == "c" && !g(3).is_empty() && g(4) != "1" => self.window(g(1), g(3)),
+            "LW" if g(1) == "c" && !g(4).is_empty() && g(5) != "1" => self.window(g(2), g(4)),
             "O" => {
                 let me = self.me.clone();
                 self.receipt(&me, g(0), num(f.get(1)));

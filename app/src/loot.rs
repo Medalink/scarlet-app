@@ -10,8 +10,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use tauri::AppHandle;
 
 /// Codes `LootBook` reads.
-const CODES: [&str; 11] = [
-    "S", "GP", "LM", "K", "LO", "O", "LT", "IQ", "RL", "RW", "LD",
+const CODES: [&str; 12] = [
+    "S", "GP", "LM", "K", "LO", "LW", "O", "LT", "IQ", "RL", "RW", "LD",
 ];
 
 #[derive(Serialize)]
