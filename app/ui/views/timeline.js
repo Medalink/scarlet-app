@@ -1,21 +1,25 @@
 // Timeline: virtualized log with Rust-side search, code chips, date range
 // and session jump.
 
-import { invoke, el, state, clock, esc } from "../lib.js";
+import { invoke, el, state, clock, esc, num, highlight } from "../lib.js";
 
 const ROW = 24; // px per row
 const PAGE = 500; // rows per Rust page
 
 export async function render(body) {
+  const sessionsList = await invoke("sessions", { ch: state.ch });
   body.innerHTML = "";
+
+  const picked = window.__tlSession ?? null;
+  window.__tlSession = null;
 
   const ui = {
     sig: "",
     total: 0,
     pages: new Map(), // sig:page -> rows
     inflight: new Set(),
-    sessFrom: null,
-    sessTo: null,
+    sessFrom: picked ? picked.from : null,
+    sessTo: picked ? picked.to : null,
   };
 
   const wrap = el("div", "tl-wrap");
@@ -26,30 +30,75 @@ export async function render(body) {
   q.style.width = "220px";
   const from = el("input");
   from.type = "date";
+  from.title = "From date";
+  from.setAttribute("aria-label", "From date");
   const to = el("input");
   to.type = "date";
+  to.title = "To date";
+  to.setAttribute("aria-label", "To date");
   const sess = el("select");
+  sess.setAttribute("aria-label", "Session");
   sess.innerHTML = `<option value="">Whole history</option>`;
-  for (const s of await invoke("sessions", { ch: state.ch })) {
+  for (const s of sessionsList) {
     const o = el("option");
     o.value = s.index;
-    o.textContent = `${new Date(s.start).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })} · ${s.zones[0] || "?"}`;
+    o.textContent = `${new Date(s.start).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })} · ${s.zones[0] || "Unknown zone"}`;
     sess.appendChild(o);
   }
+  if (picked && picked.index != null) sess.value = String(picked.index);
   const clear = el("button", "btn", "Reset");
+  clear.type = "button";
   ctl.append(q, from, to, sess, clear);
 
-  const chips = el("div");
-  const all = el("span", "chip active", "ALL");
+  const codeBar = el("div", "tl-bar");
+  const activeBar = el("div", "tl-active");
+  const allCodes = state.store?.codes ?? [];
+  const details = el("details", "tl-codes");
+  const summary = el("summary");
+  const chips = el("div", "tl-codes-list");
+  const all = el("button", "chip" + (state.codes.size === 0 ? " active" : ""), "All");
+  all.type = "button";
   chips.appendChild(all);
-  for (const [code, n] of state.store?.codes ?? []) {
-    chips.appendChild(el("span", "chip", `${esc(code)}<span class="n">${n}</span>`)).dataset.code = code;
+  for (const [code, n] of allCodes) {
+    const b = el("button", "chip" + (state.codes.has(code) ? " active" : ""), `${esc(code)}<span class="n">${num(n)}</span>`);
+    b.type = "button";
+    b.dataset.code = code;
+    chips.appendChild(b);
   }
+  details.append(summary, chips);
+  codeBar.append(activeBar, details);
+
+  function syncCodeBar() {
+    const n = state.codes.size;
+    summary.textContent = n
+      ? `Event types (${n} active of ${num(allCodes.length)})`
+      : `Event types (${num(allCodes.length)})`;
+    all.classList.toggle("active", n === 0);
+    chips.querySelectorAll(".chip[data-code]").forEach((c) => {
+      c.classList.toggle("active", state.codes.has(c.dataset.code));
+    });
+    activeBar.hidden = n === 0;
+    activeBar.innerHTML = "";
+    if (n > 0) {
+      for (const code of state.codes) {
+        const b = el("button", "chip active", `${esc(code)} ×`);
+        b.type = "button";
+        b.title = `Remove ${code} filter`;
+        b.onclick = () => {
+          state.codes.delete(code);
+          syncCodeBar();
+          reset();
+        };
+        activeBar.appendChild(b);
+      }
+    }
+  }
+  syncCodeBar();
 
   const scroll = el("div", "tl-scroll");
   const view = el("div", "tl-abs");
   scroll.appendChild(view);
-  wrap.append(ctl, chips, scroll);
+  wrap.append(ctl, codeBar, scroll);
   body.appendChild(wrap);
 
   const fromMs = () => (ui.sessFrom ?? (from.value ? new Date(from.value + "T00:00:00").getTime() : -86400e12));
@@ -77,6 +126,12 @@ export async function render(body) {
 
   function draw() {
     const f = { sig: ui.sig };
+    const term = q.value.trim();
+    if (ui.total === 0 && ui.pages.has(f.sig + ":0")) {
+      view.style.height = "auto";
+      view.innerHTML = `<div class="empty" style="padding:14px">No matching events.</div>`;
+      return;
+    }
     view.style.height = Math.max(ui.total * ROW, scroll.clientHeight) + "px";
     const first = Math.max(0, Math.floor(scroll.scrollTop / ROW) - 4);
     const last = first + Math.ceil(scroll.clientHeight / ROW) + 8;
@@ -89,10 +144,11 @@ export async function render(body) {
         continue;
       }
       const r = page[i - p * PAGE];
+      const textHtml = r.text ? highlight(r.text, term) : "";
       html += `<div class="tl-row" style="top:${i * ROW}px" data-code="${esc(r.code)}">
         <span class="tl-time">${clock(r.ms)}</span>
         <span class="tl-word" title="Filter by ${esc(r.word)}">${esc(r.word)}</span>
-        <span class="tl-text">${esc(r.text) || `<span class="dim">${esc(r.code)}</span>`}</span>
+        <span class="tl-text">${textHtml}</span>
       </div>`;
     }
     view.innerHTML = html;
@@ -108,19 +164,24 @@ export async function render(body) {
     draw();
   }
 
-  scroll.onscroll = draw;
+  let scrollFrame = 0;
+  scroll.onscroll = () => {
+    if (scrollFrame) return;
+    scrollFrame = requestAnimationFrame(() => {
+      scrollFrame = 0;
+      draw();
+    });
+  };
 
   let deb;
   q.oninput = () => { clearTimeout(deb); deb = setTimeout(reset, 200); };
   from.onchange = () => { ui.sessFrom = ui.sessTo = null; sess.value = ""; reset(); };
   to.onchange = () => { ui.sessFrom = ui.sessTo = null; sess.value = ""; reset(); };
-  // Session jump: fetch the session's exact bounds and filter to them.
-  sess.onchange = async () => {
+  sess.onchange = () => {
     if (sess.value === "") {
       ui.sessFrom = ui.sessTo = null;
     } else {
-      const list = await invoke("sessions", { ch: state.ch });
-      const s = list.find((x) => x.index === +sess.value);
+      const s = sessionsList.find((x) => x.index === +sess.value);
       if (s) {
         ui.sessFrom = s.start - 1000;
         ui.sessTo = s.end + 1000;
@@ -135,15 +196,13 @@ export async function render(body) {
     ui.sessFrom = ui.sessTo = null;
     sess.value = "";
     state.codes.clear();
-    chips.querySelectorAll(".chip[data-code]").forEach((c) => c.classList.remove("active"));
-    all.classList.add("active");
+    syncCodeBar();
     reset();
   };
 
   all.onclick = () => {
     state.codes.clear();
-    chips.querySelectorAll(".chip[data-code]").forEach((c) => c.classList.remove("active"));
-    all.classList.add("active");
+    syncCodeBar();
     reset();
   };
   chips.onclick = (e) => {
@@ -151,19 +210,16 @@ export async function render(body) {
     if (!c) return;
     const code = c.dataset.code;
     state.codes.has(code) ? state.codes.delete(code) : state.codes.add(code);
-    c.classList.toggle("active");
-    all.classList.toggle("active", state.codes.size === 0);
+    syncCodeBar();
     reset();
   };
-  // Click a word in a row to filter by that code.
   view.onclick = (e) => {
-    const row = e.target.closest(".tl-row");
+    const word = e.target.closest(".tl-word");
+    if (!word) return;
+    const row = word.closest(".tl-row");
     if (!row) return;
-    const code = row.dataset.code;
-    state.codes.add(code);
-    const c = chips.querySelector(`[data-code="${code}"]`);
-    if (c) c.classList.add("active");
-    all.classList.remove("active");
+    state.codes.add(row.dataset.code);
+    syncCodeBar();
     reset();
   };
 

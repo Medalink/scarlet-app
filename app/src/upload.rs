@@ -2,7 +2,7 @@
 //! holds the app's switches, runs an upload in the background after each export, and answers the
 //! Settings view. With uploading off nothing here makes a network request.
 
-use crate::commands::state;
+use crate::commands::{blocking, state};
 use crate::settings::{self, Settings};
 use scarlet::upload::api::jitter;
 use scarlet::upload::config::{self, UploadConfig};
@@ -225,9 +225,24 @@ fn run_once(app: &AppHandle) -> bool {
                 c.groups.insert(g.clone(), false);
             }
         });
+        let all = config::all_groups();
+        let names: Vec<String> = refused
+            .iter()
+            .map(|k| {
+                all.iter()
+                    .find(|g| g.key == *k)
+                    .map(|g| g.label.clone())
+                    .unwrap_or_else(|| k.clone())
+            })
+            .collect();
+        let pronoun = if names.len() == 1 {
+            "It is"
+        } else {
+            "They are"
+        };
         set_note(Some(format!(
-            "The website removed {}. It is switched off here.",
-            refused.join(", ")
+            "The website removed {}. {pronoun} switched off here.",
+            names.join(", ")
         )));
     }
     let failed = reports.iter().find(|r| r.failed);
@@ -235,113 +250,149 @@ fn run_once(app: &AppHandle) -> bool {
     reports.iter().any(|r| r.retry)
 }
 
-#[tauri::command(async)]
-pub fn upload_get() -> UploadView {
-    view()
+#[tauri::command]
+pub async fn upload_get() -> UploadView {
+    blocking(view).await
 }
 
-#[tauri::command(async)]
-pub fn upload_set_enabled(app: AppHandle, on: bool) -> Result<UploadView, String> {
-    if on && let Some(p) = settings::load().upload.server_problem() {
-        return Err(format!("{p} Uploading cannot be turned on."));
-    }
-    change(&app, |c| c.enabled = on)?;
-    set_error(None);
-    set_note(None);
-    if on {
-        start_if_on(&app);
-    }
-    Ok(view())
+#[tauri::command]
+pub async fn upload_set_enabled(app: AppHandle, on: bool) -> Result<UploadView, String> {
+    blocking(move || {
+        if on && let Some(p) = settings::load().upload.server_problem() {
+            return Err(format!("{p} Uploading cannot be turned on."));
+        }
+        change(&app, |c| c.enabled = on)?;
+        set_error(None);
+        set_note(None);
+        if on {
+            start_if_on(&app);
+        }
+        Ok(view())
+    })
+    .await
 }
 
-#[tauri::command(async)]
-pub fn upload_set_server(app: AppHandle, server: String) -> Result<UploadView, String> {
-    let server = match server.trim() {
-        "" => config::DEFAULT_SERVER.to_string(),
-        s => s.to_string(),
-    };
-    if let Some(p) = config::server_problem(&server) {
-        return Err(p);
-    }
-    change(&app, |c| c.server = server)?;
-    set_error(None);
-    Ok(view())
+#[tauri::command]
+pub async fn upload_set_server(app: AppHandle, server: String) -> Result<UploadView, String> {
+    blocking(move || {
+        let server = match server.trim() {
+            "" => config::DEFAULT_SERVER.to_string(),
+            s => s.to_string(),
+        };
+        if let Some(p) = config::server_problem(&server) {
+            return Err(p);
+        }
+        change(&app, |c| c.server = server)?;
+        set_error(None);
+        Ok(view())
+    })
+    .await
 }
 
 /// Switch a group. Turning one on tells the website to take it again when this PC has uploaded
 /// before; the next upload then sends only that group's parts.
-#[tauri::command(async)]
-pub fn upload_set_group(app: AppHandle, key: String, on: bool) -> Result<UploadView, String> {
-    if !config::is_switchable(&key) {
-        return Err(format!("{key} cannot be switched."));
-    }
-    let cur = change(&app, |c| {
-        c.groups.insert(key.clone(), on);
-    })?;
-    if on && cur.upload.enabled && cur.upload.server_problem().is_none() {
-        let told = Session::open(&cur.upload, &cur.data, keys::system_store().as_ref(), false)
-            .and_then(|s| s.map_or(Ok(()), |mut s| s.restore_group(&key)));
-        if let Err(e) = told {
-            set_error(Some(e.to_string()));
+#[tauri::command]
+pub async fn upload_set_group(app: AppHandle, key: String, on: bool) -> Result<UploadView, String> {
+    blocking(move || {
+        if !config::is_switchable(&key) {
+            return Err(format!("{key} cannot be switched."));
         }
-    }
-    Ok(view())
+        let cur = change(&app, |c| {
+            c.groups.insert(key.clone(), on);
+        })?;
+        if on && cur.upload.enabled && cur.upload.server_problem().is_none() {
+            let told = Session::open(&cur.upload, &cur.data, keys::system_store().as_ref(), false)
+                .and_then(|s| s.map_or(Ok(()), |mut s| s.restore_group(&key)));
+            if let Err(e) = told {
+                set_error(Some(e.to_string()));
+            }
+        }
+        Ok(view())
+    })
+    .await
 }
 
 /// Remove what the website holds for a group that was switched off.
-#[tauri::command(async)]
-pub fn upload_remove_group(app: AppHandle, key: String) -> Result<String, String> {
-    if !config::is_switchable(&key) {
-        return Err(format!("{key} cannot be removed."));
-    }
-    let cur = change(&app, |c| {
-        c.groups.insert(key.clone(), false);
-    })?;
-    let Some(mut s) = Session::open(&cur.upload, &cur.data, keys::system_store().as_ref(), false)
-        .map_err(|e| e.to_string())?
-    else {
-        return Ok("The website holds nothing from this PC.".into());
-    };
-    let (parts, rows) = s.remove_group(&key).map_err(|e| e.to_string())?;
-    Ok(format!(
-        "Removed {parts} parts and {rows} rows from the website."
-    ))
+#[tauri::command]
+pub async fn upload_remove_group(app: AppHandle, key: String) -> Result<String, String> {
+    blocking(move || {
+        if !config::is_switchable(&key) {
+            return Err(format!("{key} cannot be removed."));
+        }
+        let cur = change(&app, |c| {
+            c.groups.insert(key.clone(), false);
+        })?;
+        let Some(mut s) =
+            Session::open(&cur.upload, &cur.data, keys::system_store().as_ref(), false)
+                .map_err(|e| e.to_string())?
+        else {
+            return Ok("The website holds nothing from this PC.".into());
+        };
+        let (parts, rows) = s.remove_group(&key).map_err(|e| e.to_string())?;
+        Ok(format!(
+            "Removed {parts} {} and {rows} {} from the website.",
+            if parts == 1 { "part" } else { "parts" },
+            if rows == 1 { "row" } else { "rows" },
+        ))
+    })
+    .await
 }
 
-#[tauri::command(async)]
-pub fn upload_set_character(app: AppHandle, name: String, on: bool) -> Result<UploadView, String> {
-    change(&app, |c| {
-        c.characters.insert(name, on);
-    })?;
-    Ok(view())
+#[tauri::command]
+pub async fn upload_set_character(
+    app: AppHandle,
+    name: String,
+    on: bool,
+) -> Result<UploadView, String> {
+    blocking(move || {
+        change(&app, |c| {
+            c.characters.insert(name, on);
+        })?;
+        Ok(view())
+    })
+    .await
 }
 
-#[tauri::command(async)]
-pub fn upload_delete_all() -> Result<String, String> {
-    let s = settings::load();
-    let Some(mut sess) = Session::open(&s.upload, &s.data, keys::system_store().as_ref(), false)
-        .map_err(|e| e.to_string())?
-    else {
-        return Ok("The website holds nothing from this PC.".into());
-    };
-    let (chars, parts, rows) = sess.delete_all().map_err(|e| e.to_string())?;
-    Ok(format!(
-        "Removed {chars} characters, {parts} parts and {rows} rows from the website."
-    ))
+#[tauri::command]
+pub async fn upload_delete_all() -> Result<String, String> {
+    blocking(|| {
+        let s = settings::load();
+        let Some(mut sess) =
+            Session::open(&s.upload, &s.data, keys::system_store().as_ref(), false)
+                .map_err(|e| e.to_string())?
+        else {
+            return Ok("The website holds nothing from this PC.".into());
+        };
+        let (chars, parts, rows) = sess.delete_all().map_err(|e| e.to_string())?;
+        Ok(format!(
+            "Removed {chars} {}, {parts} {} and {rows} {} from the website.",
+            if chars == 1 {
+                "character"
+            } else {
+                "characters"
+            },
+            if parts == 1 { "part" } else { "parts" },
+            if rows == 1 { "row" } else { "rows" },
+        ))
+    })
+    .await
 }
 
-#[tauri::command(async)]
-pub fn upload_now(app: AppHandle) -> Result<UploadView, String> {
-    let cfg = settings::load().upload;
-    if !cfg.enabled {
-        return Err("Uploading is off.".into());
-    }
-    if let Some(p) = cfg.server_problem() {
-        return Err(p);
-    }
-    set_error(None);
-    start(&app);
-    Ok(view())
+#[tauri::command]
+pub async fn upload_now(app: AppHandle) -> Result<UploadView, String> {
+    blocking(move || {
+        let cfg = settings::load().upload;
+        if !cfg.enabled {
+            return Err("Uploading is off.".into());
+        }
+        if let Some(p) = cfg.server_problem() {
+            return Err(p);
+        }
+        set_error(None);
+        start(&app);
+        Ok(view())
+    })
+    .await
 }
 
 #[derive(Serialize)]
@@ -352,42 +403,48 @@ pub struct LinkView {
 
 /// Whether this install belongs to an account. Asks the website only when uploading is on and this
 /// PC has an install key.
-#[tauri::command(async)]
-pub fn upload_linked() -> Result<bool, String> {
-    let s = settings::load();
-    if !s.upload.enabled || s.upload.server_problem().is_some() {
-        return Ok(false);
-    }
-    match Session::open(&s.upload, &s.data, keys::system_store().as_ref(), false)
-        .map_err(|e| e.to_string())?
-    {
-        Some(mut sess) => sess.me().map(|m| m.linked).map_err(|e| e.to_string()),
-        None => Ok(false),
-    }
+#[tauri::command]
+pub async fn upload_linked() -> Result<bool, String> {
+    blocking(|| {
+        let s = settings::load();
+        if !s.upload.enabled || s.upload.server_problem().is_some() {
+            return Ok(false);
+        }
+        match Session::open(&s.upload, &s.data, keys::system_store().as_ref(), false)
+            .map_err(|e| e.to_string())?
+        {
+            Some(mut sess) => sess.me().map(|m| m.linked).map_err(|e| e.to_string()),
+            None => Ok(false),
+        }
+    })
+    .await
 }
 
 /// A link code, and the page to confirm it on, opened in the browser.
-#[tauri::command(async)]
-pub fn upload_link() -> Result<LinkView, String> {
-    let s = settings::load();
-    if !s.upload.enabled {
-        return Err("Uploading is off.".into());
-    }
-    let mut sess = Session::open(&s.upload, &s.data, keys::system_store().as_ref(), true)
-        .map_err(|e| e.to_string())?
-        .ok_or("no install key")?;
-    if sess.me().map_err(|e| e.to_string())?.linked {
-        return Ok(LinkView {
-            code: String::new(),
-            linked: true,
-        });
-    }
-    let link = sess.link().map_err(|e| e.to_string())?;
-    open_url(&link.url)?;
-    Ok(LinkView {
-        code: link.code,
-        linked: false,
+#[tauri::command]
+pub async fn upload_link() -> Result<LinkView, String> {
+    blocking(|| {
+        let s = settings::load();
+        if !s.upload.enabled {
+            return Err("Uploading is off.".into());
+        }
+        let mut sess = Session::open(&s.upload, &s.data, keys::system_store().as_ref(), true)
+            .map_err(|e| e.to_string())?
+            .ok_or("This install is not set up for uploading yet.")?;
+        if sess.me().map_err(|e| e.to_string())?.linked {
+            return Ok(LinkView {
+                code: String::new(),
+                linked: true,
+            });
+        }
+        let link = sess.link().map_err(|e| e.to_string())?;
+        open_url(&link.url)?;
+        Ok(LinkView {
+            code: link.code,
+            linked: false,
+        })
     })
+    .await
 }
 
 /// Opens an address in the default browser. Only called with the link address the website just

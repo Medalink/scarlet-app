@@ -1,7 +1,7 @@
 // Charts: cumulative xp and money, top spells, buff uptime, zone time,
 // items in and out, people grouped with.
 
-import { invoke, el, lineChart, barList, dur, state, esc } from "../lib.js";
+import { invoke, el, lineChart, wireLineCharts, barList, dur, money, state, esc } from "../lib.js";
 
 function panel(title, inner) {
   const p = el("div", "panel chart-panel");
@@ -11,12 +11,41 @@ function panel(title, inner) {
   return p;
 }
 
+const STAT_LABEL = {
+  ilvlall: "Item level (all)",
+  ilvleq: "Item level (equipped)",
+  str: "Strength",
+  agi: "Agility",
+  sta: "Stamina",
+  int: "Intellect",
+  spi: "Spirit",
+  hp: "Health",
+  power: "Power",
+  armor: "Armor",
+  ap: "Attack power",
+  rap: "Ranged attack power",
+  sp: "Spell power",
+  crit: "Crit chance",
+  scrit: "Spell crit",
+  rcrit: "Ranged crit",
+  dodge: "Dodge",
+  parry: "Parry",
+  block: "Block",
+  def: "Defense",
+  haste: "Haste",
+  mh: "Main-hand DPS",
+  oh: "Off-hand DPS",
+};
+
 export async function render(body) {
+  const [c, tr] = await Promise.all([
+    invoke("charts", { ch: state.ch }),
+    invoke("trends", { ch: state.ch }),
+  ]);
   body.innerHTML = "";
-  const c = await invoke("charts", { ch: state.ch });
 
   body.appendChild(panel("Experience over time", lineChart(c.xp, "#ff2d55")));
-  body.appendChild(panel("Money over time (cumulative)", lineChart(c.money, "#d9b25f")));
+  body.appendChild(panel("Gold over time", lineChart(c.money, "#d9b25f", 150, money)));
 
   const grid = el("div", "two-col");
   grid.appendChild(panel("Top spells cast", barList(c.spells, "#ff2d55")));
@@ -33,22 +62,21 @@ export async function render(body) {
   body.appendChild(fight);
 
   const life = el("div", "two-col");
-  life.appendChild(panel("Time casting, by spell", barList(c.cast_time, "#ff2d55", dur)));
+  life.appendChild(panel("Cast time by spell", barList(c.cast_time, "#ff2d55", dur)));
   life.appendChild(panel("Emotes used", barList(c.emotes, "#cdced4")));
   body.appendChild(life);
 
   const two = el("div", "two-col");
-  two.appendChild(panel("Items in", barList(c.items_in, "#ff2d55")));
-  two.appendChild(panel("Items out", barList(c.items_out, "#cdced4")));
+  two.appendChild(panel("Items gained", barList(c.items_in, "#ff2d55")));
+  two.appendChild(panel("Items used or sold", barList(c.items_out, "#cdced4")));
   body.appendChild(two);
-
-  const tr = await invoke("trends", { ch: state.ch });
 
   // One line chart redrawn from a picker of series.
   const picker = (title, list, label, color) => {
     if (!list.length) return;
     const holder = el("div");
     const sel = el("select");
+    sel.setAttribute("aria-label", title);
     sel.innerHTML = list
       .map((s) => `<option value="${esc(s.key)}">${esc(label(s))}</option>`)
       .join("");
@@ -56,6 +84,7 @@ export async function render(body) {
     const draw = () => {
       const s = list.find((x) => x.key === sel.value);
       chart.innerHTML = s ? lineChart(s.series, color) : "";
+      wireLineCharts(chart);
     };
     sel.addEventListener("change", draw);
     draw();
@@ -64,6 +93,7 @@ export async function render(body) {
     body.appendChild(panel(title, holder));
   };
 
-  picker("Character stats over time", tr.stats, (s) => s.key, "#ff2d55");
-  picker("Statistics over time", tr.statistics, (s) => s.name, "#ff2d55");
+  picker("Character stats over time", tr.stats, (s) => STAT_LABEL[s.key] || s.key, "#ff2d55");
+  picker("In-game statistics over time", tr.statistics, (s) => s.name, "#ff2d55");
+  wireLineCharts(body);
 }

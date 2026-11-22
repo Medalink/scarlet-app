@@ -20,7 +20,7 @@ const ROW_LIMIT = 300;
 function ruleLabel(r) {
   if (r.method === "solo") return "Solo";
   const bits = [];
-  if (r.size) bits.push(`${r.size} players`);
+  if (r.size) bits.push(`${r.size} ${r.size === 1 ? "player" : "players"}`);
   if (r.threshold !== "" && QUALITY[r.threshold]) bits.push(`${QUALITY[r.threshold]}+`);
   const name = METHOD[r.method] ?? r.method;
   return bits.length ? `${name} · ${bits.join(", ")}` : name;
@@ -83,14 +83,17 @@ function dropTable(view) {
               : `<td class="num dim">—</td>`;
           })
           .join("");
-        return `<tr><td>${esc(d.npc_name || `npc ${d.npc}`)}</td><td>${esc(d.item_name || `item ${d.item}`)}</td>${tds}</tr>`;
+        return `<tr><td>${esc(d.npc_name || `Creature ${d.npc}`)}</td><td>${esc(d.item_name || `Item ${d.item}`)}</td>${tds}</tr>`;
       })
       .join("");
     note.textContent = hit.length > ROW_LIMIT ? `Showing ${ROW_LIMIT} of ${num(hit.length)}.` : "";
   };
-  q.oninput = draw;
+  let deb;
+  q.oninput = () => { clearTimeout(deb); deb = setTimeout(draw, 120); };
   draw();
-  p.append(q, t, note);
+  const wrap = el("div", "scroll-x");
+  wrap.appendChild(t);
+  p.append(q, wrap, note);
   return p;
 }
 
@@ -113,18 +116,20 @@ function attributionTable(view) {
         <td class="num">${num(a.rolls_passed)}</td></tr>`;
     })
     .join("");
+  const wrap = el("div", "scroll-x");
   const t = el("table");
   t.innerHTML = `<thead><tr><th>Player</th><th>Rule</th><th class="num">Items</th>
     <th class="num">Poor</th><th class="num">Common</th><th class="num">Uncommon</th><th class="num">Rare</th>
     <th class="num">Epic+</th><th class="num">Unknown</th>
     <th class="num">Won</th><th class="num">Lost</th><th class="num">Passed</th></tr></thead><tbody>${rows}</tbody>`;
-  p.appendChild(t);
+  wrap.appendChild(t);
+  p.appendChild(wrap);
   return p;
 }
 
 export async function render(body) {
-  body.innerHTML = "";
   const view = await invoke("loot", { ch: state.ch });
+  body.innerHTML = "";
   body.appendChild(dropTable(view));
   body.appendChild(attributionTable(view));
 }

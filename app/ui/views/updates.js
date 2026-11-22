@@ -1,7 +1,7 @@
 // Settings > Updates and Settings > Addon: the version, the Release or Beta choice, the offered update
 // with its notes and the recent releases; and the state of the Scarlet addon in the WoW folder.
 
-import { invoke, el, bytes } from "../lib.js";
+import { invoke, el, bytes, makeSwitch } from "../lib.js";
 
 const stamp = (ms) => new Date(ms).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 const day = (iso) => (iso ? new Date(iso).toLocaleDateString([], { dateStyle: "medium" }) : "");
@@ -127,13 +127,13 @@ function folderRow(f, track, onChange) {
   row.appendChild(head);
   line(row, "Installed", f.installed ? f.installed : f.manager === "missing" ? "Not installed" : "Unknown");
   line(row, `Latest ${trackName}`, f.latest || "Unknown");
-  if (f.kept_by) line(row, "Kept current by", f.kept_by);
+  if (f.kept_by) line(row, "Managed by", f.kept_by);
   const err = el("div", "status err");
   err.textContent = failures.get(f.name) || "";
   row.appendChild(err);
   // Shown while the folder still holds the version the player installed here.
   if (installed.get(f.name) === f.installed && f.manager === "ours") {
-    row.appendChild(text("div", "status ok", "It loads the next time WoW starts or you type /reload."));
+    row.appendChild(text("div", "status ok", "Type /reload in WoW or restart the game to load it."));
   }
 
   const run = async (takeover) => {
@@ -187,9 +187,7 @@ function folderRow(f, track, onChange) {
 }
 
 function addonBlock(parent, a, onChange) {
-  const sw = el("span", "switch");
-  sw.innerHTML = `<span class="track"><span class="knob"></span></span><span class="lab">Keep the addon up to date</span>`;
-  sw.classList.toggle("on", a.keep);
+  const sw = makeSwitch("Keep the addon up to date", a.keep);
   sw.onclick = async () => {
     await invoke("set_keep_addon", { on: !sw.classList.contains("on") });
     onChange();
@@ -293,7 +291,7 @@ export async function renderUpdates(body) {
     box.appendChild(statusEl);
 
     if (info.offered) {
-      box.appendChild(text("div", "note-head", `What is new in ${info.offered.version}`));
+      box.appendChild(text("div", "note-head", `Changes in ${info.offered.version}`));
       box.appendChild(text("pre", "notes", info.offered.notes || "No notes."));
     }
     notesList(box, info);

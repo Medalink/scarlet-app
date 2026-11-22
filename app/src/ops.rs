@@ -1,6 +1,6 @@
 //! Compress actions: export, logs, sizes, watch thread, settings I/O.
 
-use crate::commands::{reload, state};
+use crate::commands::{blocking, reload, state};
 use crate::settings::{self, Settings};
 use crate::watch::{WATCH_ON, set_watch, wake};
 use serde::Serialize;
@@ -17,41 +17,44 @@ pub struct Sizes {
     watch: bool,
 }
 
-#[tauri::command(async)]
-pub fn sizes(app: AppHandle) -> Sizes {
-    let s = state(&app);
-    let (wows, dir) = {
-        let st = s.settings.lock().unwrap();
-        (st.folders(), st.data.clone())
-    };
-    let sv = scarlet::export::find_sv_all(&wows).unwrap_or_default();
-    let mut sv_bytes = 0u64;
-    for p in &sv {
-        sv_bytes += std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
-    }
-    let mut payload_bytes = 0u64;
-    if let Ok(entries) = std::fs::read_dir(&dir) {
-        for e in entries.filter_map(|e| e.ok()) {
-            let pl = e.path().join("payloads");
-            if let Ok(files) = std::fs::read_dir(&pl) {
-                for f in files.filter_map(|f| f.ok()) {
-                    payload_bytes += f.metadata().map(|m| m.len()).unwrap_or(0);
+#[tauri::command]
+pub async fn sizes(app: AppHandle) -> Sizes {
+    blocking(move || {
+        let s = state(&app);
+        let (wows, dir) = {
+            let st = s.settings.lock().unwrap();
+            (st.folders(), st.data.clone())
+        };
+        let sv = scarlet::export::find_sv_all(&wows).unwrap_or_default();
+        let mut sv_bytes = 0u64;
+        for p in &sv {
+            sv_bytes += std::fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+        }
+        let mut payload_bytes = 0u64;
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for e in entries.filter_map(|e| e.ok()) {
+                let pl = e.path().join("payloads");
+                if let Ok(files) = std::fs::read_dir(&pl) {
+                    for f in files.filter_map(|f| f.ok()) {
+                        payload_bytes += f.metadata().map(|m| m.len()).unwrap_or(0);
+                    }
                 }
             }
         }
-    }
-    let ratio = if payload_bytes > 0 {
-        sv_bytes as f64 / payload_bytes as f64
-    } else {
-        0.0
-    };
-    Sizes {
-        sv_files: sv.len() as u64,
-        sv_bytes,
-        payload_bytes,
-        ratio,
-        watch: WATCH_ON.load(Ordering::Relaxed),
-    }
+        let ratio = if payload_bytes > 0 {
+            sv_bytes as f64 / payload_bytes as f64
+        } else {
+            0.0
+        };
+        Sizes {
+            sv_files: sv.len() as u64,
+            sv_bytes,
+            payload_bytes,
+            ratio,
+            watch: WATCH_ON.load(Ordering::Relaxed),
+        }
+    })
+    .await
 }
 
 fn run_export(app: &AppHandle) -> String {
@@ -64,32 +67,34 @@ fn run_export(app: &AppHandle) -> String {
         .iter()
         .any(|w| scarlet::gamedir::game_dir(w).join("WTF").is_dir())
     {
-        return "export skipped: the WoW folder in Settings has no game folder with a WTF folder"
-            .into();
+        return "Export skipped: the WoW folder in Settings has no WoW Forever install.".into();
     }
     let before = std::time::Instant::now();
     match crate::watch::export_and_reload(app, &wows, &out) {
-        Ok(_) => format!("export ok in {:.1}s", before.elapsed().as_secs_f64()),
-        Err(e) => format!("export failed: {e}"),
+        Ok(_) => format!("Exported in {:.1}s.", before.elapsed().as_secs_f64()),
+        Err(e) => format!("Export failed: {e}"),
     }
 }
 
-#[tauri::command(async)]
-pub fn compress_export(app: AppHandle) -> String {
-    run_export(&app)
+#[tauri::command]
+pub async fn compress_export(app: AppHandle) -> String {
+    blocking(move || run_export(&app)).await
 }
 
-#[tauri::command(async)]
-pub fn compress_logs(app: AppHandle) -> String {
-    let s = state(&app);
-    let (wows, out) = {
-        let st = s.settings.lock().unwrap();
-        (st.folders(), st.data.clone())
-    };
-    match scarlet::export::logs_all(&wows, &out) {
-        Ok(()) => "combat logs done".into(),
-        Err(e) => format!("logs failed: {e}"),
-    }
+#[tauri::command]
+pub async fn compress_logs(app: AppHandle) -> String {
+    blocking(move || {
+        let s = state(&app);
+        let (wows, out) = {
+            let st = s.settings.lock().unwrap();
+            (st.folders(), st.data.clone())
+        };
+        match scarlet::export::logs_all(&wows, &out) {
+            Ok(()) => "Combat logs compressed.".into(),
+            Err(e) => format!("Could not compress combat logs: {e}"),
+        }
+    })
+    .await
 }
 
 #[tauri::command]
@@ -133,7 +138,7 @@ pub fn set_settings(
         return Err("Enter a data folder.".into());
     }
     if settings::portable() && !settings::not_on_c(&data_p) {
-        return Err("the data folder may not be on C:".into());
+        return Err("The data folder must not be on C:.".into());
     }
     let cur = settings::update(|c| {
         c.wow = wow_p;

@@ -1,7 +1,7 @@
 //! Item search across your characters: what each one carries in its bags and bank, from the
 //! `inventory.json` the companion writes beside each character's overview.
 
-use crate::commands::{state, with_store};
+use crate::commands::{blocking, state, with_store};
 use scarlet::inventory::{Inventory, newest_per};
 use scarlet::lifetime::{Lifetime, Price};
 use serde::Serialize;
@@ -107,50 +107,60 @@ struct Shared<'a> {
     money: Option<i64>,
 }
 
-#[tauri::command(async)]
-pub fn items(app: AppHandle, query: String) -> Items {
-    let folders = state(&app).settings.lock().unwrap().folders();
-    let accounts: Vec<(String, Vec<String>)> = folders
-        .iter()
-        .flat_map(|f| scarlet::export::accounts(f))
-        .map(|a| (a.name, a.characters))
-        .collect();
-    let (loaded, lives, known) = with_store(&app, |st| {
-        let loaded: Vec<(String, Inventory)> = st
-            .chars
+#[tauri::command]
+pub async fn items(app: AppHandle, query: String, ch: Option<String>) -> Items {
+    blocking(move || {
+        let folders = state(&app).settings.lock().unwrap().folders();
+        let accounts: Vec<(String, Vec<String>)> = folders
             .iter()
+            .flat_map(|f| scarlet::export::accounts(f))
+            .map(|a| (a.name, a.characters))
+            .collect();
+        let (data_dir, chars, lives, known) = with_store(&app, |st| {
+            let chars: Vec<String> = st
+                .chars
+                .iter()
+                .filter(|name| ch.as_ref().is_none_or(|want| want == *name))
+                .cloned()
+                .collect();
+            let lives: Vec<(String, Lifetime)> = st
+                .chars
+                .iter()
+                .zip(st.lifetimes.iter())
+                .filter(|(name, _)| ch.as_ref().is_none_or(|want| want == *name))
+                .map(|(name, life)| (name.clone(), life.clone()))
+                .collect();
+            let named = |kind: char| -> HashMap<i64, String> {
+                st.names
+                    .iter()
+                    .filter_map(|(key, name)| {
+                        let id = key.strip_prefix(kind)?.parse().ok()?;
+                        Some((id, name.clone()))
+                    })
+                    .collect()
+            };
+            (
+                st.data_dir.clone(),
+                chars,
+                lives,
+                Known {
+                    items: named('i'),
+                    spells: named('s'),
+                },
+            )
+        });
+        let loaded: Vec<(String, Inventory)> = chars
+            .into_iter()
             .filter_map(|name| {
                 let text =
-                    std::fs::read_to_string(st.data_dir.join(name).join("inventory.json")).ok()?;
+                    std::fs::read_to_string(data_dir.join(&name).join("inventory.json")).ok()?;
                 let inv: Inventory = serde_json::from_str(&text).ok()?;
-                (!inv.is_empty()).then(|| (name.clone(), inv))
+                (!inv.is_empty()).then_some((name, inv))
             })
             .collect();
-        let lives: Vec<(String, Lifetime)> = st
-            .chars
-            .iter()
-            .cloned()
-            .zip(st.lifetimes.iter().cloned())
-            .collect();
-        let named = |kind: char| -> HashMap<i64, String> {
-            st.names
-                .iter()
-                .filter_map(|(key, name)| {
-                    let id = key.strip_prefix(kind)?.parse().ok()?;
-                    Some((id, name.clone()))
-                })
-                .collect()
-        };
-        (
-            loaded,
-            lives,
-            Known {
-                items: named('i'),
-                spells: named('s'),
-            },
-        )
-    });
-    search(loaded, &lives, &known, &accounts, &query)
+        search(loaded, &lives, &known, &accounts, &query)
+    })
+    .await
 }
 
 fn recipe_rows(lives: &[(String, Lifetime)], known: &Known, q: &str) -> Vec<RecipeRow> {

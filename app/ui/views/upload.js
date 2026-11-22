@@ -1,7 +1,7 @@
 // Settings > Website: the master switch, the website address, one switch per sharing group and per
 // character, the account link and the removals. Off until the player turns it on.
 
-import { invoke, el, bytes, num, displayName } from "../lib.js";
+import { invoke, el, bytes, num, displayName, makeSwitch } from "../lib.js";
 
 // What each group holds (docs/DESIGN.md, Sharing groups). Labels come from the app.
 const HOLDS = {
@@ -20,18 +20,13 @@ const HOLDS = {
   collections: "Legacy Challenges and points, mounts, pets, reputation, statistics.",
   client: "Client checks, addon list, UI errors, screenshots, loading screens.",
   addons: "Lines other addons write through Scarlet.",
+  imports: "Earlier sales, purchases and gold history imported from other addons.",
+  fishing: "Catches, records and tournament data from The Fishing Log.",
 };
 
 const when = (t) => new Date(t * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 
-function sw(label, on, locked) {
-  const s = el("span", "switch");
-  s.innerHTML = `<span class="track"><span class="knob"></span></span><span class="lab"></span>`;
-  s.querySelector(".lab").textContent = label;
-  s.classList.toggle("on", on);
-  if (locked) s.classList.add("locked");
-  return s;
-}
+const sw = (label, on, locked) => makeSwitch(label, on, locked);
 
 export async function renderUpload(body) {
   const box = el("div");
@@ -132,11 +127,15 @@ export async function renderUpload(body) {
       k.textContent = when(e.at);
       const val = el("div", "v");
       let text;
-      if (e.error) text = `Failed: ${e.error}`;
-      else if (!e.parts) text = "Nothing new";
-      else
-        text = `Sent ${num(e.parts)} ${e.parts === 1 ? "part" : "parts"} of ${num(e.sessions)} ${e.sessions === 1 ? "session" : "sessions"} for ${e.characters.map(displayName).join(", ")}`;
-      text += `. ${bytes(e.sent)}`;
+      if (e.error) {
+        text = `Failed: ${String(e.error).replace(/\.$/, "")}`;
+        if (e.sent > 0) text += ` (${bytes(e.sent)})`;
+      } else {
+        text = !e.parts
+          ? "Nothing new"
+          : `Sent ${num(e.parts)} ${e.parts === 1 ? "part" : "parts"} of ${num(e.sessions)} ${e.sessions === 1 ? "session" : "sessions"} for ${e.characters.map(displayName).join(", ")}`;
+        text += `. ${bytes(e.sent)}`;
+      }
       if (e.repeats) text += `, checked ${num(e.repeats + 1)} times`;
       val.textContent = text + ".";
       if (e.error) val.classList.add("err");
@@ -145,8 +144,9 @@ export async function renderUpload(body) {
     }
     box.appendChild(log);
 
+    box.appendChild(el("h3", "section-title", "What you share"));
     const gl = el("div");
-    gl.style.marginTop = "20px";
+    gl.style.marginTop = "12px";
     for (const g of v.groups) {
       const row = el("div");
       row.style.marginBottom = "12px";
@@ -192,8 +192,9 @@ export async function renderUpload(body) {
     box.appendChild(gl);
 
     if (v.characters.length) {
+      box.appendChild(el("h3", "section-title", "Characters"));
       const cl = el("div");
-      cl.style.marginTop = "20px";
+      cl.style.marginTop = "12px";
       for (const c of v.characters) {
         const row = el("div");
         row.style.marginBottom = "12px";
@@ -214,7 +215,7 @@ export async function renderUpload(body) {
     const danger = el("div");
     danger.style.cssText = "display:flex;gap:10px;flex-wrap:wrap;margin-top:20px;align-items:center";
     if (confirming) {
-      const del = el("button", "btn", "Delete from the website");
+      const del = el("button", "btn danger", "Delete from the website");
       del.type = "button";
       del.onclick = () => {
         confirming = false;
@@ -229,7 +230,7 @@ export async function renderUpload(body) {
       };
       danger.append(del, cancel);
     } else {
-      const all = el("button", "btn", "Delete everything I uploaded");
+      const all = el("button", "btn danger", "Delete everything I uploaded");
       all.type = "button";
       all.onclick = () => {
         confirming = true;
@@ -240,7 +241,7 @@ export async function renderUpload(body) {
     box.appendChild(danger);
     if (confirming) {
       box.appendChild(
-        el("div", "note", "This removes every part, every row and the characters you uploaded. Your data in this app stays.")
+        el("div", "note", "This deletes all uploaded sessions and characters from the website. Your data in this app stays.")
       );
     }
   }
@@ -248,16 +249,19 @@ export async function renderUpload(body) {
   draw();
   try {
     linked = await invoke("upload_linked");
-    draw();
+    if (!box.isConnected) return;
+    if (document.activeElement?.tagName !== "INPUT" || !box.contains(document.activeElement)) draw();
   } catch {
     /* the link state is a convenience; the button still works */
   }
   // While an upload runs, follow it until it ends; while a code is shown, notice when it is confirmed.
   const timer = setInterval(async () => {
     if (!box.isConnected) return clearInterval(timer);
+    if (document.activeElement?.tagName === "INPUT" && box.contains(document.activeElement)) return;
     if (linkCode && !linked && Date.now() - linkAt < 10 * 60 * 1000) {
       try {
         if (await invoke("upload_linked")) {
+          if (!box.isConnected) return clearInterval(timer);
           linked = true;
           linkCode = "";
           say("Linked to your account.");
@@ -269,6 +273,7 @@ export async function renderUpload(body) {
     }
     if (!v.busy) return;
     v = await invoke("upload_get");
+    if (!box.isConnected) return clearInterval(timer);
     draw();
   }, 1500);
 }

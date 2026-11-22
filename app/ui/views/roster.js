@@ -38,9 +38,9 @@ function totals() {
     ["Played", longDur(sum(data.chars, (c) => c.played))],
     ["Gold", moneyHtml(sum(data.chars, (c) => c.money || 0) + data.warband)],
     ["This week", playTime(week)],
-    ["WoW running", num(clients)],
+    ["WoW clients running", num(clients)],
   ];
-  return `<section class="week"><div><h2>Totals</h2></div>${cells.map(([l, v]) => `<div><dt>${l}</dt><dd>${v}</dd></div>`).join("")}</section>`;
+  return `<section class="week"><div><h2>Totals</h2></div>${cells.map(([l, v]) => `<dl><dt>${l}</dt><dd>${v}</dd></dl>`).join("")}</section>`;
 }
 
 
@@ -156,14 +156,14 @@ function transfersMod() {
   const total = data.transfers_total;
   const more =
     total > TRANSFER_ROWS
-      ? `<button class="linkbtn" id="r-moves" type="button">${transfersAll ? `Show the latest ${TRANSFER_ROWS}` : `Show ${data.transfers.length < total ? `the newest ${num(data.transfers.length)} of ${num(total)}` : `all ${num(total)}`}`}</button>`
+      ? `<button class="linkbtn" id="r-moves" type="button">${transfersAll ? `Show the latest ${TRANSFER_ROWS}` : `Show ${data.transfers.length < total ? `the latest ${num(data.transfers.length)} of ${num(total)}` : `all ${num(total)}`}`}</button>`
       : "";
   return mod("w4 last", "Transfers between your characters", `<ul class="moves">${rows}</ul>${more}`);
 }
 
 
 function pairsMod() {
-  if (!data.pairs.length) return mod("w12 first last", "Played together", empty("No two of your characters were online or grouped together"));
+  if (!data.pairs.length) return mod("w12 first last", "Played together", empty("None of your characters were online or grouped together."));
   const rows = data.pairs
     .map(
       (p) => `<tr><td>${nameOf(p.a)} and ${nameOf(p.b)}</td><td class="num">${p.together ? longDur(p.together) : "–"}</td>
@@ -254,7 +254,7 @@ function wireDays(body) {
 function levelsMod() {
   const cap = Math.max(...data.chars.map((c) => Math.max(c.cap, c.level)), 0);
   const top = Math.max(...data.chars.flatMap((c) => c.levels.map((l) => l[1])), 0);
-  if (cap < 2 || !top) return mod("w12 first last", "Time per level", empty("No level recorded from its ding to the next one"));
+  if (cap < 2 || !top) return mod("w12 first last", "Time per level", empty("No full level recorded from start to finish."));
   const X = (lv) => ((lv - 1) / (cap - 1)) * 1000;
   const Y = (p) => 10 + (1 - p / top) * 200;
   const lines = data.chars

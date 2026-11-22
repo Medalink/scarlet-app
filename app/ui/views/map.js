@@ -40,13 +40,21 @@ function darken(c, px, img) {
   return img;
 }
 
+let dispose = null;
+export function cleanup() {
+  dispose?.();
+  dispose = null;
+}
+
 export async function render(body) {
+  cleanup();
   // Ask first and clear after, so the page this one replaces is not emptied for a render that is
   // then stacked under another.
-  let status = { art: "dark", installed: false };
-  try { status = await invoke("map_art_status"); } catch {}
+  const [status, maps] = await Promise.all([
+    invoke("map_art_status").catch(() => ({ art: "dark", installed: false })),
+    invoke("map_list", { ch: state.ch }).catch(() => state.store?.maps ?? []),
+  ]);
   body.innerHTML = "";
-  const maps = state.store?.maps ?? [];
   const openmap = status.art === "openmap" && status.installed;
   // Survey unless OpenMap is the art and installed, and then what the player last picked.
   let look = "survey";
@@ -103,7 +111,26 @@ export async function render(body) {
   // One line over the art: where it comes from, or that OpenMap was chosen and is missing.
   const note = el("div", "map-credit");
   note.hidden = true;
-  stage.append(canvas, toggles, note);
+  const readout = el("div", "map-readout");
+  readout.hidden = true;
+  const zoomCtl = el("div", "map-zoom");
+  zoomCtl.setAttribute("role", "group");
+  zoomCtl.setAttribute("aria-label", "Map zoom");
+  const zIn = el("button", "", "+");
+  zIn.type = "button";
+  zIn.title = "Zoom in";
+  zIn.setAttribute("aria-label", "Zoom in");
+  const zOut = el("button", "", "−");
+  zOut.type = "button";
+  zOut.title = "Zoom out";
+  zOut.setAttribute("aria-label", "Zoom out");
+  const zFit = el("button", "", "Fit");
+  zFit.type = "button";
+  zFit.title = "Reset zoom";
+  zFit.setAttribute("aria-label", "Reset zoom");
+  zoomCtl.append(zIn, zOut, zFit);
+
+  stage.append(canvas, toggles, note, readout, zoomCtl);
   if (openmap) stage.appendChild(seg);
   wrap.append(side, stage);
   body.appendChild(wrap);
@@ -117,12 +144,19 @@ export async function render(body) {
   let view = null; // {x, y, w, h} in map-percent space
 
   for (const m of maps) {
-    const item = el("div", "map-item" + (m.id === current ? " active" : ""));
-    item.innerHTML = `<div>${esc(m.name)}</div><div class="pts">${num(m.points)} points</div>`;
+    const active = m.id === current;
+    const item = el("button", "map-item" + (active ? " active" : ""));
+    item.type = "button";
+    if (active) item.setAttribute("aria-current", "true");
+    item.innerHTML = `<div>${esc(m.name)}</div><div class="pts">${num(m.points)} ${m.points === 1 ? "point" : "points"}</div>`;
     item.onclick = () => {
       current = m.id;
-      side.querySelectorAll(".map-item").forEach((i) => i.classList.remove("active"));
+      side.querySelectorAll(".map-item").forEach((i) => {
+        i.classList.remove("active");
+        i.removeAttribute("aria-current");
+      });
       item.classList.add("active");
+      item.setAttribute("aria-current", "true");
       view = null;
       load();
     };
@@ -336,31 +370,62 @@ export async function render(body) {
     ctx.setLineDash([]);
   }
 
+  function zoomBy(k, fx = 0.5, fy = 0.5) {
+    if (!view) return;
+    const mx = view.x + fx * view.w, my = view.y + fy * view.h;
+    view = { x: mx - fx * view.w * k, y: my - fy * view.h * k, w: view.w * k, h: view.h * k };
+    schedule(true);
+  }
+
+  zIn.onclick = () => zoomBy(1 / 1.3);
+  zOut.onclick = () => zoomBy(1.3);
+  zFit.onclick = () => { fit(); draw(); };
+
   canvas.onwheel = (e) => {
     e.preventDefault();
     if (!view) return; // a map is still loading
     const r = canvas.getBoundingClientRect();
-    const fx = (e.clientX - r.left) / r.width, fy = (e.clientY - r.top) / r.height;
-    const k = e.deltaY > 0 ? 1.15 : 1 / 1.15;
-    const mx = view.x + fx * view.w, my = view.y + fy * view.h;
-    view = { x: mx - fx * view.w * k, y: my - fy * view.h * k, w: view.w * k, h: view.h * k };
-    schedule(true);
+    zoomBy(e.deltaY > 0 ? 1.15 : 1 / 1.15, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
   };
 
   let drag = null;
   canvas.onmousedown = (e) => (drag = [e.clientX, e.clientY]);
-  window.onmousemove = (e) => {
+  canvas.onmousemove = (e) => {
+    if (!view) return;
+    const r = canvas.getBoundingClientRect();
+    if (!r.width || !r.height) return;
+    const mx = view.x + ((e.clientX - r.left) / r.width) * view.w;
+    const asp = art ? art.asp : 1;
+    const my = (view.y + ((e.clientY - r.top) / r.height) * view.h) / asp;
+    if (mx >= 0 && mx <= 100 && my >= 0 && my <= 100) {
+      readout.textContent = `${mx.toFixed(1)}, ${my.toFixed(1)}`;
+      readout.hidden = false;
+    } else {
+      readout.hidden = true;
+    }
+  };
+  canvas.onmouseleave = () => { readout.hidden = true; };
+
+  const ac = new AbortController();
+  window.addEventListener("mousemove", (e) => {
     if (!drag || !view) return;
     const dx = ((e.clientX - drag[0]) / canvas.clientWidth) * view.w;
     const dy = ((e.clientY - drag[1]) / canvas.clientHeight) * view.h;
     view.x -= dx; view.y -= dy;
     drag = [e.clientX, e.clientY];
     schedule(true);
-  };
-  window.onmouseup = () => (drag = null);
+  }, { signal: ac.signal });
+  window.addEventListener("mouseup", () => (drag = null), { signal: ac.signal });
   canvas.ondblclick = () => { fit(); draw(); };
 
-  new ResizeObserver(resize).observe(canvas);
+  const ro = new ResizeObserver(resize);
+  ro.observe(canvas);
+  dispose = () => {
+    ac.abort();
+    ro.disconnect();
+    cancelAnimationFrame(frame);
+    clearTimeout(settle);
+  };
   resize();
   load();
 }

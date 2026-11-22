@@ -103,6 +103,7 @@ fn main() {
             commands::heatmap,
             commands::timeline,
             commands::sessions,
+            commands::map_list,
             commands::map_data,
             commands::map_image,
             commands::map_labels,
@@ -163,6 +164,7 @@ fn main() {
             // The shadow keeps the edge visible; the frame stays resizable.
             .decorations(false)
             .shadow(true)
+            .background_color(tauri::window::Color(0x14, 0x14, 0x16, 255))
             .inner_size(1280.0, 840.0)
             .min_inner_size(960.0, 620.0);
             if let Some(dir) = settings::webview_data() {

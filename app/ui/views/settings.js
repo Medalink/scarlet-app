@@ -1,6 +1,6 @@
 // Settings: one page per topic, chosen by the tabs at the top and by the hash (#settings/updates).
 
-import { invoke, el, esc, displayName, openmapMissing } from "../lib.js";
+import { invoke, el, esc, displayName, openmapMissing, makeSwitch, setSwitch } from "../lib.js";
 import { renderUpload } from "./upload.js";
 import { renderUpdates, renderAddon, watchProblems, refreshProblems } from "./updates.js";
 
@@ -42,8 +42,8 @@ async function general(body) {
 
   const form = el("div");
   form.innerHTML = `
-    <div class="field"><label>WoW folder</label></div>
-    <div class="field"><label>Data folder</label></div>
+    <div class="field"><label for="set-wow">WoW folder</label></div>
+    <div class="field"><label for="set-data">Data folder</label></div>
     <button class="btn primary" id="save">Save</button>
     <div class="status" id="st"></div>
     <div class="note" id="where"></div>`;
@@ -52,8 +52,10 @@ async function general(body) {
     : `Settings are in ${s.file}.`;
   const [wow, data] = form.querySelectorAll(".field");
   const wowIn = el("input");
+  wowIn.id = "set-wow";
   wowIn.value = s.wow;
   const dataIn = el("input");
+  dataIn.id = "set-data";
   dataIn.value = s.data;
   const wowRow = el("div", "row");
   const browse = el("button", "btn", "Browse…");
@@ -83,15 +85,13 @@ async function general(body) {
     }
   };
 
-  const sw = el("span", "switch");
-  sw.innerHTML = `<span class="track"><span class="knob"></span></span><span class="lab">Open when WoW Forever starts</span>`;
-  sw.classList.toggle("on", !!s.open_with_wow);
+  const sw = makeSwitch("Open when WoW Forever starts", !!s.open_with_wow);
   sw.style.marginTop = "16px";
   const swSt = el("div", "status");
   sw.onclick = async () => {
     try {
       const on = await invoke("set_open_with_wow", { on: !sw.classList.contains("on") });
-      sw.classList.toggle("on", on);
+      setSwitch(sw, on);
       swSt.className = "status";
       swSt.textContent = "";
     } catch (e) {
@@ -99,19 +99,17 @@ async function general(body) {
       swSt.textContent = String(e);
     }
   };
-  const grp = el("span", "switch");
-  grp.innerHTML = `<span class="track"><span class="knob"></span></span><span class="lab">Group characters by game account</span>`;
-  grp.classList.toggle("on", !!s.group_by_account);
+  const grp = makeSwitch("Group characters by game account", !!s.group_by_account);
   grp.style.marginTop = "16px";
   grp.onclick = async () => {
     const on = !grp.classList.contains("on");
-    grp.classList.toggle("on", on);
+    setSwitch(grp, on);
     swSt.className = "status";
     swSt.textContent = "";
     try {
       await invoke("set_group_by_account", { on });
     } catch (e) {
-      grp.classList.toggle("on", !on);
+      setSwitch(grp, !on);
       swSt.className = "status err";
       swSt.textContent = String(e);
     }
@@ -151,7 +149,10 @@ function addonText(a) {
   const ver = a.installed ? `${a.name} ${a.installed}` : a.manager === "missing" ? `${a.name} not installed` : `${a.name} version unknown`;
   if (a.manager === "ours") return a.can_update ? `${ver}, ${a.latest} on the next sync` : ver;
   if (a.manager === "missing") return a.latest ? `${ver}, ${a.latest} on the next sync` : ver;
-  return `${ver}, kept by ${a.kept_by.toLowerCase()}`;
+  if (a.manager === "by-hand") return `${ver}, installed by hand`;
+  if (a.manager === "git") return `${ver}, git checkout`;
+  if (a.manager === "linked") return `${ver}, linked folder`;
+  return `${ver}, managed by ${a.kept_by}`;
 }
 
 async function drawBoxes(body, box, s, dataIn) {
@@ -190,7 +191,7 @@ async function drawBoxes(body, box, s, dataIn) {
     const title = el("div", "wb-path");
     title.textContent = f.path;
     const state = el("div", "wb-state");
-    state.textContent = f.problem ? f.problem : f.running ? `${f.running} running` : "not running";
+    state.textContent = f.problem ? f.problem : f.running ? `${f.running} running` : "Not running";
     state.classList.toggle("on", f.running > 0 && !f.problem);
     top.append(title, state);
     const ctl = el("button", "btn", f.primary ? "+" : "×");
@@ -213,7 +214,7 @@ async function drawBoxes(body, box, s, dataIn) {
     const t = el("table");
     for (const a of f.accounts) {
       const tr = el("tr");
-      const when = a.saved ? new Date(a.saved * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "no recording yet";
+      const when = a.saved ? new Date(a.saved * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "No recording yet";
       tr.innerHTML = `<td>${esc(a.name)}</td><td>${a.characters.length ? esc(a.characters.map(displayName).join(", ")) : ""}</td><td class="dim">${esc(when)}</td>`;
       t.appendChild(tr);
     }

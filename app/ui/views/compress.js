@@ -1,7 +1,7 @@
 // Compress: run the companion export and combat-log compression, toggle the
 // watch thread, show sizes.
 
-import { invoke, el, num, bytes, state, esc } from "../lib.js";
+import { invoke, el, num, bytes, state, esc, makeSwitch, setSwitch } from "../lib.js";
 
 // Survives the store-changed re-render that an export itself triggers.
 let lastStatus = "";
@@ -12,9 +12,10 @@ export async function render(body) {
 
   const actions = el("div", "row");
   const exp = el("button", "btn primary", "Export now");
+  exp.type = "button";
   const logs = el("button", "btn", "Compress combat logs");
-  const sw = el("span", "switch");
-  sw.innerHTML = `<span class="track"><span class="knob"></span></span><span class="lab">Watch SavedVariables</span>`;
+  logs.type = "button";
+  const sw = makeSwitch("Watch SavedVariables", false);
   actions.append(exp, logs, sw);
   body.appendChild(actions);
 
@@ -27,13 +28,13 @@ export async function render(body) {
 
   async function refresh() {
     const s = await invoke("sizes");
-    sw.classList.toggle("on", s.watch);
+    setSwitch(sw, s.watch);
     sizes.innerHTML = "";
     const cards = [
-      ["SavedVariables", `${s.sv_files} file(s) · ${bytes(s.sv_bytes)}`],
+      ["SavedVariables", `${s.sv_files} ${s.sv_files === 1 ? "file" : "files"} · ${bytes(s.sv_bytes)}`],
       ["Payloads", bytes(s.payload_bytes)],
       ["Compression ratio", s.ratio ? `${s.ratio.toFixed(1)}×` : "—"],
-      ["Watch", s.watch ? "Running" : "Off"],
+      ["Auto-export", s.watch ? "On" : "Off"],
     ];
     for (const [label, value] of cards) {
       sizes.insertAdjacentHTML(
@@ -73,7 +74,7 @@ export async function render(body) {
   };
   sw.onclick = async () => {
     const on = await invoke("toggle_watch", { on: !sw.classList.contains("on") });
-    sw.classList.toggle("on", on);
+    setSwitch(sw, on);
     refresh();
   };
 
@@ -81,7 +82,7 @@ export async function render(body) {
   if (st) {
     body.insertAdjacentHTML(
       "beforeend",
-      `<div class="note">Data folder ${esc(st.data_dir)} · ${num(st.events)} events loaded. The watch thread exports again whenever a Scarlet.lua file changes.</div>`
+      `<div class="note">Data folder ${esc(st.data_dir)} · ${num(st.events)} ${st.events === 1 ? "event" : "events"} loaded. When watching is on, Scarlet exports automatically whenever WoW saves.</div>`
     );
   }
 

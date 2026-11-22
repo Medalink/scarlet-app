@@ -9,6 +9,7 @@ use scarlet::events::{self, Ev};
 use scarlet::lifetime::{self, Lifetime};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 /// One event with its character index.
 pub struct Row {
@@ -53,10 +54,14 @@ pub struct Store {
     pub chars: Vec<String>,
     pub events: Vec<Row>,
     pub lifetimes: Vec<Lifetime>,
-    pub lines: Vec<TLine>,
+    /// Formatted timeline rows, built lazily on first Timeline access.
+    lines: OnceLock<Vec<TLine>>,
+    pub line_count: usize,
     pub sessions: Vec<Session>,
     /// uiMapID -> name, from Z lines.
     pub zones: BTreeMap<u32, String>,
+    /// uiMapID -> (name, image file), cached once from `maps/index.json`.
+    pub map_index: HashMap<u32, (String, String)>,
     /// Name map: `n`/`s`/`i` + id -> name.
     pub names: HashMap<String, String>,
     /// Polylines grouped by map, in time order.
@@ -69,13 +74,29 @@ pub struct Store {
     pub last_ms: i64,
 }
 
-fn ev_to_parts(ms: i64, e: &Event, names: &HashMap<String, String>) -> (String, String) {
-    let ev = Ev {
-        cs: ms / 10,
-        code: e.code.clone(),
-        fields: e.fields.clone(),
+fn load_map_index(data_dir: &Path) -> HashMap<u32, (String, String)> {
+    let maps_dir = data_dir.parent().unwrap_or(data_dir).join("maps");
+    let Ok(text) = std::fs::read_to_string(maps_dir.join("index.json")) else {
+        return HashMap::new();
     };
-    events::event_parts(&ev, names)
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return HashMap::new();
+    };
+    json["maps"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|m| {
+            let id = u32::try_from(m["id"].as_u64()?).ok()?;
+            Some((
+                id,
+                (
+                    m["name"].as_str()?.to_string(),
+                    m["file"].as_str()?.to_string(),
+                ),
+            ))
+        })
+        .collect()
 }
 
 impl Store {
@@ -156,12 +177,22 @@ impl Store {
                             && let (Ok(m), Ok(x), Ok(y)) =
                                 (map.parse::<u32>(), x.parse::<i64>(), y.parse::<i64>())
                         {
-                            polylines.push(MapLine {
-                                map: m,
-                                session: cur_session,
-                                pts: vec![(x as f32 / 100.0, y as f32 / 100.0)],
-                                dash: false,
-                            });
+                            let pt = (x as f32 / 100.0, y as f32 / 100.0);
+                            match polylines.last_mut() {
+                                Some(last)
+                                    if !last.dash
+                                        && last.map == m
+                                        && last.session == cur_session =>
+                                {
+                                    last.pts.push(pt);
+                                }
+                                _ => polylines.push(MapLine {
+                                    map: m,
+                                    session: cur_session,
+                                    pts: vec![pt],
+                                    dash: false,
+                                }),
+                            }
                         }
                         continue;
                     }
@@ -262,27 +293,10 @@ impl Store {
 
         let first_ms = rows.first().map(|r| r.ms).unwrap_or(0);
         let last_ms = rows.last().map(|r| r.ms).unwrap_or(0);
-
-        // Timeline lines: rendered after all names are known.
-        let mut lines: Vec<TLine> = Vec::new();
-        for r in &rows {
-            if matches!(r.code.as_str(), "P" | "SN" | "IN") {
-                continue;
-            }
-            let e = Event {
-                ms: r.ms,
-                code: r.code.clone(),
-                fields: r.fields.clone(),
-            };
-            let (word, text) = ev_to_parts(r.ms, &e, &names);
-            lines.push(TLine {
-                ms: r.ms,
-                ch: r.ch,
-                code: r.code.clone(),
-                word,
-                text,
-            });
-        }
+        let line_count = rows
+            .iter()
+            .filter(|r| !matches!(r.code.as_str(), "P" | "SN" | "IN" | "PR"))
+            .count();
 
         let lifetimes = (0..chars.len() as u32)
             .map(|ch| {
@@ -295,11 +309,13 @@ impl Store {
             .collect();
 
         Store {
+            map_index: load_map_index(dir),
             data_dir: dir.to_path_buf(),
             chars,
             events: rows,
             lifetimes,
-            lines,
+            lines: OnceLock::new(),
+            line_count,
             sessions,
             zones,
             names,
@@ -311,13 +327,41 @@ impl Store {
         }
     }
 
+    /// Timeline lines: formatted once on first Timeline access.
+    pub fn lines(&self) -> &[TLine] {
+        self.lines.get_or_init(|| {
+            let mut out = Vec::with_capacity(self.line_count);
+            for r in &self.events {
+                if matches!(r.code.as_str(), "P" | "SN" | "IN" | "PR") {
+                    continue;
+                }
+                let ev = Ev {
+                    cs: r.ms / 10,
+                    code: r.code.clone(),
+                    fields: r.fields.clone(),
+                };
+                let (word, text) = events::event_parts(&ev, &self.names);
+                out.push(TLine {
+                    ms: r.ms,
+                    ch: r.ch,
+                    code: ev.code,
+                    word,
+                    text,
+                });
+            }
+            out
+        })
+    }
+
     fn empty(dir: &Path) -> Store {
         Store {
+            map_index: load_map_index(dir),
             data_dir: dir.to_path_buf(),
             chars: vec![],
             events: vec![],
             lifetimes: vec![],
-            lines: vec![],
+            lines: OnceLock::new(),
+            line_count: 0,
             sessions: vec![],
             zones: BTreeMap::new(),
             names: HashMap::new(),

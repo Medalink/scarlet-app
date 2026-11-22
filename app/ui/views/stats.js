@@ -15,8 +15,8 @@ function show(value) {
 }
 
 export async function render(body) {
-  body.innerHTML = "";
   const data = await invoke("stats", { ch: state.ch });
+  body.innerHTML = "";
 
   for (const s of data.sections) {
     body.appendChild(el("h3", "section-title", esc(s.title)));
@@ -50,7 +50,7 @@ export async function render(body) {
         "beforeend",
         `<div class="split">
           <div class="split-head"><span>${esc(a.label)} ${dur(a.seconds)}</span><span>${esc(b.label)} ${dur(b.seconds)}</span></div>
-          <div class="split-track" title="${pct}%"><div style="width:${pct}%"></div></div>
+          <div class="split-track" title="${esc(a.label)}: ${pct}%"><div style="width:${pct}%"></div></div>
         </div>`
       );
     }

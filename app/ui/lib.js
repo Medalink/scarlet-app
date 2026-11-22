@@ -26,10 +26,10 @@ export function openmapMissing(into, st) {
     a.onclick = () => invoke("open_openmap_page").catch(() => {});
     return a;
   };
-  if (st.reason === "no-wow") into.append("OpenMap needs the WoW folder: set it above.");
-  else if (st.reason === "no-forever") into.append("The WoW folder has no _forever_ folder, so OpenMap is not there.");
-  else if (st.reason === "broken-addon") into.append("OpenMap is in AddOns without its map files. Reinstall it from ", link());
-  else into.append("OpenMap is not installed. Get it at ", link());
+  if (st.reason === "no-wow") into.append("OpenMap needs your WoW folder. Set it in Settings → General.");
+  else if (st.reason === "no-forever") into.append("The WoW folder has no _forever_ folder, so Scarlet cannot find OpenMap.");
+  else if (st.reason === "broken-addon") into.append("OpenMap is in AddOns without its map files. Reinstall it from ", link(), ".");
+  else into.append("OpenMap is not installed. Get it at ", link(), ".");
 }
 
 export function num(n) {
@@ -47,7 +47,7 @@ export function bytes(n) {
     v /= 1024;
     i++;
   }
-  return i === 0 ? `${num(v)} bytes` : `${v.toFixed(1)} ${units[i]}`;
+  return i === 0 ? `${num(v)} ${v === 1 ? "byte" : "bytes"}` : `${v.toFixed(1)} ${units[i]}`;
 }
 
 export function money(c) {
@@ -115,7 +115,7 @@ export const PALETTE = [
 ];
 
 // Chart series: kills, dungeon kills, quests, exploring, other.
-export const SERIES = ["#ff2d55", "#9a7df2", "#b98b2d", "#2f9ec4", "#5d5d68"];
+export const SERIES = ["#ff2d55", "#9a7df2", "#b98b2d", "#2f9ec4", "#6e6e7a"];
 
 export function esc(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -123,17 +123,54 @@ export function esc(s) {
 
 export const displayName = (name) => String(name ?? "").replace("-", " ");
 
+export function setSwitch(btn, on) {
+  const active = Boolean(on);
+  btn.classList.toggle("on", active);
+  btn.setAttribute("aria-checked", String(active));
+}
+
+export function makeSwitch(label, on = false, locked = false) {
+  const s = el("button", "switch");
+  s.type = "button";
+  s.setAttribute("role", "switch");
+  s.innerHTML = `<span class="track" aria-hidden="true"><span class="knob"></span></span><span class="lab"></span>`;
+  s.querySelector(".lab").textContent = label;
+  setSwitch(s, on);
+  if (locked) {
+    s.classList.add("locked");
+    s.disabled = true;
+  }
+  return s;
+}
+
+export function highlight(text, query) {
+  const s = String(text ?? "");
+  const q = String(query ?? "").trim();
+  if (!q) return esc(s);
+  const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+  let out = "";
+  let last = 0;
+  for (const m of s.matchAll(re)) {
+    out += esc(s.slice(last, m.index)) + `<mark>${esc(m[0])}</mark>`;
+    last = m.index + m[0].length;
+  }
+  return out + esc(s.slice(last));
+}
+
+const chartStore = new Map();
+let chartSeq = 0;
+
 // A cumulative series as an SVG area chart. series: [[ms, v], ...]
-export function lineChart(series, color = "#ff2d55", h = 150) {
+export function lineChart(series, color = "#ff2d55", h = 150, fmt = num) {
   if (!series.length) return `<div class="empty">No data yet.</div>`;
   const width = 1000;
   // A single point is held flat to the right edge.
-  if (series.length === 1) series = [series[0], [series[0][0] + 1, series[0][1]]];
-  const x0 = series[0][0],
-    x1 = series[series.length - 1][0];
+  const pts = series.length === 1 ? [series[0], [series[0][0] + 1, series[0][1]]] : series;
+  const x0 = pts[0][0],
+    x1 = pts[pts.length - 1][0];
   let lo = Infinity,
     hi = -Infinity;
-  for (const [, v] of series) {
+  for (const [, v] of pts) {
     lo = Math.min(lo, v);
     hi = Math.max(hi, v);
   }
@@ -141,19 +178,61 @@ export function lineChart(series, color = "#ff2d55", h = 150) {
   const flat = lo === hi;
   const X = (t) => ((t - x0) / (x1 - x0 || 1)) * width;
   const Y = (v) => (flat ? (h - 16) / 2 : 10 + (1 - (v - lo) / (hi - lo)) * (h - 30));
-  let d = `M ${X(series[0][0]).toFixed(1)} ${Y(series[0][1]).toFixed(1)}`;
-  for (const [t, v] of series) d += ` L ${X(t).toFixed(1)} ${Y(v).toFixed(1)}`;
+  let d = `M ${X(pts[0][0]).toFixed(1)} ${Y(pts[0][1]).toFixed(1)}`;
+  for (const [t, v] of pts) d += ` L ${X(t).toFixed(1)} ${Y(v).toFixed(1)}`;
   const area = `${d} L ${X(x1).toFixed(1)} ${h - 16} L ${X(x0).toFixed(1)} ${h - 16} Z`;
-  const id = "g" + Math.random().toString(36).slice(2, 8);
-  return `<svg viewBox="0 0 ${width} ${h}" preserveAspectRatio="none" class="chart">
-    <defs><linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="${color}" stop-opacity="0.22"/>
-      <stop offset="1" stop-color="${color}" stop-opacity="0"/>
-    </linearGradient></defs>
-    <path d="${area}" fill="url(#${id})"/>
-    <path d="${d}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
-  </svg>
-  <div class="chart-scale"><span>${num(lo)}</span><span>${flat ? "unchanged" : num(hi)}</span></div>`;
+  const id = `lc${++chartSeq}`;
+  if (chartStore.size > 64) chartStore.clear();
+  chartStore.set(id, { pts: series, x0, x1, lo, hi, flat, h, fmt, color });
+  return `<div class="chart-wrap" data-chart-id="${id}">
+    <svg viewBox="0 0 ${width} ${h}" preserveAspectRatio="none" class="chart">
+      <defs><linearGradient id="${id}-g" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="${color}" stop-opacity="0.22"/>
+        <stop offset="1" stop-color="${color}" stop-opacity="0"/>
+      </linearGradient></defs>
+      <path d="${area}" fill="url(#${id}-g)"/>
+      <path d="${d}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+      <line class="chart-cross" y1="0" y2="${h - 16}" stroke="rgba(240,241,243,0.45)" stroke-width="1" vector-effect="non-scaling-stroke" visibility="hidden"/>
+    </svg>
+    <div class="chart-scale"><span>${fmt(lo)}</span><span>${flat ? "unchanged" : fmt(hi)}</span></div>
+    <p class="chart-readout"></p>
+  </div>`;
+}
+
+export function wireLineCharts(root) {
+  for (const wrap of root.querySelectorAll(".chart-wrap[data-chart-id]")) {
+    const info = chartStore.get(wrap.dataset.chartId);
+    if (!info || wrap.dataset.wired) continue;
+    wrap.dataset.wired = "1";
+    const svg = wrap.querySelector("svg.chart");
+    const cross = wrap.querySelector(".chart-cross");
+    const out = wrap.querySelector(".chart-readout");
+    const { pts, x0, x1, fmt } = info;
+    const span = x1 - x0 || 1;
+    svg.addEventListener("pointermove", (e) => {
+      const r = svg.getBoundingClientRect();
+      if (!r.width) return;
+      const frac = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+      const targetT = x0 + frac * span;
+      let lo = 0, hi = pts.length - 1;
+      while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        if (pts[mid][0] < targetT) lo = mid + 1;
+        else hi = mid;
+      }
+      if (lo > 0 && Math.abs(pts[lo - 1][0] - targetT) <= Math.abs(pts[lo][0] - targetT)) lo -= 1;
+      const [t, v] = pts[lo];
+      const x = ((t - x0) / span) * 1000;
+      cross.setAttribute("x1", x.toFixed(1));
+      cross.setAttribute("x2", x.toFixed(1));
+      cross.setAttribute("visibility", "visible");
+      out.innerHTML = `<b>${dateTime(t)}</b> · ${esc(fmt(v))}`;
+    });
+    svg.addEventListener("pointerleave", () => {
+      cross.setAttribute("visibility", "hidden");
+      out.textContent = "";
+    });
+  }
 }
 
 // Horizontal bar rows. rows: [[label, value], ...]
@@ -173,11 +252,10 @@ export function barList(rows, color = "#ff2d55", fmt = num) {
 
 // Horizontal stacked bar with legend. splits: [[label, seconds], ...]
 export function stackedBar(splits) {
-  const total = splits.reduce((a, [, s]) => a + s, 0) || 1;
   return `<div class="stack">${splits
-    .map(([label, s], i) => `<div style="flex:${s};background:${SERIES[i % SERIES.length]}" title="${label} ${dur(s)}"></div>`)
+    .map(([label, s], i) => `<div style="flex:${s};background:${SERIES[i % SERIES.length]}" title="${esc(label)} ${dur(s)}"></div>`)
     .join("")}</div>
   <div class="legend">${splits
-    .map(([label, s], i) => `<span><i style="background:${SERIES[i % SERIES.length]}"></i>${label} ${dur(s)}</span>`)
+    .map(([label, s], i) => `<span><i style="background:${SERIES[i % SERIES.length]}"></i>${esc(label)} ${dur(s)}</span>`)
     .join("")}</div>`;
 }

@@ -3,7 +3,7 @@
 //! export uses, one per character, since the loot rule is that character's
 //! own state.
 
-use crate::commands::with_store;
+use crate::commands::{blocking, with_store};
 use scarlet::loot::{LootBook, Rule};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -63,8 +63,12 @@ pub struct LootView {
     attribution: Vec<AttrOut>,
 }
 
-#[tauri::command(async)]
-pub fn loot(app: AppHandle, ch: Option<String>) -> LootView {
+#[tauri::command]
+pub async fn loot(app: AppHandle, ch: Option<String>) -> LootView {
+    blocking(move || loot_sync(app, ch)).await
+}
+
+fn loot_sync(app: AppHandle, ch: Option<String>) -> LootView {
     with_store(&app, |st| {
         let only = ch.and_then(|n| st.char_index(&n));
         let mut books: BTreeMap<u32, LootBook> = BTreeMap::new();

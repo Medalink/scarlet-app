@@ -36,8 +36,8 @@ const VIEWS = [
   { key: "stats", shows: /1,605 Experience .* 2 Kills/, never: /No recorded time yet/ },
   { key: "heatmap", shows: /Peak: [1-9]\d* events in an hour/, never: /Peak: 0 events|No events yet/ },
   { key: "timeline", shows: /kill Stonetusk Boar \(113\) by you/, never: /No events|Nothing recorded/ },
-  { key: "sessions", shows: /Testa Fixture 2m 5s Westfall 0 0 0c 0 .* Testa Fixture 2m 10s Elwynn Forest 2 1605 \+3s43c 1/, never: /No sessions yet\./ },
-  { key: "map", shows: /Elwynn Forest 16 points Westfall 10 points/, never: /No path points yet/ },
+  { key: "sessions", shows: /Testa Fixture 2m 5s Westfall 0 0 0c 0 .* Testa Fixture 2m 10s Elwynn Forest 2 1,605 \+3s43c 1/, never: /No sessions yet\./ },
+  { key: "map", shows: /Elwynn Forest 12 points Westfall 10 points/, never: /No path points yet/ },
   { key: "charts", shows: /Experience over time 95 1,605 .* Top spells cast Heroic Strike 1 /, never: /Experience over time No data/ },
   { key: "loot", shows: /Drop rates .* Solo Stonetusk Boar .* Chunk of Boar Meat 100% 1\/1 .* Testa Fixture Solo 3 /, never: /No creature loot with an item list|No loot recorded yet/ },
   { key: "talents", shows: /Arms · 3 points, 2 available .* Improved Heroic Strike 2\/3 Deflection 2\/2 .* Picked 1→2\/3/, never: /No talent lines recorded|Select a character/ },
@@ -47,7 +47,7 @@ const VIEWS = [
     never: /No bags or bank recorded yet|No items match|Guild bank \(|account unknown/,
   },
   { key: "addons", shows: /GatherMate2 1 .* GatherMate2 Testa Fixture \(2447\) map 1429 at 43\.9, 67\.0/, never: /No lines from other addons/ },
-  { key: "compress", shows: /Export now .* 2 file\(s\) .* Payloads .* [1-9]\d* events loaded/, never: /Data folder .* · 0 events loaded/ },
+  { key: "compress", shows: /Export now .* 2 files .* Payloads .* [1-9]\d* events loaded/, never: /Data folder .* · 0 events loaded/ },
   { key: "settings", shows: /WoW folders .* E2EONE .* E2ETWO/, never: /No game accounts yet/ },
 ];
 
@@ -312,7 +312,7 @@ const CHECKS = [
       expectEqual("characters in app_state", store.chars, [PROBE, TESTA]);
       expectEqual("sessions in app_state", store.sessions, 3);
       const foot = await app.evaluate(`document.querySelector("#foot").textContent`);
-      expectMatch("the foot of the nav", foot, new RegExp(`${CHARACTERS.length} character\\(s\\)`));
+      expectMatch("the foot of the nav", foot, new RegExp(`${CHARACTERS.length} ${CHARACTERS.length === 1 ? "character" : "characters"}`));
     },
   },
   ...VIEWS.map(({ key, shows, never }) => ({
@@ -438,7 +438,7 @@ const CHECKS = [
       writeWow(ctx.site.app.wow, { later: true });
       await open(app, "compress", /Export now/);
       await app.evaluate(`[...document.querySelectorAll("#body button")].find((b) => b.textContent === "Export now").click()`);
-      await app.until(`/^export ok/.test(document.querySelector("#body .status")?.textContent ?? "")`, "the export reports success", 30000);
+      await app.until(`/^Exported in/.test(document.querySelector("#body .status")?.textContent ?? "")`, "the export reports success", 30000);
       await app.until(`window.__TAURI__.core.invoke("app_state").then((s) => s.sessions === 4)`, "app_state reports 4 sessions after Export now", 5000);
       const events = await app.until(`(() => { const n = Number(/([\\d,]+) events/.exec(document.querySelector("#head-stats").textContent)?.[1].replace(/,/g, "")); return n > ${before} ? n : 0; })()`, `the events in the header rise above ${before}`, 5000);
       expectEqual("events the header gained", events - before, LATER.lines.length);

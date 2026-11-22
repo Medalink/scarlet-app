@@ -127,7 +127,7 @@ pub fn word(code: &str) -> &str {
         "LV" => "renown",
         "LB" => "legacybal",
         "LA" => "legacyach",
-        "LN" => "legacynod",
+        "LN" => "legacynode",
         "LO" => "lootsrc",
         "LW" => "peerloot",
         "PR" => "api",
@@ -1026,7 +1026,8 @@ fn details(code: &str, f: &[String], names: &HashMap<String, String>) -> String 
                 "a" => "flying",
                 other => other,
             };
-            let mut s = format!("{mode} {}yd in {}s, {} jumps", g(1), g(2), g(3));
+            let jumps = if g(3) == "1" { "jump" } else { "jumps" };
+            let mut s = format!("{mode} {} yd in {}s, {} {jumps}", g(1), g(2), g(3));
             if !g(4).is_empty() {
                 s.push_str(&format!(" (at {}s)", g(4).replace(',', "s, ")));
             }
@@ -1285,7 +1286,7 @@ fn details(code: &str, f: &[String], names: &HashMap<String, String>) -> String 
         "ST" => format!(
             "level {} gold {} str {} agi {} sta {} int {} spi {} armor {} hp {} power {} ilvl {}",
             g(0),
-            money(g(1)),
+            coin(g(1)),
             g(2),
             g(3),
             g(4),
@@ -1516,9 +1517,9 @@ fn details(code: &str, f: &[String], names: &HashMap<String, String>) -> String 
             let cur = label('c', g(0), names, "currency");
             let first = if g(2) == "1" { " (first craft)" } else { "" };
             if g(3).is_empty() {
-                format!("{} x {}{first}", g(1), cur)
+                format!("{cur} x{}{first}", g(1))
             } else {
-                format!("{} x {}{first} for {}", g(1), cur, spell(3))
+                format!("{cur} x{}{first} for {}", g(1), spell(3))
             }
         }
         "SC" => {
@@ -1658,7 +1659,7 @@ fn details(code: &str, f: &[String], names: &HashMap<String, String>) -> String 
             if let Ok(late) = g(6).parse::<i64>()
                 && late > 0
             {
-                s.push_str(&format!(", sent {late} s late"));
+                s.push_str(&format!(", sent {late}s late"));
             }
             s
         }
@@ -1843,7 +1844,7 @@ fn details(code: &str, f: &[String], names: &HashMap<String, String>) -> String 
         "QP" => {
             let quest = label('q', g(0), names, "quest");
             let what = if g(4) == "criteria" {
-                format!("criteria {}", g(1))
+                format!("criterion {}", g(1))
             } else {
                 format!("objective {}", g(1))
             };
@@ -2982,8 +2983,8 @@ fn details(code: &str, f: &[String], names: &HashMap<String, String>) -> String 
                 s.push_str(&format!(", {}", g(5)));
             }
             match g(4) {
-                "1" => s.push_str(", mad"),
-                "2" => s.push_str(", neutral"),
+                "1" => s.push_str(", unhappy"),
+                "2" => s.push_str(", content"),
                 "3" => s.push_str(", happy"),
                 "" => {}
                 other => s.push_str(&format!(", happiness {other}")),
@@ -3816,7 +3817,7 @@ fn details(code: &str, f: &[String], names: &HashMap<String, String>) -> String 
                 "i" if g(4) == "s" => format!("still invited to {name} by {}", g(3)),
                 "i" if g(3).is_empty() => format!("invited to {name}"),
                 "i" => format!("{} invited you to {name}", g(3)),
-                "d" => "a community invitation went away".into(),
+                "d" => "community invitation removed".into(),
                 "r" => format!("{name}: now {}", club_role(g(3))),
                 "j" if g(3).is_empty() => format!("a member joined {name}"),
                 "j" => format!("{} joined {name}", g(3)),

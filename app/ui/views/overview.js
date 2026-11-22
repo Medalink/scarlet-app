@@ -7,18 +7,18 @@
 import { invoke, esc, displayName, num, dur, moneyHtml, dateStr, dateTime, SERIES, state } from "../lib.js";
 
 export const CLASS_COLOR = {
-  DEATHKNIGHT: "#C41E3A",
-  DEMONHUNTER: "#A330C9",
-  DRUID: "#FF7C0A",
-  EVOKER: "#33937F",
+  DEATHKNIGHT: "#E04A64",
+  DEMONHUNTER: "#C46CE6",
+  DRUID: "#FF8A2B",
+  EVOKER: "#4AB8A2",
   HUNTER: "#AAD372",
-  MAGE: "#3FC7EB",
+  MAGE: "#5CC8EE",
   MONK: "#00FF98",
   PALADIN: "#F48CBA",
-  PRIEST: "#FFFFFF",
+  PRIEST: "#F0F1F3",
   ROGUE: "#FFF468",
-  SHAMAN: "#0070DD",
-  WARLOCK: "#8788EE",
+  SHAMAN: "#4A94FF",
+  WARLOCK: "#A79BF5",
   WARRIOR: "#C69B6D",
 };
 const CLASS_NAME = { DEATHKNIGHT: "Death Knight", DEMONHUNTER: "Demon Hunter" };
@@ -167,7 +167,7 @@ function week(ov) {
     ["Zones", num(zones.size)],
   ];
   return `<section class="week"><div><h2>This week</h2><p>${range}</p></div>${cells
-    .map(([l, v]) => `<div><dt>${l}</dt><dd>${v}</dd></div>`)
+    .map(([l, v]) => `<dl><dt>${l}</dt><dd>${v}</dd></dl>`)
     .join("")}</section>`;
 }
 
@@ -217,7 +217,7 @@ function levelsChart(ov, focus = false) {
   const cls = focus ? "w12 first last" : "w8 first";
   const title = focus ? "Levelling" : "Experience by level";
   if (!levels.length) {
-    const text = xpMode === "xp" ? "No experience recorded" : "No level recorded from its ding to the next one";
+    const text = xpMode === "xp" ? "No experience recorded." : "No full level recorded from start to finish.";
     return mod(cls, title, empty(text), head);
   }
   const total = (l) => (xpMode === "xp" ? levelXp(l) : l.p);
@@ -397,7 +397,7 @@ function capStrip(ov) {
     ["Items looted", num(c.loot)],
   ];
   return `<section class="week cap-strip"><div><h2>At max level</h2><p>${esc(since)}</p></div>${cells
-    .map(([l, v]) => `<div><dt>${l}</dt><dd>${v}</dd></div>`)
+    .map(([l, v]) => `<dl><dt>${l}</dt><dd>${v}</dd></dl>`)
     .join("")}</section>`;
 }
 
@@ -447,18 +447,18 @@ function capLegacyMod(ov) {
 function runsMod(ov) {
   if (!ov.runs.length) return mod("first", "Dungeons and raids", empty("No dungeon or raid runs recorded"));
   const rows = ov.runs.slice(0, 5).map((r) => ({ who: r.name, v: r.n, val: plural(r.n, "run", "runs") }));
-  return mod("first", "Dungeons and raids", `${rank(rows)}<p class="total">${plural(ov.runsTotal, "run", "runs")} in total</p>`);
+  return mod("first", "Dungeons and raids", `${rank(rows)}<p class="total">${plural(ov.runsTotal, "run", "runs")} in total.</p>`);
 }
 
 function matesMod(ov, cls = "") {
-  if (!ov.mates.length) return mod(cls, "Played with", empty("No group members recorded"));
+  if (!ov.mates.length) return mod(cls, "Played with", empty("No group members recorded."));
   const rows = ov.mates.slice(0, 4).map((m) => ({
     who: displayName(m.name),
     v: m.p,
     val: `${dur(m.p)} · ${plural(m.n, "session", "sessions")}`,
     color: CLASS_COLOR[m.class] || "",
   }));
-  return mod(cls, "Played with", `${rank(rows)}<p class="total">Time grouped together, from the lines written when a player joins or leaves your group.</p>`);
+  return mod(cls, "Played with", `${rank(rows)}<p class="total">Time grouped together, from when a player joins and leaves your group.</p>`);
 }
 
 function deathsMod(ov) {
@@ -567,7 +567,7 @@ function historyRows(ov) {
       head: [th("Level"), th("Reached"), th("Played", "num"), th("XP", "num"), th("Kills", "num"), th("Quests", "num"), th("Deaths", "num"), th("Main zone")],
       rows: rows.map(
         ([lv, l]) => `<td>Level ${lv}</td><td>${l.at ? dateStr(l.at * 1000) : "Before recording"}</td>
-          <td class="num">${l.complete ? playTime(l.p || 0) : `<span class="dim" title="Not recorded from its ding to the next one">–</span>`}</td><td class="num">${num(levelXp(l))}</td><td class="num">${num(l.k || 0)}</td>
+          <td class="num">${l.complete ? playTime(l.p || 0) : `<span class="dim" title="Not recorded for the whole level">–</span>`}</td><td class="num">${num(levelXp(l))}</td><td class="num">${num(l.k || 0)}</td>
           <td class="num">${num(l.q || 0)}</td><td class="num">${num(l.dd || 0)}</td><td>${esc(l.zone || "")}</td>`
       ),
       name: "levels",
@@ -611,7 +611,7 @@ function historyMod(ov) {
   const body = rows.slice(0, cap).map((r) => `<tr>${r}</tr>`).join("");
   let more = "";
   if (rows.length > HISTORY_ROWS) {
-    more = `<button class="linkbtn" id="hist-more" type="button">${histAll ? `Show the latest ${HISTORY_ROWS}` : `Show ${rows.length > HISTORY_MAX ? `the newest ${HISTORY_MAX} of ${num(rows.length)}` : `all ${num(rows.length)}`} ${name}`}</button>`;
+    more = `<button class="linkbtn" id="hist-more" type="button">${histAll ? `Show the latest ${HISTORY_ROWS}` : `Show ${rows.length > HISTORY_MAX ? `the latest ${HISTORY_MAX} of ${num(rows.length)}` : `all ${num(rows.length)}`} ${name}`}</button>`;
   }
   return mod("w12 first last", "Play history", `<div class="history"><table><thead><tr>${cols.join("")}</tr></thead><tbody>${body}</tbody></table></div>${more}`, head);
 }
@@ -629,7 +629,7 @@ function importedMod(ov) {
     im.sales || im.buys
       ? `<p class="sub">${plural(im.sales, "sale", "sales")} for ${moneyHtml(im.sales_copper)} and ${plural(im.buys, "purchase", "purchases")} for ${moneyHtml(im.buys_copper)}, ${dateStr(im.first)} to ${dateStr(im.last)}.</p>`
       : "",
-    `<p class="sub">${esc(source)} kept these and Scarlet did not.${seen ? ` ${num(seen)} more matched what Scarlet recorded and are not counted twice.` : ""} Boards and totals leave them out.</p>`,
+    `<p class="sub">${esc(source)} kept these and Scarlet did not.${seen ? ` ${num(seen)} more matched what Scarlet recorded and are not counted twice.` : ""} Other views and totals leave them out.</p>`,
   ].join("");
   const days = im.days.slice(0, IMPORT_DAYS);
   const dayTable = days.length
@@ -655,7 +655,7 @@ function lifetimeMod(life) {
   ].filter(([, c]) => c);
   if (!counts.length && !life.locks.length) return "";
   const countTable = counts.length
-    ? `<div class="history"><table><thead><tr>${[th("In the character's whole life"), th("Total", "num"), th("Read")].join("")}</tr></thead><tbody>${counts
+    ? `<div class="history"><table><thead><tr>${[th("In the character's whole life"), th("Total", "num"), th("Last read")].join("")}</tr></thead><tbody>${counts
         .map(([label, c]) => `<tr><td>${label}</td><td class="num">${num(c.total)}</td><td>${dateStr(c.at * 1000)}</td></tr>`)
         .join("")}</tbody></table></div>`
     : "";
@@ -673,7 +673,7 @@ function lifetimeMod(life) {
 
 // Page --------------------------------------------------------------------------------
 
-function draw(body) {
+function draw(body, refocus = null) {
   const top = body.scrollTop;
   body.innerHTML = "";
   if (!current) {
@@ -697,24 +697,25 @@ function draw(body) {
     n.onclick = () => {
       xpMode = n.dataset.xp;
       xpPinned = null;
-      draw(body);
+      draw(body, `[data-xp="${xpMode}"]`);
     };
   });
   body.querySelectorAll("[data-hist]").forEach((n) => {
     n.onclick = () => {
       histMode = n.dataset.hist;
       histAll = false;
-      draw(body);
+      draw(body, `[data-hist="${histMode}"]`);
     };
   });
   const more = body.querySelector("#hist-more");
   if (more) {
     more.onclick = () => {
       histAll = !histAll;
-      draw(body);
+      draw(body, "#hist-more");
     };
   }
   body.scrollTop = top;
+  if (refocus) body.querySelector(refocus)?.focus({ preventScroll: true });
 }
 
 export async function render(body) {

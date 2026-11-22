@@ -2,6 +2,7 @@
 //! has been shown. Both go through the install's signed requests. With uploading off, or before
 //! this install has registered with the website, nothing here makes a network request.
 
+use crate::commands::blocking;
 use crate::settings;
 use scarlet::upload::config;
 use scarlet::upload::keys;
@@ -44,33 +45,37 @@ fn registered_session() -> Result<Option<Session>, String> {
     Session::open(cfg, &s.data, keys::system_store().as_ref(), false).map_err(|e| e.to_string())
 }
 
-#[tauri::command(async)]
-pub fn feats_get() -> FeatsState {
-    let mut sess = match registered_session() {
-        Ok(Some(sess)) => sess,
-        Ok(None) => return FeatsState::Off,
-        Err(message) => return FeatsState::Error { message },
-    };
-    match sess.feats() {
-        Ok(v) => FeatsState::Characters {
-            characters: v.get("characters").cloned().unwrap_or(Value::Array(vec![])),
-        },
-        Err(e) => FeatsState::Error {
-            message: e.to_string(),
-        },
-    }
+#[tauri::command]
+pub async fn feats_get() -> FeatsState {
+    blocking(|| {
+        let mut sess = match registered_session() {
+            Ok(Some(sess)) => sess,
+            Ok(None) => return FeatsState::Off,
+            Err(message) => return FeatsState::Error { message },
+        };
+        match sess.feats() {
+            Ok(v) => FeatsState::Characters {
+                characters: v.get("characters").cloned().unwrap_or(Value::Array(vec![])),
+            },
+            Err(e) => FeatsState::Error {
+                message: e.to_string(),
+            },
+        }
+    })
+    .await
 }
 
 /// Tell the website which tier of each feat (by key) the player was just shown for `character`.
-#[tauri::command(async)]
-pub fn feats_seen(character: String, shown: BTreeMap<String, u8>) -> Result<(), String> {
+#[tauri::command]
+pub async fn feats_seen(character: String, shown: BTreeMap<String, u8>) -> Result<(), String> {
     if shown.is_empty() {
         return Ok(());
     }
-    match registered_session()? {
+    blocking(move || match registered_session()? {
         Some(mut sess) => sess
             .feats_seen(&character, &shown)
             .map_err(|e| e.to_string()),
         None => Ok(()),
-    }
+    })
+    .await
 }

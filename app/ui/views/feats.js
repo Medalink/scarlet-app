@@ -112,6 +112,7 @@ export async function render(body) {
   stopToasts();
   body.innerHTML = "";
   const box = el("div", "feats-view");
+  box.appendChild(el("p", "loading", "Loading feats…"));
   body.append(box);
   load(box).catch((e) => {
     box.innerHTML = "";

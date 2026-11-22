@@ -13,13 +13,17 @@ function shade(count, max) {
 }
 
 export async function render(body) {
-  body.innerHTML = "";
   const data = await invoke("heatmap", { ch: state.ch });
+  body.innerHTML = "";
   let mode = sessionStorage.getItem("hm-mode") || "week";
 
   const bar = el("div", "row");
   const bw = el("button", "btn" + (mode === "week" ? " on" : ""), "Weekday × hour");
+  bw.type = "button";
+  bw.setAttribute("aria-pressed", String(mode === "week"));
   const bd = el("button", "btn" + (mode === "day" ? " on" : ""), "Calendar day");
+  bd.type = "button";
+  bd.setAttribute("aria-pressed", String(mode === "day"));
   bar.append(bw, bd);
   body.appendChild(bar);
 
@@ -41,13 +45,13 @@ export async function render(body) {
           const c = data.week[d * 24 + h] || 0;
           const cell = g.appendChild(el("div", "hm-cell", ""));
           cell.style.cssText = shade(c, data.max_week);
-          cell.title = `${DAYS[d]} ${String(h).padStart(2, "0")}:00 · ${num(c)} events`;
+          cell.title = `${DAYS[d]} ${String(h).padStart(2, "0")}:00 · ${num(c)} ${c === 1 ? "event" : "events"}`;
         }
       }
       holder.appendChild(g);
       holder.insertAdjacentHTML(
         "beforeend",
-        `<div class="note">Brighter means more events. Peak: ${num(data.max_week)} events in an hour.</div>`
+        `<div class="note">Brighter means more events. Peak: ${num(data.max_week)} ${data.max_week === 1 ? "event" : "events"} in an hour.</div>`
       );
     } else {
       if (!data.days.length) {
@@ -64,7 +68,7 @@ export async function render(body) {
     }
   }
 
-  bw.onclick = () => { mode = "week"; sessionStorage.setItem("hm-mode", mode); bw.classList.add("on"); bd.classList.remove("on"); draw(); };
-  bd.onclick = () => { mode = "day"; sessionStorage.setItem("hm-mode", mode); bd.classList.add("on"); bw.classList.remove("on"); draw(); };
+  bw.onclick = () => { mode = "week"; sessionStorage.setItem("hm-mode", mode); bw.classList.add("on"); bd.classList.remove("on"); bw.setAttribute("aria-pressed", "true"); bd.setAttribute("aria-pressed", "false"); draw(); };
+  bd.onclick = () => { mode = "day"; sessionStorage.setItem("hm-mode", mode); bd.classList.add("on"); bw.classList.remove("on"); bd.setAttribute("aria-pressed", "true"); bw.setAttribute("aria-pressed", "false"); draw(); };
   draw();
 }

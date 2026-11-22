@@ -8,11 +8,11 @@ use chrono::{Datelike, Local, TimeZone, Timelike};
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
 use std::sync::atomic::Ordering;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock, RwLock};
 use tauri::{AppHandle, Emitter};
 
 pub struct State {
-    pub store: Mutex<Option<Store>>,
+    pub store: RwLock<Option<Store>>,
     pub settings: Mutex<Settings>,
 }
 
@@ -25,7 +25,7 @@ pub fn preload() -> &'static State {
         let settings = settings::load();
         let store = Store::load(&settings.data.clone());
         State {
-            store: Mutex::new(Some(store)),
+            store: RwLock::new(Some(store)),
             settings: Mutex::new(settings),
         }
     })
@@ -37,8 +37,15 @@ pub fn state(_app: &AppHandle) -> &'static State {
 
 pub fn with_store<T>(app: &AppHandle, f: impl FnOnce(&Store) -> T) -> T {
     let s = state(app);
-    let guard = s.store.lock().unwrap();
+    let guard = s.store.read().unwrap();
     f(guard.as_ref().expect("store is always loaded"))
+}
+
+/// Run a blocking read or computation on Tokio's blocking pool so async workers are never starved.
+pub async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
+    tauri::async_runtime::spawn_blocking(f)
+        .await
+        .expect("blocking task panicked")
 }
 
 /// Replace the store after an export or a settings change, and tell the UI.
@@ -46,7 +53,7 @@ pub fn reload(app: &AppHandle) {
     let s = state(app);
     let dir = s.settings.lock().unwrap().data.clone();
     let store = Store::load(&dir);
-    *s.store.lock().unwrap() = Some(store);
+    *s.store.write().unwrap() = Some(store);
     let _ = app.emit("store-changed", ());
 }
 
@@ -71,25 +78,40 @@ pub struct MapInfo {
     points: u64,
 }
 
-#[tauri::command(async)]
-pub fn app_state(app: AppHandle) -> StoreState {
-    let watch = crate::watch::WATCH_ON.load(Ordering::Relaxed);
-    with_store(&app, |st| StoreState {
-        chars: st.chars.clone(),
-        events: st.events.len() as u64,
-        lines: st.lines.len() as u64,
-        sessions: st.sessions.len() as u64,
-        first_ms: st.first_ms,
-        last_ms: st.last_ms,
-        codes: st
-            .code_counts
-            .iter()
-            .map(|(k, v)| (k.clone(), *v))
-            .collect(),
-        maps: maps_of(st),
-        data_dir: st.data_dir.to_string_lossy().to_string(),
-        watch,
+#[tauri::command]
+pub async fn app_state(app: AppHandle) -> StoreState {
+    blocking(move || {
+        let watch = crate::watch::WATCH_ON.load(Ordering::Relaxed);
+        with_store(&app, |st| StoreState {
+            chars: st.chars.clone(),
+            events: st.events.len() as u64,
+            lines: st.line_count as u64,
+            sessions: st.sessions.len() as u64,
+            first_ms: st.first_ms,
+            last_ms: st.last_ms,
+            codes: st
+                .code_counts
+                .iter()
+                .map(|(k, v)| (k.clone(), *v))
+                .collect(),
+            maps: maps_of(st, None),
+            data_dir: st.data_dir.to_string_lossy().to_string(),
+            watch,
+        })
     })
+    .await
+}
+
+/// Maps visited by one character (or all), with point counts.
+#[tauri::command]
+pub async fn map_list(app: AppHandle, ch: Option<String>) -> Vec<MapInfo> {
+    blocking(move || {
+        with_store(&app, |st| {
+            let c = ch.and_then(|n| st.char_index(&n));
+            maps_of(st, c)
+        })
+    })
+    .await
 }
 
 /// Map art lives in `maps` next to the data folder, as `<uiMapID>.webp`.
@@ -97,44 +119,27 @@ fn maps_dir(st: &Store) -> std::path::PathBuf {
     st.data_dir.parent().unwrap_or(&st.data_dir).join("maps")
 }
 
-/// uiMapID -> (name, image file) from `maps/index.json`; empty when the
-/// folder was never built.
-fn map_index(st: &Store) -> HashMap<u32, (String, String)> {
-    let Ok(text) = std::fs::read_to_string(maps_dir(st).join("index.json")) else {
-        return HashMap::new();
-    };
-    let Ok(json) = serde_json::from_str::<serde_json::Value>(&text) else {
-        return HashMap::new();
-    };
-    json["maps"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|m| {
-            let id = u32::try_from(m["id"].as_u64()?).ok()?;
-            Some((
-                id,
-                (
-                    m["name"].as_str()?.to_string(),
-                    m["file"].as_str()?.to_string(),
-                ),
-            ))
-        })
-        .collect()
-}
-
-fn maps_of(st: &Store) -> Vec<MapInfo> {
+fn maps_of(st: &Store, ch: Option<u32>) -> Vec<MapInfo> {
     let mut counts: BTreeMap<u32, u64> = BTreeMap::new();
     for pl in st.polylines.iter().filter(|pl| !pl.dash) {
+        let owned = pl.session == u32::MAX
+            || ch.is_none_or(|cc| {
+                st.sessions
+                    .get(pl.session as usize)
+                    .is_some_and(|s| s.ch == cc)
+            });
+        if !owned {
+            continue;
+        }
         *counts.entry(pl.map).or_default() += pl.pts.len() as u64;
     }
-    let index = map_index(st);
     counts
         .into_iter()
         .map(|(id, points)| MapInfo {
             id,
             // The client's own map name, then the zone seen while on the map.
-            name: index
+            name: st
+                .map_index
                 .get(&id)
                 .map(|(name, _)| name.clone())
                 .or_else(|| {
@@ -151,22 +156,24 @@ fn maps_of(st: &Store) -> Vec<MapInfo> {
 }
 
 /// The art for one map as raw bytes, empty when there is none.
-#[tauri::command(async)]
-pub fn map_image(app: AppHandle, map: u32) -> tauri::ipc::Response {
-    let bytes = with_store(&app, |st| {
-        map_index(st).get(&map).and_then(|(_, file)| {
-            // index.json names a file inside maps/; anything else is refused.
-            let name = std::path::Path::new(file);
-            if name.components().count() != 1 || name.file_name().is_none() {
-                return None;
-            }
-            let path = maps_dir(st).join(name);
-            if std::fs::metadata(&path).ok()?.len() > 16 * 1024 * 1024 {
-                return None;
-            }
-            std::fs::read(path).ok()
-        })
-    });
+#[tauri::command]
+pub async fn map_image(app: AppHandle, map: u32) -> tauri::ipc::Response {
+    let bytes = blocking(move || {
+        let path = with_store(&app, |st| {
+            st.map_index.get(&map).and_then(|(_, file)| {
+                let name = std::path::Path::new(file);
+                if name.components().count() != 1 || name.file_name().is_none() {
+                    return None;
+                }
+                Some(maps_dir(st).join(name))
+            })
+        })?;
+        if std::fs::metadata(&path).ok()?.len() > 16 * 1024 * 1024 {
+            return None;
+        }
+        std::fs::read(path).ok()
+    })
+    .await;
     tauri::ipc::Response::new(bytes.unwrap_or_default())
 }
 
@@ -229,8 +236,12 @@ fn big(v: i64) -> String {
     }
 }
 
-#[tauri::command(async)]
-pub fn stats(app: AppHandle, ch: Option<String>) -> Stats {
+#[tauri::command]
+pub async fn stats(app: AppHandle, ch: Option<String>) -> Stats {
+    blocking(move || stats_sync(app, ch)).await
+}
+
+fn stats_sync(app: AppHandle, ch: Option<String>) -> Stats {
     with_store(&app, |st| {
         let c = ch.and_then(|n| st.char_index(&n));
         let a = scan(st, c);
@@ -285,7 +296,7 @@ pub fn stats(app: AppHandle, ch: Option<String>) -> Stats {
                     card("Healing done", n(a.healing)),
                     card("Damage taken", n(a.taken)),
                     card("Best DPS", n(a.best_dps)),
-                    card("Fights metered", n(a.fights as i64)),
+                    card("Fights recorded", n(a.fights as i64)),
                     card("Deaths", n(a.deaths as i64)),
                     t("Time crowd-controlled", a.cc_s),
                     card("Duels won", n(a.duels_won as i64)),
@@ -307,7 +318,7 @@ pub fn stats(app: AppHandle, ch: Option<String>) -> Stats {
                 ],
             ),
             section(
-                "Quests",
+                "Quests and world",
                 vec![
                     card("Quests accepted", n(a.quests as i64)),
                     card("Quests completed", n(a.completed as i64)),
@@ -323,7 +334,7 @@ pub fn stats(app: AppHandle, ch: Option<String>) -> Stats {
                 ],
             ),
             section(
-                "Crafting",
+                "Crafting and loot",
                 vec![
                     card("Crafts started", n(a.crafts_started as i64)),
                     card("Items crafted", n(a.crafted)),
@@ -412,8 +423,12 @@ pub struct CharOverview {
 /// The character overview for the chosen character; with none chosen, the
 /// one played most recently. Built from the store's rows through the same
 /// model the export writes to Digest.lua.
-#[tauri::command(async)]
-pub fn overview(app: AppHandle, ch: Option<String>) -> Option<CharOverview> {
+#[tauri::command]
+pub async fn overview(app: AppHandle, ch: Option<String>) -> Option<CharOverview> {
+    blocking(move || overview_sync(app, ch)).await
+}
+
+fn overview_sync(app: AppHandle, ch: Option<String>) -> Option<CharOverview> {
     with_store(&app, |st| {
         // A named character must exist; "All characters" shows the one played most recently.
         let c = match ch {
@@ -509,8 +524,12 @@ pub struct Heatmap {
     max_day: u64,
 }
 
-#[tauri::command(async)]
-pub fn heatmap(app: AppHandle, ch: Option<String>) -> Heatmap {
+#[tauri::command]
+pub async fn heatmap(app: AppHandle, ch: Option<String>) -> Heatmap {
+    blocking(move || heatmap_sync(app, ch)).await
+}
+
+fn heatmap_sync(app: AppHandle, ch: Option<String>) -> Heatmap {
     with_store(&app, |st| {
         let c = ch.and_then(|n| st.char_index(&n));
         let mut week = vec![0u64; 7 * 24];
@@ -568,9 +587,9 @@ pub struct TimelinePage {
     rows: Vec<TRow>,
 }
 
-#[tauri::command(async)]
+#[tauri::command]
 #[allow(clippy::too_many_arguments)]
-pub fn timeline(
+pub async fn timeline(
     app: AppHandle,
     ch: Option<String>,
     q: String,
@@ -580,36 +599,39 @@ pub fn timeline(
     offset: u64,
     limit: u64,
 ) -> TimelinePage {
-    with_store(&app, |st| {
-        let c = ch.and_then(|n| st.char_index(&n));
-        let ql = q.to_lowercase();
-        let mut rows = Vec::new();
-        let mut total = 0u64;
-        for l in &st.lines {
-            if c.is_some_and(|cc| l.ch != cc) {
-                continue;
+    blocking(move || {
+        with_store(&app, |st| {
+            let c = ch.and_then(|n| st.char_index(&n));
+            let ql = q.to_lowercase();
+            let mut rows = Vec::new();
+            let mut total = 0u64;
+            for l in st.lines() {
+                if c.is_some_and(|cc| l.ch != cc) {
+                    continue;
+                }
+                if !codes.is_empty() && !codes.iter().any(|k| k == &l.code) {
+                    continue;
+                }
+                if l.ms < from_ms || l.ms > to_ms {
+                    continue;
+                }
+                if !ql.is_empty() && !contains_ci(&l.text, &ql) {
+                    continue;
+                }
+                total += 1;
+                if total > offset && rows.len() < limit as usize {
+                    rows.push(TRow {
+                        ms: l.ms,
+                        code: l.code.clone(),
+                        word: l.word.clone(),
+                        text: l.text.clone(),
+                    });
+                }
             }
-            if !codes.is_empty() && !codes.iter().any(|k| k == &l.code) {
-                continue;
-            }
-            if l.ms < from_ms || l.ms > to_ms {
-                continue;
-            }
-            if !ql.is_empty() && !contains_ci(&l.text, &ql) {
-                continue;
-            }
-            total += 1;
-            if total > offset && rows.len() < limit as usize {
-                rows.push(TRow {
-                    ms: l.ms,
-                    code: l.code.clone(),
-                    word: l.word.clone(),
-                    text: l.text.clone(),
-                });
-            }
-        }
-        TimelinePage { total, rows }
+            TimelinePage { total, rows }
+        })
     })
+    .await
 }
 
 #[derive(Serialize)]
@@ -683,10 +705,10 @@ pub fn map_data(app: AppHandle, map: u32, ch: Option<String>) -> Vec<Poly> {
 
 /// The place names the client's tables give one map, written next to its art as
 /// `<uiMapID>.labels.json`; empty when the file is missing or unreadable.
-#[tauri::command(async)]
-pub fn map_labels(app: AppHandle, map: u32) -> Vec<serde_json::Value> {
-    with_store(&app, |st| {
-        let path = maps_dir(st).join(format!("{map}.labels.json"));
+#[tauri::command]
+pub async fn map_labels(app: AppHandle, map: u32) -> Vec<serde_json::Value> {
+    blocking(move || {
+        let path = with_store(&app, |st| maps_dir(st).join(format!("{map}.labels.json")));
         let json = std::fs::read_to_string(path)
             .ok()
             .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok());
@@ -695,6 +717,7 @@ pub fn map_labels(app: AppHandle, map: u32) -> Vec<serde_json::Value> {
             _ => Vec::new(),
         }
     })
+    .await
 }
 
 /// What the Survey look draws on one map besides the walked lines, for one
@@ -741,8 +764,12 @@ fn top(m: HashMap<String, i64>, n: usize) -> Vec<(String, i64)> {
     v
 }
 
-#[tauri::command(async)]
-pub fn charts(app: AppHandle, ch: Option<String>) -> Charts {
+#[tauri::command]
+pub async fn charts(app: AppHandle, ch: Option<String>) -> Charts {
+    blocking(move || charts_sync(app, ch)).await
+}
+
+fn charts_sync(app: AppHandle, ch: Option<String>) -> Charts {
     with_store(&app, |st| {
         let c = ch.and_then(|n| st.char_index(&n));
         let names = &st.names;
@@ -750,13 +777,13 @@ pub fn charts(app: AppHandle, ch: Option<String>) -> Charts {
             names
                 .get(&scarlet::events::name_key('s', &id.to_string()))
                 .cloned()
-                .unwrap_or_else(|| format!("spell {id}"))
+                .unwrap_or_else(|| format!("Spell {id}"))
         };
         let item_name = |id: u64| -> String {
             names
                 .get(&scarlet::events::name_key('i', &id.to_string()))
                 .cloned()
-                .unwrap_or_else(|| format!("item {id}"))
+                .unwrap_or_else(|| format!("Item {id}"))
         };
 
         let mut xp: Vec<(i64, i64)> = Vec::new();
@@ -859,7 +886,7 @@ pub fn charts(app: AppHandle, ch: Option<String>) -> Charts {
                     let name = names
                         .get(&scarlet::events::name_key('n', &id))
                         .cloned()
-                        .unwrap_or_else(|| format!("npc {id}"));
+                        .unwrap_or_else(|| format!("Creature {id}"));
                     *kills.entry(name).or_default() += 1;
                 }
                 "EM" => {
@@ -994,72 +1021,75 @@ pub struct Trends {
     statistics: Vec<Trend>,
 }
 
-#[tauri::command(async)]
-pub fn trends(app: AppHandle, ch: Option<String>) -> Trends {
-    with_store(&app, |st| {
-        let c = ch.and_then(|n| st.char_index(&n));
-        let mut sc: BTreeMap<String, Vec<(i64, f64)>> = BTreeMap::new();
-        let mut ws_count: HashMap<u64, u64> = HashMap::new();
-        let mut ws: HashMap<u64, Vec<(i64, i64)>> = HashMap::new();
-        for r in &st.events {
-            if c.is_some_and(|cc| r.ch != cc) {
-                continue;
-            }
-            match r.code.as_str() {
-                "SC" => {
-                    if let (Some(k), Some(v)) = (
-                        r.fields.get(1),
-                        r.fields.get(2).and_then(|f| f.parse::<f64>().ok()),
-                    ) {
-                        sc.entry(k.clone()).or_default().push((r.ms, v));
-                    }
+#[tauri::command]
+pub async fn trends(app: AppHandle, ch: Option<String>) -> Trends {
+    blocking(move || {
+        with_store(&app, |st| {
+            let c = ch.and_then(|n| st.char_index(&n));
+            let mut sc: BTreeMap<String, Vec<(i64, f64)>> = BTreeMap::new();
+            let mut ws_count: HashMap<u64, u64> = HashMap::new();
+            let mut ws: HashMap<u64, Vec<(i64, i64)>> = HashMap::new();
+            for r in &st.events {
+                if c.is_some_and(|cc| r.ch != cc) {
+                    continue;
                 }
-                "WS" => {
-                    if let Some(id) = r.fields.first().and_then(|f| f.parse::<u64>().ok()) {
-                        *ws_count.entry(id).or_default() += 1;
-                        if let Some(v) = r
-                            .fields
-                            .get(1)
-                            .and_then(|f| scarlet::tables::stat_number(f))
-                        {
-                            ws.entry(id).or_default().push((r.ms, v));
+                match r.code.as_str() {
+                    "SC" => {
+                        if let (Some(k), Some(v)) = (
+                            r.fields.get(1),
+                            r.fields.get(2).and_then(|f| f.parse::<f64>().ok()),
+                        ) {
+                            sc.entry(k.clone()).or_default().push((r.ms, v));
                         }
                     }
+                    "WS" => {
+                        if let Some(id) = r.fields.first().and_then(|f| f.parse::<u64>().ok()) {
+                            *ws_count.entry(id).or_default() += 1;
+                            if let Some(v) = r
+                                .fields
+                                .get(1)
+                                .and_then(|f| scarlet::tables::stat_number(f))
+                            {
+                                ws.entry(id).or_default().push((r.ms, v));
+                            }
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
-        }
-        let mut top: Vec<(u64, u64)> = ws_count.into_iter().collect();
-        top.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
-        top.truncate(20);
-        let statistics = top
-            .into_iter()
-            .map(|(id, _)| {
-                let name = st
-                    .names
-                    .get(&scarlet::events::name_key('w', &id.to_string()))
-                    .cloned()
-                    .unwrap_or_else(|| format!("statistic {id}"));
-                Trend {
-                    key: id.to_string(),
-                    name,
-                    series: ws
-                        .remove(&id)
-                        .unwrap_or_default()
-                        .into_iter()
-                        .map(|(m, v)| (m, v as f64))
-                        .collect(),
-                }
-            })
-            .collect();
-        let stats = sc
-            .into_iter()
-            .map(|(key, series)| Trend {
-                key,
-                name: String::new(),
-                series,
-            })
-            .collect();
-        Trends { stats, statistics }
+            let mut top: Vec<(u64, u64)> = ws_count.into_iter().collect();
+            top.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+            top.truncate(20);
+            let statistics = top
+                .into_iter()
+                .map(|(id, _)| {
+                    let name = st
+                        .names
+                        .get(&scarlet::events::name_key('w', &id.to_string()))
+                        .cloned()
+                        .unwrap_or_else(|| format!("Statistic {id}"));
+                    Trend {
+                        key: id.to_string(),
+                        name,
+                        series: ws
+                            .remove(&id)
+                            .unwrap_or_default()
+                            .into_iter()
+                            .map(|(m, v)| (m, v as f64))
+                            .collect(),
+                    }
+                })
+                .collect();
+            let stats = sc
+                .into_iter()
+                .map(|(key, series)| Trend {
+                    key,
+                    name: String::new(),
+                    series,
+                })
+                .collect();
+            Trends { stats, statistics }
+        })
     })
+    .await
 }

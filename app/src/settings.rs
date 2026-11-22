@@ -396,7 +396,7 @@ pub fn problems(s: &Settings) -> Vec<String> {
         .join("Scarlet");
     if !addon.is_dir() {
         out.push(format!(
-            "The Scarlet addon is not installed. Copy its Scarlet folder to {}.",
+            "The Scarlet addon is not installed. Install it in Settings → Addon, or copy its Scarlet folder to {}.",
             addon.parent().unwrap_or(&addon).display()
         ));
     } else if scarlet::export::find_sv_all(&s.folders()).is_ok_and(|v| v.is_empty()) {

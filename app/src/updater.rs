@@ -96,7 +96,7 @@ fn feed_url(track: Track) -> Result<tauri::Url, String> {
         },
     };
     text.parse()
-        .map_err(|e| format!("bad update address {text}: {e}"))
+        .map_err(|e| format!("Invalid update address ({text}): {e}"))
 }
 
 /// What a feed's `addon` entry says: the zip to keep the WoW addon on. Its signature is the
@@ -198,8 +198,12 @@ async fn fetch(app: &AppHandle) -> Result<Found, String> {
         }
         Err(e) => return Err(format!("Could not check for updates: {e}")),
     };
-    let remote = Version::parse(&update.version)
-        .map_err(|e| format!("The update feed has the version {:?}: {e}", update.version))?;
+    let remote = Version::parse(&update.version).map_err(|e| {
+        format!(
+            "The update feed reported an invalid version ({}): {e}",
+            update.version
+        )
+    })?;
     let addon = update
         .raw_json
         .get("addon")
@@ -381,7 +385,7 @@ pub async fn update_check(app: AppHandle) -> Info {
 
 #[tauri::command]
 pub async fn set_track(app: AppHandle, track: String) -> Result<Info, String> {
-    let t = Track::parse(&track).ok_or("The track is release or beta.")?;
+    let t = Track::parse(&track).ok_or("Update track must be release or beta.")?;
     let cur = settings::update(|c| c.track = Some(t.key().to_string()))?;
     *state(&app).settings.lock().unwrap() = cur;
     {

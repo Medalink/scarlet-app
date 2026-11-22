@@ -480,7 +480,7 @@ pub fn run(app: &AppHandle) {
     let Ok(version) = Version::parse(&offer.version) else {
         say(
             format!(
-                "The feed's addon version {:?} is not a version.",
+                "The update feed has an invalid addon version ({}).",
                 offer.version
             ),
             true,
@@ -530,7 +530,7 @@ pub fn run(app: &AppHandle) {
     } else if !done.is_empty() {
         say(
             format!(
-                "{}. It loads the next time WoW starts or you type /reload.",
+                "{}. Type /reload in WoW or restart the game to load the update.",
                 done.join("; ")
             ),
             false,
@@ -610,11 +610,11 @@ fn kept_by(class: &Class) -> Option<&'static str> {
     match class {
         Class::Missing => None,
         Class::Ours(_) => Some("Scarlet"),
-        Class::ByHand => Some("Nobody, installed by hand"),
+        Class::ByHand => Some("Manual install"),
         Class::Curse => Some("CurseForge"),
         Class::Wago => Some("Wago"),
-        Class::Git => Some("A git checkout"),
-        Class::Linked => Some("A linked folder"),
+        Class::Git => Some("Git checkout"),
+        Class::Linked => Some("Linked folder"),
     }
 }
 
@@ -744,7 +744,7 @@ pub fn addon_install(app: AppHandle, folder: String, takeover: bool) -> Result<S
         .ok_or("There is no addon to install. Check for updates first.")?;
     Version::parse(&offer.version).map_err(|_| {
         format!(
-            "The feed's addon version {:?} is not a version.",
+            "The update feed has an invalid addon version ({}).",
             offer.version
         )
     })?;
@@ -755,8 +755,8 @@ pub fn addon_install(app: AppHandle, folder: String, takeover: bool) -> Result<S
     let class = classify(&dir);
     if !writable(&class, &dir) {
         return Err(format!(
-            "Scarlet leaves the {folder} folder alone: {}.",
-            kept_by(&class).unwrap_or("not ours")
+            "Scarlet does not modify {folder} ({}).",
+            kept_by(&class).unwrap_or("not managed by Scarlet")
         ));
     }
     if class == Class::ByHand && !takeover {

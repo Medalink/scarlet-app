@@ -17,19 +17,23 @@ function summary(view) {
         <td class="dim">${dateTime(k.first_ms)}</td><td class="dim">${dateTime(k.last_ms)}</td></tr>`,
     )
     .join("");
+  const wrap = el("div", "scroll-x");
   const t = el("table");
-  t.innerHTML = `<thead><tr><th>Addon</th><th class="num">Lines</th><th>First</th><th>Last</th></tr></thead>
+  t.innerHTML = `<thead><tr><th>Addon</th><th class="num">Lines</th><th>First seen</th><th>Last seen</th></tr></thead>
     <tbody>${rows}</tbody>`;
-  p.appendChild(t);
+  wrap.appendChild(t);
+  p.appendChild(wrap);
   return p;
 }
 
 function recent(view) {
   const p = panel("Recent lines");
   const pick = el("select");
+  pick.setAttribute("aria-label", "Filter by addon");
   pick.innerHTML = `<option value="">All addons</option>${view.keys
     .map((k) => `<option value="${esc(k.key)}">${esc(k.label)}</option>`)
     .join("")}`;
+  const wrap = el("div", "scroll-x");
   const t = el("table");
   t.innerHTML = `<thead><tr><th>Time</th><th>Addon</th><th>Character</th><th>Line</th></tr></thead><tbody></tbody>`;
   const tb = t.querySelector("tbody");
@@ -47,13 +51,14 @@ function recent(view) {
   };
   pick.onchange = draw;
   draw();
-  p.append(pick, t, note);
+  wrap.appendChild(t);
+  p.append(pick, wrap, note);
   return p;
 }
 
 export async function render(body) {
-  body.innerHTML = "";
   const view = await invoke("addons", { ch: state.ch });
+  body.innerHTML = "";
   if (!view.total) {
     const p = panel("Addons recorded");
     p.appendChild(el("div", "empty", "No lines from other addons recorded yet."));

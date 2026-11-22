@@ -2,7 +2,7 @@
 //! game accounts they sit in, and what only shows across characters: money moved between them,
 //! professions and time played together.
 
-use crate::commands::{state, with_store};
+use crate::commands::{blocking, state, with_store};
 use crate::store::Store;
 use scarlet::events::name_key;
 use scarlet::overview::{self, Overview};
@@ -257,18 +257,21 @@ fn together_in(a: &[(i64, i64)], b: &[(i64, i64)]) -> (i64, i64, i64) {
     ((ms + 500) / 1000, n, last)
 }
 
-#[tauri::command(async)]
-pub fn roster(app: AppHandle) -> Roster {
-    let (folders, group_by_account) = {
-        let s = state(&app).settings.lock().unwrap();
-        (s.folders(), s.group_by_account)
-    };
-    let accounts: Vec<(String, Vec<String>)> = folders
-        .iter()
-        .flat_map(|f| scarlet::export::accounts(f))
-        .map(|a| (a.name, a.characters))
-        .collect();
-    with_store(&app, |st| build(st, accounts, group_by_account))
+#[tauri::command]
+pub async fn roster(app: AppHandle) -> Roster {
+    blocking(move || {
+        let (folders, group_by_account) = {
+            let s = state(&app).settings.lock().unwrap();
+            (s.folders(), s.group_by_account)
+        };
+        let accounts: Vec<(String, Vec<String>)> = folders
+            .iter()
+            .flat_map(|f| scarlet::export::accounts(f))
+            .map(|a| (a.name, a.characters))
+            .collect();
+        with_store(&app, |st| build(st, accounts, group_by_account))
+    })
+    .await
 }
 
 fn build(st: &Store, accounts: Vec<(String, Vec<String>)>, group_by_account: bool) -> Roster {

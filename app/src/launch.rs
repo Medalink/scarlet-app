@@ -100,7 +100,9 @@ pub fn set_registered(on: bool) -> Result<(), String> {
     if rc == 0 {
         Ok(())
     } else {
-        Err(format!("could not change the startup entry (error {rc})"))
+        Err(format!(
+            "Could not update the Windows startup setting (error {rc})."
+        ))
     }
 }
 
