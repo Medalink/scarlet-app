@@ -64,7 +64,14 @@ function Invoke-Git {
 
 function Get-Watchers {
     Get-CimInstance Win32_Process -Filter "Name = 'scarlet-app.exe'" |
-        Where-Object { $_.CommandLine -like '*--on-wow*' -and $_.ExecutablePath -and ($_.ExecutablePath -ieq $Exe) }
+        Where-Object { $_.CommandLine -like "*$Exe*--on-wow*" }
+}
+
+function Restart-Watchers([object[]]$Watchers) {
+    if ($Watchers.Count -eq 0) { return }
+    foreach ($w in $Watchers) { Stop-Process -Id $w.ProcessId -Force -ErrorAction SilentlyContinue }
+    Wait-Process -Id ($Watchers.ProcessId) -Timeout 10 -ErrorAction SilentlyContinue
+    Start-Process -FilePath $Exe -ArgumentList '--on-wow' -WorkingDirectory $App
 }
 
 function Remove-OldCopies {
@@ -146,13 +153,12 @@ try {
         if ($aside) { Move-Item -LiteralPath $aside -Destination $Exe -Force }
         throw
     }
+    Restart-Watchers $watchers
     $dark = Join-Path $Src 'app\target\release\dark'
     if (Test-Path -LiteralPath $dark) {
         & robocopy $dark (Join-Path $App 'dark') /MIR /NJH /NJS /NP /NFL /NDL | Out-Null
         if ($LASTEXITCODE -ge 8) { throw "robocopy of the dark map sheets failed ($LASTEXITCODE)" }
     }
-    foreach ($w in $watchers) { Stop-Process -Id $w.ProcessId -Force -ErrorAction SilentlyContinue }
-    if ($watchers.Count -gt 0) { Start-Process -FilePath $Exe -ArgumentList '--on-wow' -WorkingDirectory $App }
     Remove-OldCopies
     $state.built = $sha
     $state.hash = (Get-FileHash -LiteralPath $Exe).Hash
