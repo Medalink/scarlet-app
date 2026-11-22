@@ -4,7 +4,7 @@
 // experience by level and gold, dungeons, played with and deaths, play time
 // by day and by zone, play history.
 
-import { invoke, esc, displayName, num, dur, moneyHtml, dateStr, SERIES, state } from "../lib.js";
+import { invoke, esc, displayName, num, dur, moneyHtml, dateStr, dateTime, SERIES, state } from "../lib.js";
 
 export const CLASS_COLOR = {
   DEATHKNIGHT: "#C41E3A",
@@ -45,6 +45,7 @@ let histMode = "sessions";
 let histAll = false;
 let xpPinned = null;
 let current = null;
+let life = null;
 
 export const className = (c) => CLASS_NAME[c] || (c ? c[0] + c.slice(1).toLowerCase() : "");
 export const raceName = (r) => RACE_NAME[r] || String(r || "").replace(/([a-z])([A-Z])/g, "$1 $2");
@@ -645,6 +646,31 @@ function importedMod(ov) {
   return mod("w12 first last", `Imported from ${source}`, lines + dayTable + itemTable);
 }
 
+function lifetimeMod(life) {
+  if (!life) return "";
+  const counts = [
+    ["Quests completed", life.quests],
+    ["Titles known", life.titles],
+    ["Zone maps explored", life.explored],
+  ].filter(([, c]) => c);
+  if (!counts.length && !life.locks.length) return "";
+  const countTable = counts.length
+    ? `<div class="history"><table><thead><tr>${[th("In the character's whole life"), th("Total", "num"), th("Read")].join("")}</tr></thead><tbody>${counts
+        .map(([label, c]) => `<tr><td>${label}</td><td class="num">${num(c.total)}</td><td>${dateStr(c.at * 1000)}</td></tr>`)
+        .join("")}</tbody></table></div>`
+    : "";
+  const lockTable = life.locks.length
+    ? `<h3>Instance locks</h3><div class="history"><table><thead><tr>${[th("Instance"), th("Difficulty"), th("Bosses", "num"), th("Resets")].join("")}</tr></thead><tbody>${life.locks
+        .map((l) => {
+          const bosses = l.done == null || l.total == null ? "–" : `${l.done}/${l.total}`;
+          const difficulty = l.kind === "world boss" ? "World boss" : l.difficulty || "–";
+          return `<tr><td>${esc(l.name)}${l.extended ? ' <span class="dim">extended</span>' : ""}</td><td>${esc(difficulty)}</td><td class="num">${bosses}</td><td>${dateTime(l.reset_at * 1000)}</td></tr>`;
+        })
+        .join("")}</tbody></table></div>`
+    : "";
+  return mod("w12 first last", "Whole life", countTable + lockTable);
+}
+
 // Page --------------------------------------------------------------------------------
 
 function draw(body) {
@@ -659,9 +685,9 @@ function draw(body) {
   const sawLevelling = !(ov.firstLevel && ov.cap && ov.firstLevel >= ov.cap.level);
   const layout = focus
     ? `${header(ov, name, eta)}${capStrip(ov)}
-    <div class="sheet">${goldMod(ov, "first", true)}${capRunsMod(ov)}${capDeathsMod(ov)}${capRepMod(ov)}${capLegacyMod(ov)}${matesMod(ov, "last")}${heatMod(ov)}${zonesMod(ov)}${sawLevelling ? levelsChart(ov, true) : ""}${historyMod(ov)}${importedMod(ov)}</div>`
+    <div class="sheet">${lifetimeMod(life)}${goldMod(ov, "first", true)}${capRunsMod(ov)}${capDeathsMod(ov)}${capRepMod(ov)}${capLegacyMod(ov)}${matesMod(ov, "last")}${heatMod(ov)}${zonesMod(ov)}${sawLevelling ? levelsChart(ov, true) : ""}${historyMod(ov)}${importedMod(ov)}</div>`
     : `${header(ov, name, eta)}${week(ov)}
-    <div class="sheet">${levelsChart(ov)}${goldMod(ov)}${runsMod(ov)}${matesMod(ov)}${deathsMod(ov)}${heatMod(ov)}${zonesMod(ov)}${historyMod(ov)}${importedMod(ov)}</div>`;
+    <div class="sheet">${lifetimeMod(life)}${levelsChart(ov)}${goldMod(ov)}${runsMod(ov)}${matesMod(ov)}${deathsMod(ov)}${heatMod(ov)}${zonesMod(ov)}${historyMod(ov)}${importedMod(ov)}</div>`;
   body.insertAdjacentHTML("beforeend", layout);
   wireLevels(body, ov);
   wireGold(body, ov);
@@ -692,7 +718,7 @@ function draw(body) {
 }
 
 export async function render(body) {
-  current = await invoke("overview", { ch: state.ch });
+  [current, life] = await Promise.all([invoke("overview", { ch: state.ch }), invoke("lifetime", { ch: state.ch })]);
   xpPinned = null;
   draw(body);
 }

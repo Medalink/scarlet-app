@@ -461,7 +461,7 @@ fn roll_type(v: &str) -> &str {
 }
 
 /// A dungeon or raid difficulty id as a word; ids not listed stay numbers.
-fn difficulty_name(v: &str) -> String {
+pub fn difficulty_name(v: &str) -> String {
     let word = match v {
         "" => "unset",
         "1" => "normal",

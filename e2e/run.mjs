@@ -23,7 +23,11 @@ const OTHER_CHARACTER_ONLY = new Set(["overview", "sessions", "timeline", "map",
 const BODY = `document.querySelector("#body").innerText.replace(/\\s+/g, " ")`;
 
 const VIEWS = [
-  { key: "overview", shows: /Testa Fixture Level 6 Human Warrior Alliance in Westfall/, never: /No characters recorded yet/ },
+  {
+    key: "overview",
+    shows: /^(?=.*Testa Fixture Level 6 Human Warrior Alliance in Westfall)(?=.*Whole life .* Quests completed 1,234 .* Titles known 3 .* Zone maps explored 3 .* Instance locks .* Blackfathom Deeps normal 1\/4 .* Lord Kazzak World boss)(?!.*Gnomeregan)/,
+    never: /No characters recorded yet/,
+  },
   { key: "stats", shows: /1,605 Experience .* 2 Kills/, never: /No recorded time yet/ },
   { key: "heatmap", shows: /Peak: [1-9]\d* events in an hour/, never: /Peak: 0 events|No events yet/ },
   { key: "timeline", shows: /kill Stonetusk Boar \(113\) by you/, never: /No events|Nothing recorded/ },
@@ -34,7 +38,7 @@ const VIEWS = [
   { key: "talents", shows: /Arms · 3 points, 2 available .* Improved Heroic Strike 2\/3 Deflection 2\/2 .* Picked 1→2\/3/, never: /No talent lines recorded|Select a character/ },
   {
     key: "items",
-    shows: /Linen Cloth 2589 28 Testa Fixture 3 in bags Warband bank \(E2EONE\) 20 Warband bank \(E2ETWO\) 5 .* Wool Cloth 2592 7 Guild bank 7 .* Warband bank \(E2EONE\) Testa Fixture 1 .* 12g ?34s .* Warband bank \(E2ETWO\) Probe Lane 1 .* 5g .* Guild bank Probe Lane 1 .* 98g ?76s/,
+    shows: /^(?=.*Linen Cloth 2589 28 1s ?50c \d{4}-\d\d-\d\d \d\d:\d\d Testa Fixture 3 in bags Warband bank \(E2EONE\) 20 Warband bank \(E2ETWO\) 5 .* Wool Cloth 2592 7 – Guild bank 7 .* Warband bank \(E2EONE\) Testa Fixture 1 .* 12g ?34s .* Warband bank \(E2ETWO\) Probe Lane 1 .* 5g .* Guild bank Probe Lane 1 .* 98g ?76s)(?=.*Recipes Recipe Known by Makes Needs Bolt of Linen Cloth Testa Fixture Bolt of Linen Cloth x1 Linen Cloth x2)(?!.*1s ?25c)/,
     never: /No bags or bank recorded yet|No items match|Guild bank \(|account unknown/,
   },
   { key: "addons", shows: /GatherMate2 1 .* GatherMate2 Testa Fixture \(2447\) map 1429 at 43\.9, 67\.0/, never: /No lines from other addons/ },
@@ -276,7 +280,7 @@ const CHECKS = [
       await selectCharacter(app, "");
       await open(app, "overview", new RegExp(`^(?=.*Level target)(?=.*${SHOWN.testa})(?=.*${SHOWN.probe})`));
       await selectCharacter(app, PROBE);
-      await open(app, "overview", /Probe Lane Level 3 Gnome Mage/, new RegExp(`Level target|${SHOWN.testa}`));
+      await open(app, "overview", /Probe Lane Level 3 Gnome Mage/, new RegExp(`Level target|Whole life|${SHOWN.testa}`));
     },
   },
   {

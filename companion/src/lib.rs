@@ -9,6 +9,7 @@ pub mod export;
 pub mod gamedir;
 pub mod import;
 pub mod inventory;
+pub mod lifetime;
 pub mod loot;
 pub mod lua;
 pub mod overview;

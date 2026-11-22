@@ -6,6 +6,7 @@ use crate::layers::{self, Layers};
 use scarlet::addons;
 use scarlet::archive::{self, Event};
 use scarlet::events::{self, Ev};
+use scarlet::lifetime::{self, Lifetime};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -51,6 +52,7 @@ pub struct Store {
     pub data_dir: PathBuf,
     pub chars: Vec<String>,
     pub events: Vec<Row>,
+    pub lifetimes: Vec<Lifetime>,
     pub lines: Vec<TLine>,
     pub sessions: Vec<Session>,
     /// uiMapID -> name, from Z lines.
@@ -282,10 +284,21 @@ impl Store {
             });
         }
 
+        let lifetimes = (0..chars.len() as u32)
+            .map(|ch| {
+                lifetime::build(
+                    rows.iter()
+                        .filter(|r| r.ch == ch)
+                        .map(|r| (r.ms, r.code.as_str(), r.fields.as_slice())),
+                )
+            })
+            .collect();
+
         Store {
             data_dir: dir.to_path_buf(),
             chars,
             events: rows,
+            lifetimes,
             lines,
             sessions,
             zones,
@@ -303,6 +316,7 @@ impl Store {
             data_dir: dir.to_path_buf(),
             chars: vec![],
             events: vec![],
+            lifetimes: vec![],
             lines: vec![],
             sessions: vec![],
             zones: BTreeMap::new(),

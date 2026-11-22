@@ -11,6 +11,7 @@ mod discover;
 mod items;
 mod launch;
 mod layers;
+mod lifetime;
 mod loot;
 mod mapart;
 mod openmap;
@@ -108,6 +109,7 @@ fn main() {
             loot::loot,
             talents::talents,
             items::items,
+            lifetime::lifetime,
             ops::compress_export,
             ops::compress_logs,
             ops::toggle_watch,

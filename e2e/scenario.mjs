@@ -9,6 +9,7 @@ import zlib from "node:zlib";
 const ELWYNN = 1429;
 const WESTFALL = 1436;
 export const GUILD = "Ember Guard";
+const TEN_YEARS = 315360000;
 
 const session = (start, lines) => ({ start, lines });
 
@@ -72,6 +73,17 @@ export const CHARACTERS = [
         [121, "M", 4, 0, 3843],
         [129, "IN", 6948, "Hearthstone"],
         [129, "IN", 2592, "Wool Cloth"],
+        [129, "QB", 1234, "783,100,200"],
+        [129, "KT", 3, "1,2,3"],
+        [129, "EB", "1429:5,1436:2,1411:1"],
+        [129, "IS", "Blackfathom Deeps", 48, 1, TEN_YEARS, 1, 0, 0, 5, 1, 4, "s"],
+        [129, "IS", "Gnomeregan", 90, 1, 60, 1, 0, 0, 5, 4, 4, "s"],
+        [129, "IS", "Lord Kazzak", 12, "", TEN_YEARS, 1, 0, 2, "", "", "", "s"],
+        [129, "AQ", "c", 2589, 125, 5400, 12, "", ""],
+        [129, "AQ", "c", 2589, 150, 5000, 11, "", ""],
+        [129, "SN", 2963, "Bolt of Linen Cloth"],
+        [129, "IN", 2996, "Bolt of Linen Cloth"],
+        [129, "RQ", 2963, 2996, 1, 1, "2589:2", 0, 1],
         [130, "BC", "b", "2589:3,6948:1"],
         [130, "BC", "w", "2589:20"],
         [130, "BC", "g", "2592:4"],

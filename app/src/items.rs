@@ -3,6 +3,7 @@
 
 use crate::commands::{state, with_store};
 use scarlet::inventory::{Inventory, newest_per};
+use scarlet::lifetime::{Lifetime, Price};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use tauri::AppHandle;
@@ -27,12 +28,42 @@ pub struct Place {
 }
 
 #[derive(Serialize)]
+pub struct SeenPrice {
+    copper: i64,
+    kind: &'static str,
+    at: i64,
+}
+
+#[derive(Serialize)]
 pub struct ItemRow {
     id: i64,
     name: String,
     total: i64,
     holders: Vec<Holder>,
     places: Vec<Place>,
+    price: Option<SeenPrice>,
+}
+
+#[derive(Serialize)]
+pub struct ReagentRow {
+    id: i64,
+    name: String,
+    count: i64,
+}
+
+#[derive(Serialize)]
+pub struct RecipeRow {
+    character: String,
+    name: String,
+    makes: String,
+    min: i64,
+    max: i64,
+    reagents: Vec<ReagentRow>,
+}
+
+struct Known {
+    items: HashMap<i64, String>,
+    spells: HashMap<i64, String>,
 }
 
 #[derive(Serialize)]
@@ -62,6 +93,8 @@ pub struct Items {
     shared: Vec<SharedBank>,
     rows: Vec<ItemRow>,
     matched: usize,
+    recipes: Vec<RecipeRow>,
+    recipes_matched: usize,
 }
 
 struct Shared<'a> {
@@ -82,8 +115,9 @@ pub fn items(app: AppHandle, query: String) -> Items {
         .flat_map(|f| scarlet::export::accounts(f))
         .map(|a| (a.name, a.characters))
         .collect();
-    let loaded: Vec<(String, Inventory)> = with_store(&app, |st| {
-        st.chars
+    let (loaded, lives, known) = with_store(&app, |st| {
+        let loaded: Vec<(String, Inventory)> = st
+            .chars
             .iter()
             .filter_map(|name| {
                 let text =
@@ -91,9 +125,66 @@ pub fn items(app: AppHandle, query: String) -> Items {
                 let inv: Inventory = serde_json::from_str(&text).ok()?;
                 (!inv.is_empty()).then(|| (name.clone(), inv))
             })
-            .collect()
+            .collect();
+        let lives: Vec<(String, Lifetime)> = st
+            .chars
+            .iter()
+            .cloned()
+            .zip(st.lifetimes.iter().cloned())
+            .collect();
+        let named = |kind: char| -> HashMap<i64, String> {
+            st.names
+                .iter()
+                .filter_map(|(key, name)| {
+                    let id = key.strip_prefix(kind)?.parse().ok()?;
+                    Some((id, name.clone()))
+                })
+                .collect()
+        };
+        (
+            loaded,
+            lives,
+            Known {
+                items: named('i'),
+                spells: named('s'),
+            },
+        )
     });
-    search(loaded, &accounts, &query)
+    search(loaded, &lives, &known, &accounts, &query)
+}
+
+fn recipe_rows(lives: &[(String, Lifetime)], known: &Known, q: &str) -> Vec<RecipeRow> {
+    let item_name = |id: i64| known.items.get(&id).cloned().unwrap_or_default();
+    let mut rows: Vec<RecipeRow> = lives
+        .iter()
+        .flat_map(|(character, life)| life.recipes.iter().map(move |r| (character, r)))
+        .map(|(character, r)| RecipeRow {
+            character: character.clone(),
+            name: known.spells.get(&r.spell).cloned().unwrap_or_default(),
+            makes: item_name(r.item),
+            min: r.min,
+            max: r.max,
+            reagents: r
+                .reagents
+                .iter()
+                .map(|g| ReagentRow {
+                    id: g.item,
+                    name: item_name(g.item),
+                    count: g.count,
+                })
+                .collect(),
+        })
+        .filter(|r| {
+            q.is_empty()
+                || r.name.to_lowercase().contains(q)
+                || r.makes.to_lowercase().contains(q)
+                || r.reagents
+                    .iter()
+                    .any(|g| g.name.to_lowercase().contains(q) || g.id.to_string() == q)
+        })
+        .collect();
+    rows.sort_by(|a, b| a.name.cmp(&b.name).then(a.character.cmp(&b.character)));
+    rows
 }
 
 fn shared_banks<'a>(
@@ -186,6 +277,8 @@ fn shared_banks<'a>(
 
 fn search(
     loaded: Vec<(String, Inventory)>,
+    lives: &[(String, Lifetime)],
+    names: &Known,
     accounts: &[(String, Vec<String>)],
     query: &str,
 ) -> Items {
@@ -196,6 +289,15 @@ fn search(
             if !item_name.is_empty() {
                 known.entry(*id).or_insert(item_name);
             }
+        }
+    }
+    for (id, item_name) in &names.items {
+        known.entry(*id).or_insert(item_name);
+    }
+    let mut prices: HashMap<i64, &Price> = HashMap::new();
+    for price in lives.iter().flat_map(|(_, life)| &life.prices) {
+        if prices.get(&price.item).is_none_or(|p| price.at > p.at) {
+            prices.insert(price.item, price);
         }
     }
     let shared = shared_banks(&loaded, accounts);
@@ -216,6 +318,11 @@ fn search(
                     total: 0,
                     holders: Vec::new(),
                     places: Vec::new(),
+                    price: prices.get(&id).map(|p| SeenPrice {
+                        copper: p.copper,
+                        kind: p.kind,
+                        at: p.at,
+                    }),
                 },
             );
         }
@@ -301,10 +408,15 @@ fn search(
             money: bank.money,
         })
         .collect();
+    let mut recipes = recipe_rows(lives, names, &q);
+    let recipes_matched = recipes.len();
+    recipes.truncate(MAX_ROWS);
     Items {
         characters,
         shared,
         rows,
         matched,
+        recipes,
+        recipes_matched,
     }
 }

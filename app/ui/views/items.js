@@ -57,18 +57,45 @@ function sharedBanks(view) {
 
 function results(view, into) {
   into.innerHTML = "";
-  if (!view.rows.length) {
+  if (!view.rows.length && !view.recipes.length) {
     into.appendChild(el("div", "empty", "No items match."));
     return;
   }
+  if (view.rows.length) itemTable(view, into);
+  if (view.recipes.length) recipeTable(view, into);
+}
+
+const itemName = (id, name) => esc(name || `Item ${id}`);
+
+function recipeTable(view, into) {
+  const rows = view.recipes
+    .map((r) => {
+      const makes = r.min === r.max ? `x${num(r.min)}` : `x${num(r.min)} to ${num(r.max)}`;
+      const needs = r.reagents.length
+        ? r.reagents.map((g) => `${itemName(g.id, g.name)} x${num(g.count)}`).join(", ")
+        : "no listed reagents";
+      return `<tr><td>${esc(r.name || "Recipe")}</td><td>${esc(displayName(r.character))}</td>
+        <td>${r.makes ? esc(r.makes) : "–"} ${makes}</td><td class="gap">${needs}</td></tr>`;
+    })
+    .join("");
+  const t = el("table");
+  t.innerHTML = `<thead><tr><th>Recipe</th><th>Known by</th><th>Makes</th><th class="gap">Needs</th></tr></thead><tbody>${rows}</tbody>`;
+  into.appendChild(el("h3", "section-title", "Recipes"));
+  into.appendChild(t);
+  if (view.recipes_matched > view.recipes.length) {
+    into.appendChild(el("div", "dim", `Showing ${num(view.recipes.length)} of ${num(view.recipes_matched)} recipes.`));
+  }
+}
+
+function itemTable(view, into) {
   const rows = view.rows
     .map(
       (r) => `<tr><td>${esc(r.name || `Item ${r.id}`)} <span class="dim">${r.id}</span></td>
-        <td class="num">${num(r.total)}</td><td class="gap">${holders(r, view)}</td></tr>`
+        <td class="num">${num(r.total)}</td><td class="num">${r.price ? `${moneyHtml(r.price.copper)} <span class="dim">${when(r.price.at)}</span>` : "–"}</td><td class="gap">${holders(r, view)}</td></tr>`
     )
     .join("");
   const t = el("table");
-  t.innerHTML = `<thead><tr><th>Item</th><th class="num">Total</th><th class="gap">Carried by</th></tr></thead><tbody>${rows}</tbody>`;
+  t.innerHTML = `<thead><tr><th>Item</th><th class="num">Total</th><th class="num">Last auction price</th><th class="gap">Carried by</th></tr></thead><tbody>${rows}</tbody>`;
   into.appendChild(t);
   if (view.matched > view.rows.length) {
     into.appendChild(el("div", "dim", `Showing ${num(view.rows.length)} of ${num(view.matched)}.`));
