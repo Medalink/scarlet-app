@@ -62,6 +62,7 @@ pub struct Session {
     client: Client,
     name_key: [u8; 32],
     state: UploadState,
+    groups_server_lacks: BTreeSet<String>,
 }
 
 /// Character folders under the data folder: those with a `payloads` folder.
@@ -103,6 +104,7 @@ impl Session {
             client: Client::new(&cfg.server, Some(&id.seed)),
             name_key: id.name_key,
             state,
+            groups_server_lacks: BTreeSet::new(),
         };
         s.ensure_registered(false)?;
         Ok(Some(s))
@@ -176,7 +178,12 @@ impl Session {
         )
         .map_err(Error::local)?;
         let opts = Options {
-            on: self.cfg.on_groups(),
+            on: self
+                .cfg
+                .on_groups()
+                .difference(&self.groups_server_lacks)
+                .cloned()
+                .collect(),
             name_key: self.name_key,
         };
         let character = loaded.character.clone();
@@ -243,7 +250,7 @@ impl Session {
     }
 
     fn sync_character(&mut self, name: &str, report: &mut CharReport) -> Result<()> {
-        for _ in 0..2 {
+        for _ in 0..3 {
             let (character, built) = self.build(name)?;
             report.name = character.clone();
             report.parts = built.parts.len();
@@ -276,6 +283,21 @@ impl Session {
                         report.refused.push(g);
                     }
                 }
+                Err(Error::Api { code, extra, .. }) if code == "unknown_group" => {
+                    let Some(g) = extra.get("group").and_then(Value::as_str) else {
+                        return Err(Error::local(
+                            "the server does not know a group it did not name",
+                        ));
+                    };
+                    if !self.groups_server_lacks.insert(g.to_string()) {
+                        return Err(Error::local(format!(
+                            "the server does not know the {g} group"
+                        )));
+                    }
+                    report.note = Some(format!(
+                        "the server does not have the {g} group yet; it was left out"
+                    ));
+                }
                 other => return other,
             }
         }
@@ -283,7 +305,12 @@ impl Session {
     }
 
     fn run(&mut self, character: &str, built: &Built, report: &mut CharReport) -> Result<()> {
-        let groups = self.cfg.api_groups();
+        let groups: Vec<String> = self
+            .cfg
+            .api_groups()
+            .into_iter()
+            .filter(|g| !self.groups_server_lacks.contains(g))
+            .collect();
         let ids: Vec<String> = built.parts.iter().map(|p| hex(&p.id)).collect();
         let digest = hex(&wire::set_digest(built.parts.iter().map(|p| &p.id)));
         let sync = json!({
