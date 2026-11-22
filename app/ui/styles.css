@@ -574,6 +574,7 @@ ul, ol { list-style: none; }
 ::-webkit-scrollbar-thumb { background: #3a3a43; border: 2px solid var(--bg); border-radius: 5px; }
 ::-webkit-scrollbar-thumb:hover { background: #4a4a54; }
 ::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-corner { background: transparent; }
 
 /* Updates and the addon ----------------------------------------------------- */
 
