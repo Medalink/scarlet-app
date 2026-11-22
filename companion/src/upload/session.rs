@@ -12,7 +12,7 @@ use scarlet_part::pseudo::hex;
 use scarlet_part::wire;
 use scarlet_part::{fishing, imports};
 use serde_json::{Value, json};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
@@ -467,6 +467,22 @@ impl Session {
                 .and_then(Value::as_u64)
                 .unwrap_or(0),
         })
+    }
+
+    /// `GET /installs/me/feats`, as the server answered.
+    pub fn feats(&mut self) -> Result<Value> {
+        Ok(self.api("GET", "/installs/me/feats", None)?.json)
+    }
+
+    /// `POST /installs/me/feats/seen`: the tier shown for each feat key of one character.
+    pub fn feats_seen(&mut self, character: &str, shown: &BTreeMap<String, u8>) -> Result<()> {
+        let body = json!({ "character": character, "feats": shown }).to_string();
+        self.api(
+            "POST",
+            "/installs/me/feats/seen",
+            Some(("application/json", body.as_bytes())),
+        )?;
+        Ok(())
     }
 
     /// `GET /upload/status`, as the server answered.

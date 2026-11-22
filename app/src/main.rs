@@ -8,6 +8,7 @@ mod agg;
 mod browse;
 mod commands;
 mod discover;
+mod feats;
 mod items;
 mod launch;
 mod layers;
@@ -140,6 +141,8 @@ fn main() {
             upload::upload_now,
             upload::upload_linked,
             upload::upload_link,
+            feats::feats_get,
+            feats::feats_seen,
         ])
         .setup(move |app| {
             let mut window = tauri::WebviewWindowBuilder::new(

@@ -5,6 +5,7 @@
 import { spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
+import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
@@ -23,12 +24,15 @@ const OTHER_CHARACTER_ONLY = new Set(["overview", "sessions", "timeline", "map",
 
 const BODY = `document.querySelector("#body").innerText.replace(/\\s+/g, " ")`;
 
+const FEATS_OFF = /Feats are counted on the website from what you upload\. Website settings/;
+
 const VIEWS = [
   {
     key: "overview",
     shows: /^(?=.*Testa Fixture Level 6 Human Warrior Alliance in Westfall)(?=.*Whole life .* Quests completed 1,234 .* Titles known 3 .* Zone maps explored 3 .* Instance locks .* Blackfathom Deeps normal 1\/4 .* Lord Kazzak World boss)(?!.*Gnomeregan)/,
     never: /No characters recorded yet/,
   },
+  { key: "feats", shows: FEATS_OFF, never: /No feats counted|Could not|refused/ },
   { key: "stats", shows: /1,605 Experience .* 2 Kills/, never: /No recorded time yet/ },
   { key: "heatmap", shows: /Peak: [1-9]\d* events in an hour/, never: /Peak: 0 events|No events yet/ },
   { key: "timeline", shows: /kill Stonetusk Boar \(113\) by you/, never: /No events|Nothing recorded/ },
@@ -73,6 +77,17 @@ const scarlet = (ctx, ...args) => {
 const exportSite = (ctx, site) => scarlet(ctx, "export", "--wow", site.wow, "--out", site.out);
 
 const site = (root) => ({ wow: path.join(root, "wow"), out: path.join(root, "out"), home: path.join(root, "home") });
+
+const listenWebsite = () =>
+  new Promise((resolve) => {
+    const seen = [];
+    const server = http.createServer((request, answer) => {
+      seen.push(`${request.method} ${request.url}`);
+      answer.statusCode = 404;
+      answer.end();
+    });
+    server.listen(0, "127.0.0.1", () => resolve({ server, seen, url: `http://127.0.0.1:${server.address().port}` }));
+  });
 
 const read = (file) => fs.readFileSync(file, "utf8");
 
@@ -146,7 +161,15 @@ async function startApp(ctx) {
   expectEqual("exporting the fixture for the app", exported.code, 0);
   fs.writeFileSync(
     path.join(s.home, "settings.json"),
-    JSON.stringify({ wow: s.wow, data: s.out, watch: false, last_view: "overview", keep_addon: false, open_with_wow: false }),
+    JSON.stringify({
+      wow: s.wow,
+      data: s.out,
+      watch: false,
+      last_view: "overview",
+      keep_addon: false,
+      open_with_wow: false,
+      upload: { enabled: false, server: ctx.website.url },
+    }),
   );
   ctx.footprint = footprint();
   ctx.app = await launch({ exe: ctx.exe, home: s.home });
@@ -339,6 +362,21 @@ const CHECKS = [
   },
   {
     lane: "app",
+    name: "feats sends nothing while uploading is off, and leads to the website settings",
+    async run(ctx) {
+      const app = running(ctx);
+      await selectCharacter(app, TESTA);
+      await open(app, "feats", FEATS_OFF);
+      await selectCharacter(app, "");
+      await open(app, "feats", FEATS_OFF);
+      await sleep(300);
+      expectEqual("requests the website address received", ctx.website.seen, []);
+      await app.evaluate(`[...document.querySelectorAll("#body button")].find((b) => b.textContent === "Website settings").click()`);
+      await app.until(`location.hash === "#settings/website"`, "the button opens the website settings");
+    },
+  },
+  {
+    lane: "app",
     name: "the character filter works",
     async run(ctx) {
       const app = running(ctx);
@@ -524,7 +562,8 @@ async function main() {
 
   const dir = given.keep ? path.resolve(given.keep) : fs.mkdtempSync(path.join(os.tmpdir(), "scarlet-lane-"));
   fs.mkdirSync(dir, { recursive: true });
-  const ctx = { dir, cli, exe, keep: Boolean(given.keep), app: null, site: { cli: site(path.join(dir, "cli")), app: site(path.join(dir, "app")) } };
+  const website = await listenWebsite();
+  const ctx = { dir, cli, exe, website, keep: Boolean(given.keep), app: null, site: { cli: site(path.join(dir, "cli")), app: site(path.join(dir, "app")) } };
   writeWow(ctx.site.cli.wow);
 
   let result = { failed: 1, seconds: 0 };
@@ -532,6 +571,7 @@ async function main() {
     result = await runChecks(checks, ctx);
   } finally {
     if ((await ctx.app?.close().catch(() => null)) === 3) ctx.breach = true;
+    website.server.close();
     if (ctx.keep || result.failed) console.log(`files kept in ${dir}`);
     else removeFolder(dir);
   }

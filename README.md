@@ -7,7 +7,7 @@ records what your character does.
   payloads under `out/<Name-Surname>/`, rebuilds CSV tables, and writes `Digest.lua` and `Items.lua` into its own `ScarletData`
   addon folder, beside `Scarlet`, so the in-game overview can show your whole history.
 - `app`: the Windows app (Tauri). It shows a character overview (with the quests, titles and zone maps of the character's whole life and its current instance locks), an activity heatmap, a timeline, sessions, the paths
-  you travelled on each map, charts, loot tables and how well the recordings compress. It can open itself when WoW
+  you travelled on each map, the feats the website counts for a character (with a toast for each new or upgraded one), charts, loot tables and how well the recordings compress. It can open itself when WoW
   Forever starts.
 
 Lines Scarlet records from other installed addons come from their own table, `ScarletAddonsDB`, and are kept apart
@@ -40,10 +40,11 @@ one-file change; printed apart from the checks) and writes an invented World of 
 `ship` runs it after the gates when a change touches `companion/`, `app/` or `e2e/`.
 - The cli lane runs the real `scarlet` command on that folder: the export, the addon files, a second export that
   changes nothing, a later session picked up, and an unknown command refused.
-- The app lane (Windows only) starts the real app and drives its page: the 13 views for the selected character, the
+- The app lane (Windows only) starts the real app and drives its page: the 14 views for the selected character, the
+  Feats view with uploading off (nothing sent to a local stand-in for the website), the
   character filter, a saved setting, an export from inside the app, no reported errors and a clean close with nothing written to the
   app's default settings, profile or Documents folders, the Run key or the build folders.
-- 25 checks take 3 to 5 s, 2 s of that the app starting.
+- 32 checks take 3 to 5 s, 2 s of that the app starting.
 - The app runs on a Windows desktop of its own (`e2e/hidden-desktop.ps1`), so no window appears and nothing takes the
   keyboard. The command exits 3 if a window of the app is ever found on the desktop in use. Exit 1 is a failed check,
   exit 2 a usage error.

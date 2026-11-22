@@ -3,6 +3,8 @@
 import { invoke, el, $, num, esc, displayName, state } from "./lib.js";
 import * as overview from "./views/overview.js";
 import * as roster from "./views/roster.js";
+import * as feats from "./views/feats.js";
+import { stopToasts } from "./feat-toast.js";
 import * as stats from "./views/stats.js";
 import * as heatmap from "./views/heatmap.js";
 import * as timeline from "./views/timeline.js";
@@ -18,6 +20,7 @@ import * as settings from "./views/settings.js";
 
 const VIEWS = {
   overview: [() => (state.ch ? "Overview" : "Characters"), { render: (body, sub) => (state.ch ? overview : roster).render(body, sub) }],
+  feats: ["Feats", feats],
   stats: ["Stats", stats],
   heatmap: ["Activity", heatmap],
   timeline: ["Timeline", timeline],
@@ -80,6 +83,7 @@ function setView() {
     const route = (location.hash || "#overview").slice(1);
     const [key, sub] = route.split("/");
     current = VIEWS[key] ? key : "overview";
+    if (current !== "feats") stopToasts();
     document.querySelectorAll("#nav .item").forEach((i) => {
       i.classList.toggle("active", i.dataset.key === current);
       i.firstElementChild.textContent = labelOf(i.dataset.key);
