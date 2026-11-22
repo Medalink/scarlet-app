@@ -269,6 +269,22 @@ pub fn word(code: &str) -> &str {
         "RM" => "marker",
         "SU" => "tracking",
         "RA" => "archaeology",
+        "BC" => "carried",
+        "RU" => "ruleset",
+        "QB" => "questsdone",
+        "EB" => "explored",
+        "KT" => "titles",
+        "IS" => "savedlock",
+        "WX" => "weather",
+        "RQ" => "recipeneeds",
+        "SI" => "spellinfo",
+        "SD" => "spelltext",
+        "EL" => "bossloot",
+        "AQ" => "auctionprice",
+        "HD" => "hardcoredeath",
+        "WH" => "who",
+        "BO" => "scorerow",
+        "IG" => "inspectgear",
         other => other,
     }
 }
@@ -333,6 +349,43 @@ fn interaction(v: &str) -> String {
 /// Number of ids in a comma list, 0 when empty.
 fn list_len(v: &str) -> usize {
     v.split(',').filter(|s| !s.is_empty()).count()
+}
+
+fn carried_place(v: &str) -> &str {
+    match v {
+        "b" => "bags",
+        "k" => "bank",
+        "w" => "warband bank",
+        "g" => "guild bank",
+        "m" => "mailbox",
+        "a" => "auctions",
+        other => other,
+    }
+}
+
+fn stack_totals(v: &str) -> (usize, i64) {
+    v.split(',')
+        .filter_map(|s| s.split_once(':'))
+        .fold((0, 0), |(kinds, total), (_, n)| {
+            (kinds + 1, total + n.parse::<i64>().unwrap_or(0))
+        })
+}
+
+fn item_count(id: &str, min: &str, max: &str, names: &HashMap<String, String>) -> String {
+    let item = label('i', id, names, "item");
+    match (min.is_empty(), max.is_empty() || max == min) {
+        (true, _) => item,
+        (false, true) => format!("{item} x{min}"),
+        (false, false) => format!("{item} x{min} to {max}"),
+    }
+}
+
+fn power_costs(v: &str) -> String {
+    v.split(',')
+        .filter_map(|s| s.split_once(':'))
+        .map(|(kind, cost)| format!("{cost} of power type {kind}"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Copper as `1g 2s 3c`, empty when the field is empty.
@@ -1520,7 +1573,18 @@ fn details(code: &str, f: &[String], names: &HashMap<String, String>) -> String 
             s
         }
         "PR" => {
-            if g(1) == "1" {
+            if let Some(event) = g(0).strip_prefix("?e:") {
+                format!("content probe: event {event} fired")
+            } else if let Some(function) = g(0).strip_prefix("?f:") {
+                match (g(1), g(2).is_empty()) {
+                    ("1", true) => format!("content probe: function {function} returned something"),
+                    ("1", false) => format!(
+                        "content probe: function {function} returned something ({})",
+                        g(2)
+                    ),
+                    _ => format!("content probe: function {function} returned nothing"),
+                }
+            } else if g(1) == "1" {
                 format!("{} available", g(0))
             } else {
                 format!("{} missing", g(0))
@@ -1949,6 +2013,7 @@ fn details(code: &str, f: &[String], names: &HashMap<String, String>) -> String 
         "BK" => match g(0) {
             "d" => format!("deposited {} to {}", coin(g(2)), bank_type(g(1))),
             "w" => format!("withdrew {} from {}", coin(g(2)), bank_type(g(1))),
+            "a" => format!("{} holds {}", bank_type(g(1)), coin(g(2))),
             _ => format!("{} now has {} tabs", bank_type(g(1)), g(2)),
         },
         "BG" => {
@@ -3793,6 +3858,229 @@ fn details(code: &str, f: &[String], names: &HashMap<String, String>) -> String 
             let start = if g(0) == "s" { " (at start)" } else { "" };
             format!("tracking {what}{start}")
         }
+        "BC" => {
+            let (kinds, total) = stack_totals(g(1));
+            format!("{}: {kinds} items, {total} in all", carried_place(g(0)))
+        }
+        "RU" => {
+            let mut bits = Vec::new();
+            if !g(0).is_empty() {
+                bits.push(format!("game mode record {}", g(0)));
+            }
+            if !g(6).is_empty() {
+                bits.push(g(6).to_string());
+            }
+            if !g(8).is_empty() {
+                bits.push(format!("server {}", g(8)));
+            }
+            if !g(9).is_empty() {
+                bits.push(format!("realm {}", g(9)));
+            }
+            if !g(10).is_empty() {
+                bits.push(format!("rules {}", g(10)));
+            }
+            bits.push(format!("self-found {}", yes_no(g(12))));
+            bits.push(format!("self-found allowed {}", yes_no(g(13))));
+            if g(11) == "c" {
+                bits.push("changed".to_string());
+            }
+            bits.join(", ")
+        }
+        "QB" => {
+            let listed = list_len(g(1));
+            format!("{} quests completed ({listed} listed on this line)", g(0))
+        }
+        "EB" => {
+            let maps: Vec<(&str, i64)> = g(0)
+                .split(',')
+                .filter_map(|m| {
+                    let (map, n) = m.split_once(':')?;
+                    Some((map, n.parse().ok()?))
+                })
+                .collect();
+            match maps.iter().max_by_key(|(_, n)| *n) {
+                Some((map, n)) => format!(
+                    "{} zone maps explored, most overlays on map {map} ({n})",
+                    maps.len()
+                ),
+                None => "no zone maps explored".to_string(),
+            }
+        }
+        "KT" => format!("knows {} titles ({} listed)", g(0), list_len(g(1))),
+        "IS" => {
+            let name = if g(0).is_empty() { "instance" } else { g(0) };
+            if g(6) == "2" {
+                return format!(
+                    "world boss lock {name} (boss {}), resets in {}s",
+                    g(1),
+                    g(3)
+                );
+            }
+            let mut s = format!(
+                "{name} ({}), {}/{} bosses, resets in {}s",
+                difficulty_name(g(2)),
+                g(8),
+                g(9),
+                g(3)
+            );
+            if !g(7).is_empty() {
+                s.push_str(&format!(", {} players", g(7)));
+            }
+            if g(6) == "1" {
+                s.push_str(", raid");
+            }
+            if g(5) == "1" {
+                s.push_str(", extended");
+            }
+            if g(4) == "0" {
+                s.push_str(", not locked");
+            }
+            match g(10) {
+                "s" => s.push_str(" (first read)"),
+                "c" => s.push_str(" (changed)"),
+                _ => {}
+            }
+            s
+        }
+        "WX" => format!("weather {} at intensity {}", g(0), g(1)),
+        "RQ" => {
+            let mut s = format!(
+                "{} makes {} from {}",
+                spell(0),
+                item_count(g(1), g(2), g(3), names),
+                if g(4).is_empty() {
+                    "no listed reagents".to_string()
+                } else {
+                    item_stacks(g(4), names)
+                }
+            );
+            if !g(5).is_empty() && g(5) != "0" {
+                s.push_str(&format!(", {} optional slots", g(5)));
+            }
+            if !g(6).is_empty() {
+                s.push_str(&format!(", recipe type {}", g(6)));
+            }
+            s
+        }
+        "SI" => {
+            let cast = if g(2) == "0" {
+                "instant".to_string()
+            } else {
+                format!("{} ms cast", g(2))
+            };
+            let mut s = format!("{}: {cast}, range {} to {} yards", spell(0), g(3), g(4));
+            let costs = power_costs(g(5));
+            if !costs.is_empty() {
+                s.push_str(&format!(", costs {costs}"));
+            }
+            if g(6) == "1" {
+                s.push_str(", passive");
+            }
+            s.push_str(&format!(", icon {}", g(1)));
+            s
+        }
+        "SD" => format!("{}: {}", spell(0), g(1)),
+        "EL" => format!(
+            "{} received {} from encounter {}",
+            g(3),
+            item_count(g(1), g(2), g(2), names),
+            g(0)
+        ),
+        "AQ" => {
+            let what = match g(0) {
+                "c" => "commodity search",
+                "i" => "item search",
+                "b" => "browse row",
+                other => other,
+            };
+            let mut s = format!(
+                "{what} {}: lowest {}, {} on sale, {} listings",
+                item(1),
+                coin(g(2)),
+                g(3),
+                g(4)
+            );
+            if !g(5).is_empty() {
+                s.push_str(&format!(", item level {}", g(5)));
+            }
+            if !g(6).is_empty() {
+                s.push_str(&format!(", suffix {}", g(6)));
+            }
+            s
+        }
+        "HD" => {
+            let mut s = if g(0).is_empty() {
+                "a hardcore character died".to_string()
+            } else {
+                format!("{} died", g(0))
+            };
+            if !g(1).is_empty() {
+                s.push_str(&format!(" at level {}", g(1)));
+            }
+            if !g(2).is_empty() {
+                s.push_str(&format!(": {}", g(2)));
+            }
+            s
+        }
+        "WH" => {
+            let mut s = format!("{} level {}", g(0), g(1));
+            let kind = [g(3), g(2)]
+                .iter()
+                .filter(|v| !v.is_empty())
+                .map(|v| v.to_lowercase())
+                .collect::<Vec<_>>()
+                .join(" ");
+            if !kind.is_empty() {
+                s.push_str(&format!(" {kind}"));
+            }
+            if !g(4).is_empty() {
+                s.push_str(&format!(" in {}", g(4)));
+            }
+            if !g(5).is_empty() {
+                s.push_str(&format!(" <{}>", g(5)));
+            }
+            s
+        }
+        "BO" => {
+            let mut s = format!(
+                "{} ({}{}): {} kills, {} honorable, {} deaths, {} honor, {} damage, {} healing",
+                g(0),
+                side(g(1)),
+                if g(2).is_empty() {
+                    String::new()
+                } else {
+                    format!(" {}", g(2).to_lowercase())
+                },
+                g(3),
+                g(4),
+                g(5),
+                g(6),
+                g(7),
+                g(8)
+            );
+            if !g(9).is_empty() {
+                s.push_str(&format!(", stats {}", g(9)));
+            }
+            s
+        }
+        "IG" => {
+            let worn: Vec<String> = g(1)
+                .split(',')
+                .filter(|s| !s.is_empty())
+                .map(|entry| {
+                    let mut it = entry.split(':');
+                    let slot = it.next().unwrap_or("");
+                    let id = it.next().unwrap_or("");
+                    let enchant = it.next().unwrap_or("");
+                    let mut s = format!("slot {slot} {}", label('i', id, names, "item"));
+                    if !enchant.is_empty() && enchant != "0" {
+                        s.push_str(&format!(" enchant {enchant}"));
+                    }
+                    s
+                })
+                .collect();
+            format!("{} wears {} items: {}", g(0), worn.len(), worn.join(", "))
+        }
         "LG" => {
             if g(0) == "1" {
                 "on".into()
@@ -3861,7 +4149,8 @@ fn player_fields(code: &str, f: &[String]) -> &'static [usize] {
         ("GL", "m" | "l" | "p") | ("RC", "s" | "r") => &[1],
         ("CM", "i" | "j") => &[3],
         ("GI", "e") => &[],
-        ("PK" | "LW" | "IV" | "PM" | "AL" | "DU", _) => &[0],
+        ("PK" | "LW" | "IV" | "PM" | "AL" | "DU" | "HD" | "WH" | "BO" | "IG", _) => &[0],
+        ("EL", _) => &[3],
         ("GM" | "DP" | "QA" | "ML" | "TR" | "LT" | "LD" | "FR" | "GI" | "DW" | "DQ", _) => &[1],
         ("LM", _) => &[2],
         ("GU", _) => &[5],

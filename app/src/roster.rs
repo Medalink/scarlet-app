@@ -107,6 +107,7 @@ pub struct Roster {
     group_by_account: bool,
     chars: Vec<RosterChar>,
     groups: Vec<Group>,
+    warband: i64,
     transfers: Vec<Transfer>,
     transfers_total: usize,
     pairs: Vec<Pair>,
@@ -276,6 +277,7 @@ fn build(st: &Store, accounts: Vec<(String, Vec<String>)>, group_by_account: boo
     let mut events: Vec<Vec<overview::Ev>> = (0..n).map(|_| Vec::new()).collect();
     let mut skill_rows: Vec<HashMap<u32, (i64, i64)>> = (0..n).map(|_| HashMap::new()).collect();
     let mut moves: Vec<Move> = Vec::new();
+    let mut warband_reads: Vec<(usize, i64, i64)> = Vec::new();
     for r in &st.events {
         let c = r.ch as usize;
         events[c].push((r.ms, r.code.as_str(), r.fields.as_slice()));
@@ -312,6 +314,11 @@ fn build(st: &Store, accounts: Vec<(String, Vec<String>)>, group_by_account: boo
                         side: Side::Received,
                     }),
                     _ => {}
+                }
+            }
+            "BK" if field(f, 0) == "a" && field(f, 1) == "2" => {
+                if let Ok(balance) = field(f, 2).parse::<i64>() {
+                    warband_reads.push((c, r.ms, balance));
                 }
             }
             "TR" if matches!(field(f, 2), "1" | "2") => {
@@ -434,6 +441,17 @@ fn build(st: &Store, accounts: Vec<(String, Vec<String>)>, group_by_account: boo
         });
     }
 
+    let warband: i64 = groups
+        .iter()
+        .filter_map(|g| {
+            warband_reads
+                .iter()
+                .filter(|(c, _, _)| g.characters.contains(&st.chars[*c]))
+                .max_by_key(|(_, ms, _)| *ms)
+                .map(|(_, _, balance)| *balance)
+        })
+        .sum();
+
     let chars: Vec<RosterChar> = overviews
         .into_iter()
         .zip(&st.chars)
@@ -488,6 +506,7 @@ fn build(st: &Store, accounts: Vec<(String, Vec<String>)>, group_by_account: boo
         group_by_account,
         chars,
         groups,
+        warband,
         transfers: moved.into_iter().take(MAX_TRANSFERS).collect(),
         transfers_total,
         pairs,

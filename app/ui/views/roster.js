@@ -36,7 +36,7 @@ function totals() {
   const cells = [
     ["Characters", num(data.chars.length)],
     ["Played", longDur(sum(data.chars, (c) => c.played))],
-    ["Gold", moneyHtml(sum(data.chars, (c) => c.money || 0))],
+    ["Gold", moneyHtml(sum(data.chars, (c) => c.money || 0) + data.warband)],
     ["This week", playTime(week)],
     ["WoW running", num(clients)],
   ];
@@ -94,7 +94,7 @@ function combined() {
 }
 
 function goldMod() {
-  const total = sum(data.chars, (c) => c.money || 0);
+  const total = sum(data.chars, (c) => c.money || 0) + data.warband;
   const pts = combined();
   const plot =
     pts.length > 1
@@ -109,7 +109,8 @@ function goldMod() {
       return `<tr><td>${named(c)}</td><td class="num">${c.money == null ? "–" : moneyHtml(c.money)}</td><td class="num">${signed(net)}</td><td class="num">${flow(c.sent)}</td><td class="num">${flow(c.received)}</td></tr>`;
     })
     .join("");
-  const table = `<div class="history"><table class="alts"><thead><tr><th>Character</th><th class="num">Balance</th><th class="num">Net without transfers</th><th class="num">Sent</th><th class="num">Received</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  const warband = data.warband ? `<tr><td>Warband bank</td><td class="num">${moneyHtml(data.warband)}</td><td class="num">–</td><td class="num">–</td><td class="num">–</td></tr>` : "";
+  const table = `<div class="history"><table class="alts"><thead><tr><th>Character</th><th class="num">Balance</th><th class="num">Net without transfers</th><th class="num">Sent</th><th class="num">Received</th></tr></thead><tbody>${rows}${warband}</tbody></table></div>`;
   return mod("w8 first", "Gold", `<p class="big">${moneyHtml(total)}</p>${plot}${table}`);
 }
 
