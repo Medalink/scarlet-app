@@ -55,24 +55,32 @@ function reachCell(c) {
   return c.reach && c.reach.date ? `Level ${c.reach.level} ${esc(c.reach.date)}` : "–";
 }
 
-function groupMod(group) {
-  const byName = new Map(data.chars.map((c) => [c.name, c]));
-  const rows = group.characters
-    .map((n) => byName.get(n))
-    .filter(Boolean)
+function charTable(list, withAccount) {
+  const rows = [...list]
     .sort((a, b) => b.through - a.through)
     .map(
       (c) => `<tr class="click" tabindex="0" data-pick="${esc(c.name)}">
-        <td>${named(c)}</td><td>${levelCell(c)}</td><td>${esc(raceName(c.race))} ${esc(className(c.class))}</td>
+        <td>${named(c)}</td>${withAccount ? `<td>${esc(c.account || "–")}</td>` : ""}<td>${levelCell(c)}</td><td>${esc(raceName(c.race))} ${esc(className(c.class))}</td>
         <td>${esc(c.zone || "–")}</td><td>${c.played ? longDur(c.played) : c.recorded ? `${longDur(c.recorded)} recorded` : "–"}</td>
         <td>${c.through ? `${day(c.through * 1000)} ${hm(c.through * 1000)}` : "–"}</td>
         <td class="num">${c.money == null ? "–" : moneyHtml(c.money)}</td><td class="gap">${reachCell(c)}</td></tr>`
     )
     .join("");
-  const head = ["Character", "Level", "Race and class", "Zone", "Played", "Last session", "Gold", "Level target"];
-  const cols = head.map((h, i) => `<th${i === 6 ? ' class="num"' : i === 7 ? ' class="gap"' : ""}>${h}</th>`).join("");
+  const head = ["Character", ...(withAccount ? ["Game account"] : []), "Level", "Race and class", "Zone", "Played", "Last session", "Gold", "Level target"];
+  const cols = head.map((h) => `<th${h === "Gold" ? ' class="num"' : h === "Level target" ? ' class="gap"' : ""}>${h}</th>`).join("");
+  return `<div class="history"><table class="alts"><thead><tr>${cols}</tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+function groupMod(group) {
+  const byName = new Map(data.chars.map((c) => [c.name, c]));
+  const list = group.characters.map((n) => byName.get(n)).filter(Boolean);
   const title = group.account ? `Game account ${group.account}` : "Other characters";
-  return mod("w12 first last", title, `<div class="history"><table class="alts"><thead><tr>${cols}</tr></thead><tbody>${rows}</tbody></table></div>`);
+  return mod("w12 first last", title, charTable(list, false));
+}
+
+function charactersMod() {
+  const accounts = new Set(data.chars.map((c) => c.account).filter(Boolean));
+  return mod("w12 first last", "Characters", charTable(data.chars, accounts.size > 1));
 }
 
 
@@ -333,7 +341,7 @@ function draw(body) {
   }
   body.insertAdjacentHTML(
     "beforeend",
-    `${totals()}<div class="sheet">${data.groups.map(groupMod).join("")}${goldMod()}${transfersMod()}${pairsMod()}${daysMod()}${levelsMod()}${professionsMod()}</div>`
+    `${totals()}<div class="sheet">${data.group_by_account ? data.groups.map(groupMod).join("") : charactersMod()}${goldMod()}${transfersMod()}${pairsMod()}${daysMod()}${levelsMod()}${professionsMod()}</div>`
   );
   wireGold(body);
   wireDays(body);

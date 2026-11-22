@@ -99,7 +99,28 @@ async function general(body) {
       swSt.textContent = String(e);
     }
   };
-  body.append(sw, swSt);
+  const grp = el("span", "switch");
+  grp.innerHTML = `<span class="track"><span class="knob"></span></span><span class="lab">Group characters by game account</span>`;
+  grp.classList.toggle("on", !!s.group_by_account);
+  grp.style.marginTop = "16px";
+  grp.onclick = async () => {
+    const on = !grp.classList.contains("on");
+    grp.classList.toggle("on", on);
+    swSt.className = "status";
+    swSt.textContent = "";
+    try {
+      await invoke("set_group_by_account", { on });
+    } catch (e) {
+      grp.classList.toggle("on", !on);
+      swSt.className = "status err";
+      swSt.textContent = String(e);
+    }
+  };
+  for (const x of [sw, grp]) {
+    x.style.display = "flex";
+    x.style.width = "fit-content";
+  }
+  body.append(sw, grp, swSt);
   const boxes = el("div");
   boxes.style.marginTop = "22px";
   body.appendChild(boxes);

@@ -74,6 +74,7 @@ pub struct RosterChar {
     professions: Vec<Skill>,
     sent: i64,
     received: i64,
+    account: String,
 }
 
 #[derive(Serialize)]
@@ -103,6 +104,7 @@ pub struct Pair {
 
 #[derive(Serialize)]
 pub struct Roster {
+    group_by_account: bool,
     chars: Vec<RosterChar>,
     groups: Vec<Group>,
     transfers: Vec<Transfer>,
@@ -256,16 +258,19 @@ fn together_in(a: &[(i64, i64)], b: &[(i64, i64)]) -> (i64, i64, i64) {
 
 #[tauri::command(async)]
 pub fn roster(app: AppHandle) -> Roster {
-    let folders = state(&app).settings.lock().unwrap().folders();
+    let (folders, group_by_account) = {
+        let s = state(&app).settings.lock().unwrap();
+        (s.folders(), s.group_by_account)
+    };
     let accounts: Vec<(String, Vec<String>)> = folders
         .iter()
         .flat_map(|f| scarlet::export::accounts(f))
         .map(|a| (a.name, a.characters))
         .collect();
-    with_store(&app, |st| build(st, accounts))
+    with_store(&app, |st| build(st, accounts, group_by_account))
 }
 
-fn build(st: &Store, accounts: Vec<(String, Vec<String>)>) -> Roster {
+fn build(st: &Store, accounts: Vec<(String, Vec<String>)>, group_by_account: bool) -> Roster {
     let look = Lookup::new(&st.chars);
     let n = st.chars.len();
     let mut events: Vec<Vec<overview::Ev>> = (0..n).map(|_| Vec::new()).collect();
@@ -401,6 +406,34 @@ fn build(st: &Store, accounts: Vec<(String, Vec<String>)>) -> Roster {
             .then(x.a.cmp(&y.a))
     });
 
+    let mut groups: Vec<Group> = Vec::new();
+    let mut placed = vec![false; n];
+    for (account, names) in accounts {
+        let here: Vec<String> = names
+            .into_iter()
+            .filter(|name| {
+                st.char_index(name)
+                    .is_some_and(|i| !std::mem::replace(&mut placed[i as usize], true))
+            })
+            .collect();
+        if !here.is_empty() {
+            groups.push(Group {
+                account,
+                characters: here,
+            });
+        }
+    }
+    let rest: Vec<String> = (0..n)
+        .filter(|i| !placed[*i])
+        .map(|i| st.chars[i].clone())
+        .collect();
+    if !rest.is_empty() {
+        groups.push(Group {
+            account: String::new(),
+            characters: rest,
+        });
+    }
+
     let chars: Vec<RosterChar> = overviews
         .into_iter()
         .zip(&st.chars)
@@ -442,40 +475,17 @@ fn build(st: &Store, accounts: Vec<(String, Vec<String>)>) -> Roster {
                 professions: skills(rows, st),
                 sent: sent[i],
                 received: received[i],
+                account: groups
+                    .iter()
+                    .find(|g| g.characters.contains(name))
+                    .map_or_else(String::new, |g| g.account.clone()),
             }
         })
         .collect();
 
-    let mut groups: Vec<Group> = Vec::new();
-    let mut placed = vec![false; n];
-    for (account, names) in accounts {
-        let here: Vec<String> = names
-            .into_iter()
-            .filter(|name| {
-                st.char_index(name)
-                    .is_some_and(|i| !std::mem::replace(&mut placed[i as usize], true))
-            })
-            .collect();
-        if !here.is_empty() {
-            groups.push(Group {
-                account,
-                characters: here,
-            });
-        }
-    }
-    let rest: Vec<String> = (0..n)
-        .filter(|i| !placed[*i])
-        .map(|i| st.chars[i].clone())
-        .collect();
-    if !rest.is_empty() {
-        groups.push(Group {
-            account: String::new(),
-            characters: rest,
-        });
-    }
-
     let transfers_total = moved.len();
     Roster {
+        group_by_account,
         chars,
         groups,
         transfers: moved.into_iter().take(MAX_TRANSFERS).collect(),

@@ -58,6 +58,10 @@ pub struct Settings {
     /// Keep the Scarlet addon in the WoW folder up to date (see `addon_sync`).
     #[serde(default = "default_keep_addon")]
     pub keep_addon: bool,
+    /// Characters page and the addon's Characters page: one table per game account instead of
+    /// one table for every character.
+    #[serde(default)]
+    pub group_by_account: bool,
 }
 
 fn default_keep_addon() -> bool {
@@ -285,6 +289,7 @@ fn fallback() -> Settings {
             upload: Default::default(),
             track: None,
             keep_addon: true,
+            group_by_account: false,
         };
     }
     let wow = detect_wow();
@@ -300,6 +305,7 @@ fn fallback() -> Settings {
         upload: Default::default(),
         track: None,
         keep_addon: true,
+        group_by_account: false,
     }
 }
 

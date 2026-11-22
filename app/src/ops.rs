@@ -180,6 +180,16 @@ pub fn set_open_with_wow(app: AppHandle, on: bool) -> Result<bool, String> {
     Ok(on)
 }
 
+/// Turn "Group characters by game account" on or off: the setting, the Characters page and the
+/// digest the addon reads.
+#[tauri::command(async)]
+pub fn set_group_by_account(app: AppHandle, on: bool) -> Result<bool, String> {
+    let cur = settings::update(|c| c.group_by_account = on)?;
+    *state(&app).settings.lock().unwrap() = cur.clone();
+    scarlet::export::set_group_by_account(&cur.folders(), &cur.data, on);
+    Ok(on)
+}
+
 /// Persist the last view so the app reopens on it.
 #[tauri::command(async)]
 pub fn save_view(app: AppHandle, view: String) {

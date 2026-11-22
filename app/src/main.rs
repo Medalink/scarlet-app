@@ -119,6 +119,7 @@ fn main() {
             browse::browse_wow,
             ops::save_view,
             ops::set_open_with_wow,
+            ops::set_group_by_account,
             updater::update_info,
             updater::update_check,
             updater::update_install,
@@ -163,6 +164,7 @@ fn main() {
                 .lock()
                 .unwrap()
                 .clone();
+            scarlet::overview::set_group_by_account(s.group_by_account);
             if s.watch {
                 watch::set_watch(app.handle(), true);
             }

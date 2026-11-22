@@ -631,6 +631,7 @@ ul, ol { list-style: none; }
 .who-c { display: inline-flex; align-items: center; gap: 8px; color: var(--fg); white-space: nowrap; }
 .dot-c { width: 9px; height: 9px; border-radius: 50%; flex: none; box-shadow: 0 0 0 1px var(--line2); }
 table.alts td { white-space: nowrap; }
+table.alts td.gap { white-space: normal; }
 table.alts tr.click:focus-visible { outline-offset: -2px; }
 .lvl-cell, .skill { display: inline-flex; align-items: center; gap: 8px; }
 .mini { display: inline-block; width: 44px; height: 4px; border-radius: 2px; background: var(--line2); overflow: hidden; }
