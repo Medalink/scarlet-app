@@ -5,6 +5,7 @@ import { invoke, el, num, bytes, state, esc } from "../lib.js";
 
 // Survives the store-changed re-render that an export itself triggers.
 let lastStatus = "";
+let lastStatusClass = "status";
 
 export async function render(body) {
   body.innerHTML = "";
@@ -17,7 +18,7 @@ export async function render(body) {
   actions.append(exp, logs, sw);
   body.appendChild(actions);
 
-  const status = el("div", "status", lastStatus);
+  const status = el("div", lastStatusClass, lastStatus);
   body.appendChild(status);
 
   const sizes = el("div", "size-row");
@@ -47,11 +48,12 @@ export async function render(body) {
     status.textContent = "Exporting…";
     try {
       lastStatus = await invoke("compress_export");
-      status.className = "status ok";
+      lastStatusClass = "status ok";
     } catch (e) {
       lastStatus = String(e);
-      status.className = "status err";
+      lastStatusClass = "status err";
     }
+    status.className = lastStatusClass;
     status.textContent = lastStatus;
     refresh();
   };
@@ -60,11 +62,12 @@ export async function render(body) {
     status.textContent = "Compressing combat logs…";
     try {
       lastStatus = await invoke("compress_logs");
-      status.className = "status ok";
+      lastStatusClass = "status ok";
     } catch (e) {
       lastStatus = String(e);
-      status.className = "status err";
+      lastStatusClass = "status err";
     }
+    status.className = lastStatusClass;
     status.textContent = lastStatus;
     refresh();
   };
