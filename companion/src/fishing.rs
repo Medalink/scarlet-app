@@ -754,30 +754,6 @@ pub fn read_account(db: &Lua) -> Vec<Line> {
     l.out
 }
 
-/// The lines of one character: its own file, and its account's when the account has one.
-pub fn read(account: Option<&Path>, character: &Path) -> Result<Vec<Line>, String> {
-    let char_text = fs::read_to_string(character).map_err(|e| e.to_string())?;
-    let char_db = lua::parse_named(&char_text, "TheFishingLogChar")?;
-    let acc_db = match account {
-        Some(p) => {
-            let text = fs::read_to_string(p).map_err(|e| e.to_string())?;
-            lua::parse_named(&text, "TheFishingLogDB")?
-        }
-        None => None,
-    };
-    let ids = fish_ids(acc_db.as_ref(), char_db.as_ref());
-    let mut lines = char_db
-        .as_ref()
-        .map(|db| read_char(db, &ids))
-        .unwrap_or_default();
-    if let Some(db) = &acc_db {
-        lines.extend(read_account(db));
-    }
-    lines.sort();
-    lines.dedup();
-    Ok(lines)
-}
-
 /// Each character's lines for one game account, in the order given. The account's file goes to one
 /// character only, the one with the most lines of its own (the first by name on a tie), so its record
 /// book, boards and anglers are not repeated for every alt. A character that never fished gets no
