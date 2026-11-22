@@ -851,17 +851,6 @@ pub fn read_counted(
     out
 }
 
-/// Each character's lines for one game account (`read_counted` without the counts).
-pub fn read_chars(
-    account: Option<&Path>,
-    chars: &[(String, PathBuf)],
-) -> Vec<(String, Result<Vec<Line>, String>)> {
-    read_counted(account, chars)
-        .into_iter()
-        .map(|(name, r)| (name, r.map(|r| r.lines)))
-        .collect()
-}
-
 fn own_read(account: Option<&Lua>, character: &Path) -> Result<Read, String> {
     let text = fs::read_to_string(character).map_err(|e| e.to_string())?;
     let Some(db) = lua::parse_named(&text, "TheFishingLogChar")? else {
