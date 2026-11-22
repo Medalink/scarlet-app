@@ -8,6 +8,7 @@
 pub mod api;
 pub mod cli;
 pub mod config;
+pub mod counts;
 pub mod keys;
 pub mod session;
 pub mod state;

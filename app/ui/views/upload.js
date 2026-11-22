@@ -22,6 +22,7 @@ const HOLDS = {
   addons: "Lines other addons write through Scarlet.",
   imports: "Earlier sales, purchases and gold history imported from other addons.",
   fishing: "Catches, records and tournament data from The Fishing Log.",
+  counts: "Session totals The Fishing Log counted, added to your totals on the website without counting twice.",
 };
 
 const when = (t) => new Date(t * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });

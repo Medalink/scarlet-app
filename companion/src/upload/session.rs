@@ -3,6 +3,7 @@
 
 use super::api::{Client, Hit, Reply};
 use super::config::{self, UploadConfig};
+use super::counts;
 use super::keys::{self, KeyStore};
 use super::state::{self, CharState, LogEntry, UploadState, now};
 use super::{Error, Result};
@@ -196,6 +197,10 @@ impl Session {
         built
             .parts
             .extend(fishing::build_parts(&character, fished, &opts));
+        let counted = counts::load(&dir, &character);
+        built
+            .parts
+            .extend(counts::build_parts(&character, counted, &opts));
         Ok((character, built))
     }
 

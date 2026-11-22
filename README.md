@@ -47,9 +47,9 @@ one-file change; printed apart from the checks) and writes an invented World of 
 - The app lane (Windows only) starts the real app and drives its page: the 14 views for the selected character, the
   run summary of a session's route, the
   Feats view with uploading off (nothing sent to a local stand-in for the website), the
-  character filter, a saved setting, an export from inside the app, no reported errors and a clean close with nothing written to the
+  character filter, the website settings with Counts from other addons on, a saved setting, an export from inside the app, no reported errors and a clean close with nothing written to the
   app's default settings, profile or Documents folders, the Run key or the build folders.
-- 34 checks take 3 to 5 s, 2 s of that the app starting.
+- 35 checks take 3 to 5 s, 2 s of that the app starting.
 - The app runs on a Windows desktop of its own (`e2e/hidden-desktop.ps1`), so no window appears and nothing takes the
   keyboard. The command exits 3 if a window of the app is ever found on the desktop in use. Exit 1 is a failed check,
   exit 2 a usage error.

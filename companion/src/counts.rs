@@ -7,9 +7,9 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-const DIR: &str = "counts";
+pub(crate) const DIR: &str = "counts";
 const ARCHIVE_MAGIC: &str = "scarletcountsarchive";
-const PAYLOAD_MAGIC: &str = "scarletcounts";
+pub(crate) const PAYLOAD_MAGIC: &str = "scarletcounts";
 const DAY_S: i64 = 86_400;
 
 pub const FISHING_LOG: &str = "fl";

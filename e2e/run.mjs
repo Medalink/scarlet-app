@@ -399,6 +399,20 @@ const CHECKS = [
   },
   {
     lane: "app",
+    name: "the website settings offer Counts from other addons, on",
+    async run(ctx) {
+      const app = running(ctx);
+      await selectCharacter(app, "");
+      await app.evaluate(`location.hash = "settings/website"`);
+      await app.until(
+        `[...document.querySelectorAll("#body .switch")].some((s) => s.textContent.includes("Counts from other addons") && s.classList.contains("on") && s.getAttribute("aria-checked") === "true")`,
+        "the website settings show Counts from other addons switched on",
+      );
+      expectEqual("requests the website address received", ctx.website.seen, []);
+    },
+  },
+  {
+    lane: "app",
     name: "a setting survives",
     async run(ctx) {
       const app = running(ctx);
