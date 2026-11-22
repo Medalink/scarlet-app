@@ -39,6 +39,10 @@ impl Inventory {
             && self.auctions.is_empty()
             && self.warband.is_empty()
             && self.guild.is_empty()
+            && self.mail_at == 0
+            && self.auctions_at == 0
+            && self.warband_at == 0
+            && self.guild_at == 0
             && self.warband_money_at == 0
             && self.guild_money_at == 0
     }

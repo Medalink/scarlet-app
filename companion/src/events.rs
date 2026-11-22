@@ -1582,6 +1582,15 @@ fn details(code: &str, f: &[String], names: &HashMap<String, String>) -> String 
                         "content probe: function {function} returned something ({})",
                         g(2)
                     ),
+                    (_, false) if g(2) == "missing" => {
+                        format!("content probe: this client has no function {function}")
+                    }
+                    (_, false) if g(2) == "error" => {
+                        format!("content probe: function {function} failed when called")
+                    }
+                    (_, false) if g(2) == "noarg" => format!(
+                        "content probe: function {function} was not called, there was nothing to pass it"
+                    ),
                     _ => format!("content probe: function {function} returned nothing"),
                 }
             } else if g(1) == "1" {
