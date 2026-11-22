@@ -3,6 +3,7 @@
 //! account's shared record book, boards, anglers and surveys from the account's file. Every line is
 //! a snapshot of what the files hold now, timed by what it describes.
 
+use crate::counts;
 use crate::lua::{self, Lua};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -754,61 +755,126 @@ pub fn read_account(db: &Lua) -> Vec<Line> {
     l.out
 }
 
-/// Each character's lines for one game account, in the order given. The account's file goes to one
-/// character only, the one with the most lines of its own (the first by name on a tie), so its record
-/// book, boards and anglers are not repeated for every alt. A character that never fished gets no
-/// lines. An account file that does not read fails every character.
-pub fn read_chars(
+/// What one character's files show: the `J` lines and the counts of its sessions.
+#[derive(Default)]
+pub struct Read {
+    pub lines: Vec<Line>,
+    pub counts: Vec<counts::Record>,
+}
+
+/// The counts of a character's fishing sessions: the `history` entries The Fishing Log wrote when a
+/// session stopped (`solo`; match results and season summaries carry no such flag), each with the
+/// counters the addon kept for it. A session without `elapsed` has no start.
+pub fn session_counts(db: &Lua) -> Vec<counts::Record> {
+    let mut out = Vec::new();
+    for (_, h) in entries(get(db, "history")) {
+        if yes(h, "solo") != Some(true) {
+            continue;
+        }
+        let Some(to) = int(h, "when") else { continue };
+        let mut fields = BTreeMap::new();
+        for (name, v) in entries(get(h, "outcomes")) {
+            let plain = name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+            if let (true, Some(n)) = (plain, v.as_num().filter(|n| n.is_finite())) {
+                fields.insert(format!("outcomes.{name}"), n.round() as i64);
+            }
+        }
+        for name in ["count", "duration", "elapsed"] {
+            if let Some(n) = int(h, name) {
+                fields.insert(name.to_string(), n);
+            }
+        }
+        if let Some(spots) = get(h, "spots") {
+            let junk = entries(Some(spots))
+                .iter()
+                .filter_map(|(_, w)| int(w, "junk"))
+                .sum();
+            fields.insert("spots.junk".to_string(), junk);
+        }
+        out.push(counts::Record {
+            origin: counts::FISHING_LOG.to_string(),
+            store: String::new(),
+            scope: counts::CHARACTER.to_string(),
+            window: counts::SESSION.to_string(),
+            kind: counts::FISHING.to_string(),
+            dims: String::new(),
+            from: int(h, "elapsed").map(|e| to - e),
+            to,
+            fields,
+        });
+    }
+    out
+}
+
+/// Each character's lines and session counts for one game account, in the order given. The account's
+/// file goes to one character only, the one with the most lines of its own (the first by name on a
+/// tie), so its record book, boards and anglers are not repeated for every alt. A character that
+/// never fished gets no lines. An account file that does not read fails every character.
+pub fn read_counted(
     account: Option<&Path>,
     chars: &[(String, PathBuf)],
-) -> Vec<(String, Result<Vec<Line>, String>)> {
+) -> Vec<(String, Result<Read, String>)> {
     let acc_db = match account {
         Some(p) => fs::read_to_string(p)
             .map_err(|e| e.to_string())
             .and_then(|text| lua::parse_named(&text, "TheFishingLogDB")),
         None => Ok(None),
     };
-    let mut out: Vec<(String, Result<Vec<Line>, String>)> = chars
+    let mut out: Vec<(String, Result<Read, String>)> = chars
         .iter()
         .map(|(name, file)| {
-            let lines = match &acc_db {
-                Ok(acc) => own_lines(acc.as_ref(), file),
+            let read = match &acc_db {
+                Ok(acc) => own_read(acc.as_ref(), file),
                 Err(e) => Err(e.clone()),
             };
-            (name.clone(), lines)
+            (name.clone(), read)
         })
         .collect();
     let main = out
         .iter()
         .enumerate()
-        .filter_map(|(i, (name, r))| r.as_ref().ok().map(|l| (l.len(), name, i)))
+        .filter_map(|(i, (name, r))| r.as_ref().ok().map(|r| (r.lines.len(), name, i)))
         .filter(|(len, _, _)| *len > 0)
         .max_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(a.1)))
         .map(|(_, _, i)| i);
     if let (Some(i), Ok(Some(db))) = (main, &acc_db)
-        && let Ok(lines) = &mut out[i].1
+        && let Ok(read) = &mut out[i].1
     {
-        lines.extend(read_account(db));
+        read.lines.extend(read_account(db));
     }
     for (_, r) in &mut out {
-        if let Ok(lines) = r {
-            lines.sort();
-            lines.dedup();
+        if let Ok(read) = r {
+            read.lines.sort();
+            read.lines.dedup();
         }
     }
     out
 }
 
-fn own_lines(account: Option<&Lua>, character: &Path) -> Result<Vec<Line>, String> {
+/// Each character's lines for one game account (`read_counted` without the counts).
+pub fn read_chars(
+    account: Option<&Path>,
+    chars: &[(String, PathBuf)],
+) -> Vec<(String, Result<Vec<Line>, String>)> {
+    read_counted(account, chars)
+        .into_iter()
+        .map(|(name, r)| (name, r.map(|r| r.lines)))
+        .collect()
+}
+
+fn own_read(account: Option<&Lua>, character: &Path) -> Result<Read, String> {
     let text = fs::read_to_string(character).map_err(|e| e.to_string())?;
     let Some(db) = lua::parse_named(&text, "TheFishingLogChar")? else {
-        return Ok(Vec::new());
+        return Ok(Read::default());
     };
     let ids = fish_ids(account, Some(&db));
-    Ok(read_char(&db, &ids)
-        .into_iter()
-        .filter(|l| !is_placeholder(l))
-        .collect())
+    Ok(Read {
+        lines: read_char(&db, &ids)
+            .into_iter()
+            .filter(|l| !is_placeholder(l))
+            .collect(),
+        counts: session_counts(&db),
+    })
 }
 
 fn is_placeholder(l: &Line) -> bool {

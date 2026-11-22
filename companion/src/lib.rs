@@ -4,6 +4,7 @@
 
 pub mod addons;
 pub mod archive;
+pub mod counts;
 pub mod events;
 pub mod export;
 pub mod fishing;

@@ -3,6 +3,7 @@
 
 use crate::addons;
 use crate::archive;
+use crate::counts;
 use crate::events;
 use crate::fishing;
 use crate::import;
@@ -315,6 +316,11 @@ pub fn export_new_all(wows: &[PathBuf], out: &Path) -> Result<bool, Box<dyn Erro
     let touched: Vec<String> = runs.keys().cloned().collect();
     refresh_imports(wows, out, &mut state, &touched, &own);
     let fishing_wrote = refresh_fishing(wows, out, &mut state);
+    for name in &own {
+        if let Err(e) = counts::rebuild(&out.join(name), name) {
+            eprintln!("scarlet: {name}: counts: {e}");
+        }
+    }
     save_state(&state_path, &state)?;
     let wrote = !runs.is_empty() || !addon_runs.is_empty() || fishing_wrote;
     if runs.is_empty() && addon_runs.is_empty() {
@@ -434,7 +440,7 @@ fn fishing_accounts(wows: &[PathBuf]) -> Vec<fishing::Account> {
         .collect()
 }
 
-const FISHING_STAMP: &str = "fishing2";
+const FISHING_STAMP: &str = "fishing3";
 
 fn fishing_changed(state: &State, path: &Path) -> bool {
     let (key, stamp) = source_stamp(path, FISHING_STAMP);
@@ -484,15 +490,23 @@ fn refresh_fishing(wows: &[PathBuf], out: &Path, state: &mut State) -> bool {
             continue;
         }
         state.0.extend(stamps);
-        for (name, read) in fishing::read_chars(acc.db.as_deref(), &chars) {
+        for (name, read) in fishing::read_counted(acc.db.as_deref(), &chars) {
             match read {
-                Ok(lines) => match fishing::write(&out.join(&name), &name, &lines) {
-                    Ok(()) => {
-                        println!("{name}: {} lines from The Fishing Log", lines.len());
-                        wrote = true;
+                Ok(read) => {
+                    let dir = out.join(&name);
+                    match fishing::write(&dir, &name, &read.lines) {
+                        Ok(()) => {
+                            println!("{name}: {} lines from The Fishing Log", read.lines.len());
+                            wrote = true;
+                        }
+                        Err(e) => eprintln!("scarlet: {name}: The Fishing Log: {e}"),
                     }
-                    Err(e) => eprintln!("scarlet: {name}: The Fishing Log: {e}"),
-                },
+                    match counts::feed(&dir, read.counts) {
+                        Ok(0) => {}
+                        Ok(n) => println!("{name}: {n} fishing counts archived"),
+                        Err(e) => eprintln!("scarlet: {name}: counts: {e}"),
+                    }
+                }
                 Err(e) => eprintln!("scarlet: {name}: The Fishing Log: {e}"),
             }
         }
