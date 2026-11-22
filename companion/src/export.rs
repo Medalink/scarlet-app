@@ -427,7 +427,7 @@ fn write_overview(dir: &Path, ov: &Overview) -> Result<(), Box<dyn Error>> {
 }
 
 fn import_stamp(path: &Path) -> (String, u64) {
-    source_stamp(path, "import")
+    source_stamp(path, "import2")
 }
 
 fn source_stamp(path: &Path, tag: &str) -> (String, u64) {
@@ -519,7 +519,7 @@ fn refresh_fishing(wows: &[PathBuf], out: &Path, state: &mut State) -> bool {
     wrote
 }
 
-const COUNTS_STAMP: &str = "counts1";
+const COUNTS_STAMP: &str = "counts2";
 
 struct CountSources {
     files: Vec<PathBuf>,
