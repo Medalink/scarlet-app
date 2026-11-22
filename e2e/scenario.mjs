@@ -9,7 +9,6 @@ import zlib from "node:zlib";
 const ELWYNN = 1429;
 const WESTFALL = 1436;
 
-/** A session's lines as `[seconds since the session began, code, ...fields]`. */
 const session = (start, lines) => ({ start, lines });
 
 const walk = (from, map, points) => points.map(([x, y, facing], i) => [from + i * 5, "P", map, x, y, facing]);
@@ -22,6 +21,7 @@ export const CHARACTERS = [
       session(1795000000, [
         [0, "S", "1.15.8", "WARRIOR", "Human", 5, "Alliance", "0.9.0", 1, "Forever", 1, 11508, 1200, 2800, 3500, 60],
         [0, "GR", "normal", 0],
+        [0, "LM", "solo", "", "", 1, "s"],
         [0, "ST", 5, 3500, 26, 21, 24, 20, 21, 180, 220, 100, 8],
         [1, "Z", ELWYNN, 0, "none", 0, "Elwynn Forest", "Goldshire"],
         [1, "SZ", ELWYNN, "Goldshire", 4210, 6580],
@@ -38,7 +38,7 @@ export const CHARACTERS = [
         [52, "K", 113, 1],
         [52, "F", 0, 8],
         [52, "X", 95, 1295, 2800, "k", 113],
-        [53, "LO", "c", 113, 2, "769:1,2589:2", 0],
+        [53, "LO", "c", 113, 2, "769x1,2589x2", 0],
         [53, "IN", 769, "Chunk of Boar Meat"],
         [53, "O", 769, 1, 0, "", ""],
         [53, "I", 769, 1, "l", 113, 4],
@@ -52,7 +52,7 @@ export const CHARACTERS = [
         [70, "K", 38, 1],
         [70, "F", 0, 9],
         [70, "X", 110, 1405, 2800, "k", 38],
-        [71, "LO", "c", 38, 1, "2589:1", 0],
+        [71, "LO", "c", 38, 1, "2589x1", 0],
         [71, "O", 2589, 1, 0, "", ""],
         [71, "I", 2589, 1, "l", 38, 13],
         [71, "M", 52, 0, 3589],
@@ -68,6 +68,7 @@ export const CHARACTERS = [
         [120, "NI", "v", 54, "Corina Steele", "Stormwind", 1],
         [121, "I", 769, -1, "v", 54, 4],
         [121, "M", 4, 0, 3843],
+        [129, "IN", 6948, "Hearthstone"],
         [130, "BC", "b", "2589:3,6948:1"],
         [130, "RO", 0, 3600, 1],
         [130, "ES"],
@@ -78,7 +79,14 @@ export const CHARACTERS = [
         [1, "Z", WESTFALL, 0, "none", 0, "Westfall", "Sentinel Hill"],
         [1, "SZ", WESTFALL, "Sentinel Hill", 5650, 4760],
         [3, "TP", 5540, 20],
-        ...walk(5, WESTFALL, [[5650, 4760, 8], [5600, 4820, 8], [5540, 4890, 9], [5480, 4960, 9], [5420, 5040, 9]]),
+        [4, "TY", 161, "Arms"],
+        [4, "SN", 7001, "Improved Heroic Strike"],
+        [4, "SN", 7002, "Deflection"],
+        [5, "TG", "s", 1, 1, "", "", 1, "161:3:2", 0, 1, 1, ""],
+        [5, "TA", 1, 9001, 9001, 1, "", 3, 7001, 161, "s"],
+        [5, "TA", 1, 9002, 9002, 2, "", 2, 7002, 161, "s"],
+        [6, "TA", 1, 9001, 9001, 2, 1, 3, 7001, 161, "c"],
+        ...walk(8, WESTFALL, [[5650, 4760, 8], [5600, 4820, 8], [5540, 4890, 9], [5480, 4960, 9], [5420, 5040, 9]]),
         [30, "W", "f", 260, 25, 1, "11"],
         [31, "N", 115, "Harvest Reaper"],
         [31, "NS", 115, 12, "normal", "Mechanical", 9, "", 0, 2, WESTFALL, 54, 50],
@@ -117,6 +125,7 @@ export const CHARACTERS = [
         [31, "F", 0, 4],
         [31, "X", 60, 360, 1400, "k", 6],
         [32, "M", 9, 0, 129],
+        [39, "IN", 6948, "Hearthstone"],
         [40, "BC", "b", "6948:1"],
         [40, "RO", 0, 1400, 0],
         [40, "ES"],
@@ -125,7 +134,6 @@ export const CHARACTERS = [
   },
 ];
 
-/** Lines of other addons (Scarlet's docs/ADDONS.md), kept in their own table of the same file. */
 const ADDON_LINES = [[20, "gm", "N", ELWYNN, 4390, 6700, 2447]];
 
 const text = (lines) => {
@@ -161,10 +169,9 @@ export const LATER = { character: "Testa-Fixture", start: 1795270000, lines: [
 ] };
 
 const savedVariables = (character, extra) => {
-  // Sessions alternate between the two encodings the addon writes.
   const chunks = character.sessions.map((s, i) => chunk(i + 1, character.name, s.start, text(s.lines), i % 2 ? "txt" : "d64"));
   if (extra) chunks.push(chunk(chunks.length + 1, character.name, extra.start, text(extra.lines), "d64"));
-  const tables = [`ScarletDB = ${lua({ v: 1, seq: chunks.length, chunks, buf: [] })}`];
+  const tables = [`ScarletDB = ${lua({ v: 1, seq: chunks.length, chunks, buf: [], chars: { [character.name]: { v: 1 } } })}`];
   if (character.name === CHARACTERS[0].name) {
     const start = character.sessions[0].start;
     const addons = { v: 1, seq: 1, chunks: [chunk(1, character.name, start, text(ADDON_LINES), "txt")], buf: [] };
@@ -187,8 +194,12 @@ export function writeWow(wow, { later = false } = {}) {
   return wow;
 }
 
-/** How many main-stream lines the recording holds, the number the app shows as events. */
-export const lineCount = ({ later = false } = {}) => CHARACTERS.reduce((n, c) => n + c.sessions.reduce((m, s) => m + s.lines.length, 0), 0) + (later ? LATER.lines.length : 0);
+/** How many lines the recording holds for one character, or for all of them, as the export counts them. */
+export const lineCount = ({ later = false, character = null } = {}) =>
+  CHARACTERS.filter((c) => !character || c.name === character).reduce(
+    (n, c) => n + c.sessions.reduce((m, s) => m + s.lines.length, 0) + (later && c.name === LATER.character ? LATER.lines.length : 0),
+    0,
+  );
 
 if (process.argv[1] && path.resolve(process.argv[1]) === import.meta.filename) {
   const wow = process.argv[2];
