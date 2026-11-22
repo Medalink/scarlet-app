@@ -457,6 +457,9 @@ fn wants(class: &Class, dir: &Path, offer: &Version) -> bool {
 /// outcome is what Settings shows.
 pub fn run(app: &AppHandle) {
     let _one = RUNNING.lock().unwrap_or_else(|e| e.into_inner());
+    if !updater::enabled(app) {
+        return;
+    }
     let (wows, primary, keep) = {
         let s = state(app).settings.lock().unwrap();
         (s.folders(), s.wow.clone(), s.keep_addon)

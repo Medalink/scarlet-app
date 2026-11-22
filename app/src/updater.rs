@@ -8,9 +8,9 @@
 //! The plugin downloads the installer and checks its minisign signature against the key in
 //! `tauri.conf.json`; this module only picks the endpoint at run time, decides whether the
 //! feed's version is newer (never a downgrade) and shows the notes. A build whose version is
-//! the placeholder `0.0.0-dev` (a plain `cargo build`) reads the feed, so it keeps the addon
-//! current, but never offers the installer, unless `SCARLET_UPDATE_BASE` points it at a test
-//! server: `<base>/<release|beta>/latest.json` and `<base>/releases.json`.
+//! the placeholder `0.0.0-dev` (a plain `cargo build`) reads the feed to show the latest
+//! versions, but never offers the installer or syncs the addon, unless `SCARLET_UPDATE_BASE`
+//! points it at a test server: `<base>/<release|beta>/latest.json` and `<base>/releases.json`.
 
 use crate::commands::state;
 use crate::settings;
@@ -68,8 +68,8 @@ pub fn override_base() -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
-/// The app offers to install a newer build of itself: released builds only. Every build reads
-/// the feed for the addon.
+/// The app offers to install a newer build of itself and keeps the addon current: released
+/// builds only. Every build reads the feed.
 pub fn enabled(app: &AppHandle) -> bool {
     !is_dev(&version(app)) || override_base().is_some()
 }
