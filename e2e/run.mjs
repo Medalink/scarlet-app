@@ -74,7 +74,36 @@ const hashOf = (dir) =>
 
 const csvRows = (file) => read(file).trim().split(/\r?\n/).length - 1;
 
-const gitStatus = () => spawnSync("git", ["status", "--porcelain"], { cwd: REPO, encoding: "utf8" }).stdout ?? "";
+const newest = (target) => {
+  let stat;
+  try {
+    stat = fs.statSync(target);
+  } catch {
+    return null;
+  }
+  if (!stat.isDirectory()) return stat.mtimeMs;
+  return fs.readdirSync(target).reduce((latest, name) => Math.max(latest, newest(path.join(target, name)) ?? 0), stat.mtimeMs);
+};
+
+const listing = (dir) => Object.fromEntries(fs.readdirSync(dir).map((name) => [name, newest(path.join(dir, name))]));
+
+const footprint = () => {
+  const identifier = "app.scarlet.desktop";
+  const home = os.homedir();
+  const watched = [
+    path.join(process.env.APPDATA ?? "", identifier),
+    path.join(process.env.LOCALAPPDATA ?? "", identifier),
+    path.join(home, "Documents", "Scarlet"),
+    path.join(home, "OneDrive", "Documents", "Scarlet"),
+    path.join(REPO, "app", "settings.json"),
+  ];
+  const run = spawnSync("reg", ["query", String.raw`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`], { encoding: "utf8" });
+  return {
+    places: Object.fromEntries(watched.map((place) => [place, newest(place)])),
+    run: run.stdout ?? "",
+    build: { app: listing(path.join(REPO, "app", "target", "debug")), companion: listing(path.join(REPO, "companion", "target", "debug")) },
+  };
+};
 
 const selectCharacter = (app, name) =>
   app.evaluate(`(() => {
@@ -113,7 +142,7 @@ async function startApp(ctx) {
     path.join(s.home, "settings.json"),
     JSON.stringify({ wow: s.wow, data: s.out, watch: false, last_view: "overview", keep_addon: false, open_with_wow: false }),
   );
-  ctx.repoBefore = gitStatus();
+  ctx.footprint = footprint();
   ctx.app = await launch({ exe: ctx.exe, home: s.home });
   await ctx.app.until(`document.querySelectorAll("#nav .item").length > 0 && document.querySelector("#pagetitle").textContent !== ""`, "the page booted", 10000);
 }
@@ -293,7 +322,9 @@ const CHECKS = [
       if (code === 3) ctx.breach = true;
       if (code === null) throw new Error("the app was still running 3 s after the close button");
       expectEqual("exit code of the app", code, 0);
-      expectEqual("files changed in the repository", gitStatus(), ctx.repoBefore);
+      const after = footprint();
+      expectEqual("the app's default settings and profile folders, Documents, and the Run key", { places: after.places, run: after.run }, { places: ctx.footprint.places, run: ctx.footprint.run });
+      expectEqual("files in the two build folders", after.build, ctx.footprint.build);
     },
   },
 ];
@@ -391,7 +422,7 @@ async function main() {
     }
   }
 
-  const dir = given.keep ? path.resolve(given.keep) : fs.mkdtempSync(path.join(os.tmpdir(), "scarlet-e2e-"));
+  const dir = given.keep ? path.resolve(given.keep) : fs.mkdtempSync(path.join(os.tmpdir(), "scarlet-lane-"));
   fs.mkdirSync(dir, { recursive: true });
   const ctx = { dir, cli, exe, keep: Boolean(given.keep), app: null, site: { cli: site(path.join(dir, "cli")), app: site(path.join(dir, "app")) } };
   writeWow(ctx.site.cli.wow);

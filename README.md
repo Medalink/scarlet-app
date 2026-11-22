@@ -35,14 +35,14 @@ target\release\scarlet-app.exe
 node e2e/run.mjs [--only cli|app] [--no-build] [--exe <scarlet-app.exe>] [--cli <scarlet>] [--keep <dir>]
 ```
 
-It needs Node 24 and cargo, builds both crates with the dev profile (about 10 s, printed apart from the checks) and
-writes an invented World of Warcraft folder into a temp folder.
-
+It needs Node 24 and cargo, builds both crates with the dev profile (about 1 s when nothing changed, 9 to 16 s after a
+one-file change; printed apart from the checks) and writes an invented World of Warcraft folder into a temp folder.
 - The cli lane runs the real `scarlet` command on that folder: the export, the addon files, a second export that
   changes nothing, a later session picked up, and an unknown command refused.
 - The app lane (Windows only) starts the real app and drives its page: the 13 views for the selected character, the
-  character filter, a saved setting, an export from inside the app, no reported errors and a clean close.
-- 25 checks take 3 to 5 s. Without `--no-build` the whole command takes about 15 s.
+  character filter, a saved setting, an export from inside the app, no reported errors and a clean close with nothing written to the
+  app's default settings, profile or Documents folders, the Run key or the build folders.
+- 25 checks take 3 to 5 s, 2 s of that the app starting.
 - The app runs on a Windows desktop of its own (`e2e/hidden-desktop.ps1`), so no window appears and nothing takes the
   keyboard. The command exits 3 if a window of the app is ever found on the desktop in use. Exit 1 is a failed check,
   exit 2 a usage error.
