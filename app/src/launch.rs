@@ -67,7 +67,13 @@ fn exe() -> Result<PathBuf, String> {
 }
 
 /// Adds or removes the HKCU Run value that starts the watcher at sign-in.
+/// A copy run with `SCARLET_HOME` (a test or trial copy) never touches the Run
+/// value: it belongs to the installed app, and a copy writing it would point
+/// sign-in at its own exe, which may be deleted with its scratch folder.
 pub fn set_registered(on: bool) -> Result<(), String> {
+    if std::env::var_os("SCARLET_HOME").is_some_and(|v| !v.is_empty()) {
+        return Ok(());
+    }
     let key = wide(RUN_KEY);
     let name = wide(RUN_VALUE);
     let rc = if on {
