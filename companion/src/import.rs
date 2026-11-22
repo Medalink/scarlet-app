@@ -1,10 +1,16 @@
 //! History brought in from other addons' saved variables: TradeSkillMaster's accounting and gold
-//! log, and Auctioneer's BeanCounter. It is a third kind of record beside lifetime and observed
-//! numbers (docs/FORMAT.md, "Imported history"): never counted as Scarlet-observed, never added
-//! to the overview's earned and spent, and dropped where Scarlet recorded the same thing itself.
+//! log, Auctioneer's BeanCounter and Mastercraft's daily gold. It is a third kind of record beside
+//! lifetime and observed numbers (docs/FORMAT.md, "Imported history"): never counted as
+//! Scarlet-observed, never added to the overview's earned and spent, and dropped where Scarlet
+//! recorded the same thing itself. What is read is kept in the character's archive
+//! (`importarchive`), and the payload and view are built from the archive on every export.
 
 use crate::archive::Event;
+use crate::gamedir;
+use crate::importarchive::{Archive, Entry};
 use crate::lua::{self, Lua};
+use crate::mastercraft;
+use chrono::{Local, NaiveDate, TimeZone};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fs;
@@ -12,6 +18,7 @@ use std::path::{Path, PathBuf};
 
 pub const SOURCE_TSM: &str = "TSM";
 pub const SOURCE_AUCTIONEER: &str = "Auctioneer";
+pub const SOURCE_MASTERCRAFT: &str = "Mastercraft";
 
 const DAY_MS: i64 = 86_400_000;
 const AUCTION_WINDOW_MS: i64 = 48 * 3_600_000;
@@ -30,8 +37,9 @@ pub enum Kind {
 /// One record read from another addon, before it is checked against Scarlet's own lines.
 #[derive(Clone, Debug)]
 pub struct Rec {
-    pub player: String,
     pub ms: i64,
+    /// For a day's balance, the start of that local day in epoch milliseconds, else 0.
+    pub day_from: i64,
     pub kind: Kind,
     pub source: &'static str,
     /// `auction`, `vendor`, `trade` or `other`; for `Other` the kind of income or expense.
@@ -75,19 +83,16 @@ fn via(source: &str) -> String {
     }
 }
 
-/// Every TradeSkillMaster and BeanCounter saved-variables file of these game folders, one per
-/// game account.
+/// Every TradeSkillMaster, BeanCounter and Mastercraft saved-variables file of these game folders,
+/// one per game account.
 pub fn find_files(game: &Path) -> Vec<(PathBuf, &'static str)> {
     let mut out = Vec::new();
-    let accounts = game.join("WTF").join("Account");
-    let Ok(entries) = fs::read_dir(&accounts) else {
-        return out;
-    };
-    for acc in entries.flatten() {
-        let sv = acc.path().join("SavedVariables");
+    for acc in gamedir::account_dirs(game) {
+        let sv = acc.join("SavedVariables");
         for (file, source) in [
             ("TradeSkillMaster.lua", SOURCE_TSM),
             ("BeanCounter.lua", SOURCE_AUCTIONEER),
+            (mastercraft::FILE, SOURCE_MASTERCRAFT),
         ] {
             let p = sv.join(file);
             if p.is_file() {
@@ -101,8 +106,9 @@ pub fn find_files(game: &Path) -> Vec<(PathBuf, &'static str)> {
 
 /// TradeSkillMaster keeps its data in one table of flat keys such as
 /// `r@Normal@internalData@csvSales` (CSV text for the whole realm) and
-/// `s@Name Surname - Horde - Normal@internalData@goldLog` (one character's balance).
-pub fn read_tsm(text: &str) -> Result<Vec<Rec>, String> {
+/// `s@Name Surname - Horde - Normal@internalData@goldLog` (one character's balance). Returns each
+/// record with the character it belongs to.
+pub fn read_tsm(text: &str) -> Result<Vec<(String, Entry)>, String> {
     let Some(db) = lua::parse_named(text, "TradeSkillMasterDB")? else {
         return Ok(Vec::new());
     };
@@ -122,26 +128,13 @@ pub fn read_tsm(text: &str) -> Result<Vec<Rec>, String> {
                     ) else {
                         continue;
                     };
-                    out.push(Rec {
-                        player: player.to_string(),
-                        ms: minute * 60_000,
-                        kind: Kind::Gold,
-                        source: SOURCE_TSM,
-                        via: String::new(),
-                        item: None,
-                        qty: 0,
-                        copper,
-                    });
+                    out.push((player.to_string(), Entry::TsmGold { minute, copper }));
                 }
             }
             ["r", _, "internalData", "csvSales"] | ["r", _, "internalData", "csvBuys"] => {
-                let kind = if parts[3] == "csvSales" {
-                    Kind::Sale
-                } else {
-                    Kind::Buy
-                };
+                let sale = parts[3] == "csvSales";
                 for row in csv_rows(body) {
-                    let (Some(id), Some(qty), Some(price), Some(time)) = (
+                    let (Some(item), Some(qty), Some(price), Some(time)) = (
                         row.first().and_then(|v| item_id(v)),
                         row.get(2).and_then(|v| num(v)),
                         row.get(3).and_then(|v| num(v)),
@@ -149,20 +142,22 @@ pub fn read_tsm(text: &str) -> Result<Vec<Rec>, String> {
                     ) else {
                         continue;
                     };
-                    out.push(Rec {
-                        player: row.get(5).copied().unwrap_or("").to_string(),
-                        ms: time * 1000,
-                        kind,
-                        source: SOURCE_TSM,
-                        via: via(row.get(7).copied().unwrap_or("")),
-                        item: Some(id),
-                        qty,
-                        copper: price * qty,
-                    });
+                    out.push((
+                        row.get(5).copied().unwrap_or("").to_string(),
+                        Entry::TsmTrade {
+                            sale,
+                            item,
+                            stack: row.get(1).and_then(|v| num(v)).unwrap_or(0),
+                            qty,
+                            price,
+                            time,
+                            source: row.get(7).copied().unwrap_or("").to_string(),
+                        },
+                    ));
                 }
             }
             ["r", _, "internalData", "csvIncome"] | ["r", _, "internalData", "csvExpense"] => {
-                let sign = if parts[3] == "csvIncome" { 1 } else { -1 };
+                let income = parts[3] == "csvIncome";
                 for row in csv_rows(body) {
                     let (Some(amount), Some(time)) = (
                         row.get(1).and_then(|v| num(v)),
@@ -170,21 +165,15 @@ pub fn read_tsm(text: &str) -> Result<Vec<Rec>, String> {
                     ) else {
                         continue;
                     };
-                    out.push(Rec {
-                        player: row.get(3).copied().unwrap_or("").to_string(),
-                        ms: time * 1000,
-                        kind: Kind::Other,
-                        source: SOURCE_TSM,
-                        via: row
-                            .first()
-                            .copied()
-                            .unwrap_or("")
-                            .to_lowercase()
-                            .replace(' ', "-"),
-                        item: None,
-                        qty: 0,
-                        copper: sign * amount,
-                    });
+                    out.push((
+                        row.get(3).copied().unwrap_or("").to_string(),
+                        Entry::TsmMoney {
+                            income,
+                            kind: row.first().copied().unwrap_or("").to_string(),
+                            amount,
+                            time,
+                        },
+                    ));
                 }
             }
             _ => {}
@@ -204,26 +193,26 @@ fn bean_walk(
     v: &Lua,
     id: Option<i64>,
     player: &str,
-    kind: Kind,
-    out: &mut Vec<Rec>,
+    sale: bool,
+    out: &mut Vec<(String, Entry)>,
     skipped: &mut usize,
 ) {
     let Some(items) = v.items() else { return };
     for (key, child) in items {
         let id = id.or_else(|| bean_key_id(key));
         match child {
-            Lua::Table(_) => bean_walk(child, id, player, kind, out, skipped),
+            Lua::Table(_) => bean_walk(child, id, player, sale, out, skipped),
             Lua::Str(s) => match (bean_entry(s), id) {
-                (Some((stack, money, time)), Some(id)) => out.push(Rec {
-                    player: player.to_string(),
-                    ms: time * 1000,
-                    kind,
-                    source: SOURCE_AUCTIONEER,
-                    via: "auction".into(),
-                    item: Some(id),
-                    qty: stack,
-                    copper: money,
-                }),
+                (Some((stack, money, time)), Some(item)) => out.push((
+                    player.to_string(),
+                    Entry::BeanTrade {
+                        sale,
+                        item,
+                        stack,
+                        money,
+                        time,
+                    },
+                )),
                 _ => *skipped += 1,
             },
             _ => {}
@@ -237,15 +226,15 @@ fn bean_entry(s: &str) -> Option<(i64, i64, i64)> {
     if stack > 100_000 {
         return None;
     }
-    let money = num(f.get(1)?)?.abs();
+    let money = num(f.get(1)?)?;
     let time = num(f.get(7)?)?;
     (time > 1_000_000_000 && stack > 0).then_some((stack, money, time))
 }
 
 /// BeanCounter: `BeanCounterDB[realm][character]`, tables `completedAuctions` (sales) and
 /// `completedBidsBuyouts` or `completedBids/Buyouts` (purchases), each grouped by item. Returns
-/// the records and how many entries had a layout that was not read.
-pub fn read_beancounter(text: &str) -> Result<(Vec<Rec>, usize), String> {
+/// the records with their character and how many entries had a layout that was not read.
+pub fn read_beancounter(text: &str) -> Result<(Vec<(String, Entry)>, usize), String> {
     let Some(db) = lua::parse_named(text, "BeanCounterDB")? else {
         return Ok((Vec::new(), 0));
     };
@@ -253,18 +242,115 @@ pub fn read_beancounter(text: &str) -> Result<(Vec<Rec>, usize), String> {
     let mut skipped = 0;
     for (_, realm) in db.items().unwrap_or(&[]) {
         for (player, tables) in realm.items().unwrap_or(&[]) {
-            for (table, kind) in [
-                ("completedAuctions", Kind::Sale),
-                ("completedBidsBuyouts", Kind::Buy),
-                ("completedBids/Buyouts", Kind::Buy),
+            for (table, sale) in [
+                ("completedAuctions", true),
+                ("completedBidsBuyouts", false),
+                ("completedBids/Buyouts", false),
             ] {
                 if let Some(t) = tables.get(table) {
-                    bean_walk(t, None, player, kind, &mut out, &mut skipped);
+                    bean_walk(t, None, player, sale, &mut out, &mut skipped);
                 }
             }
         }
     }
     Ok((out, skipped))
+}
+
+fn local_day_bounds(date: NaiveDate) -> Option<(i64, i64)> {
+    let at = |d: NaiveDate| {
+        let midnight = d.and_hms_opt(0, 0, 0)?;
+        let t = Local.from_local_datetime(&midnight);
+        Some(t.earliest().or_else(|| t.latest())?.timestamp() * 1000)
+    };
+    Some((at(date)?, at(date.succ_opt()?)?))
+}
+
+fn rec_of(entry: &Entry, today: NaiveDate) -> Option<Rec> {
+    let rec = |ms, kind, source, via: String, item, qty, copper| Rec {
+        ms,
+        day_from: 0,
+        kind,
+        source,
+        via,
+        item,
+        qty,
+        copper,
+    };
+    Some(match entry {
+        Entry::TsmGold { minute, copper } => rec(
+            minute * 60_000,
+            Kind::Gold,
+            SOURCE_TSM,
+            String::new(),
+            None,
+            0,
+            *copper,
+        ),
+        Entry::TsmTrade {
+            sale,
+            item,
+            qty,
+            price,
+            time,
+            source,
+            ..
+        } => rec(
+            time * 1000,
+            if *sale { Kind::Sale } else { Kind::Buy },
+            SOURCE_TSM,
+            via(source),
+            Some(*item),
+            *qty,
+            price * qty,
+        ),
+        Entry::TsmMoney {
+            income,
+            kind,
+            amount,
+            time,
+        } => rec(
+            time * 1000,
+            Kind::Other,
+            SOURCE_TSM,
+            kind.to_lowercase().replace(' ', "-"),
+            None,
+            0,
+            if *income { *amount } else { -amount },
+        ),
+        Entry::BeanTrade {
+            sale,
+            item,
+            stack,
+            money,
+            time,
+        } => rec(
+            time * 1000,
+            if *sale { Kind::Sale } else { Kind::Buy },
+            SOURCE_AUCTIONEER,
+            "auction".into(),
+            Some(*item),
+            *stack,
+            money.abs(),
+        ),
+        Entry::McDay { date, copper } => {
+            let date = NaiveDate::parse_from_str(date, "%Y-%m-%d").ok()?;
+            if date >= today {
+                return None;
+            }
+            let (from, next) = local_day_bounds(date)?;
+            let mut r = rec(
+                next - 1000,
+                Kind::Gold,
+                SOURCE_MASTERCRAFT,
+                String::new(),
+                None,
+                0,
+                *copper,
+            );
+            r.day_from = from;
+            r
+        }
+    })
 }
 
 /// Records dropped because Scarlet has the same thing from its own lines.
@@ -358,6 +444,7 @@ struct Native<'a> {
     vend_buy: Vec<(i64, i64, i64, bool)>,
     money: Vec<(i64, i64, bool)>,
     anchors: Vec<i64>,
+    balances: Vec<i64>,
 }
 
 fn pick_lines(counts: &[i64], want: i64) -> Option<Vec<usize>> {
@@ -414,6 +501,7 @@ impl<'a> Native<'a> {
             vend_buy: Vec::new(),
             money: Vec::new(),
             anchors: Vec::new(),
+            balances: Vec::new(),
         };
         for ev in evs {
             match ev.code.as_str() {
@@ -458,6 +546,7 @@ impl<'a> Native<'a> {
                     }
                     if n(ev, 2).is_some() {
                         s.anchors.push(ev.ms);
+                        s.balances.push(ev.ms);
                     }
                 }
                 "S" if n(ev, 12).is_some() => s.anchors.push(ev.ms),
@@ -465,6 +554,7 @@ impl<'a> Native<'a> {
             }
         }
         s.anchors.sort_unstable();
+        s.balances.sort_unstable();
         s
     }
 
@@ -567,6 +657,11 @@ impl<'a> Native<'a> {
         }
     }
 
+    fn has_balance_between(&self, from: i64, to: i64) -> bool {
+        let i = self.balances.partition_point(|t| *t < from);
+        self.balances.get(i).is_some_and(|t| *t < to)
+    }
+
     fn covers_gold(&self, ms: i64) -> bool {
         let i = self.anchors.partition_point(|t| *t < ms);
         [i.checked_sub(1), Some(i)]
@@ -579,11 +674,14 @@ impl<'a> Native<'a> {
 
 /// The records of one character that Scarlet does not have from its own lines, and the view of them.
 /// `evs` is every line Scarlet has for the character, whether recorded by the addon or read in
-/// earlier, in time order.
-pub fn build(recs: Vec<Rec>, evs: &[Event]) -> Built {
+/// earlier, in time order. `archive` is what the character's addons have ever shown.
+pub fn build(archive: &Archive, evs: &[Event], today: NaiveDate) -> Built {
     let mut native = Native::new(evs);
-    let mut recs = recs;
+    let mut recs: Vec<Rec> = archive.entries().filter_map(|e| rec_of(e, today)).collect();
     recs.sort_by_key(|r| (r.ms, r.copper));
+    let (days, recs): (Vec<Rec>, Vec<Rec>) = recs
+        .into_iter()
+        .partition(|r| r.source == SOURCE_MASTERCRAFT);
     let mut dropped = Dropped::default();
     let mut kept = Vec::new();
     for r in recs {
@@ -613,6 +711,18 @@ pub fn build(recs: Vec<Rec>, evs: &[Event]) -> Built {
         }
         kept.push(r);
     }
+    for day in days {
+        let covered = native.has_balance_between(day.day_from, day.ms + 1000)
+            || kept
+                .iter()
+                .any(|r| r.kind == Kind::Gold && r.ms >= day.day_from && r.ms < day.ms + 1000);
+        if covered {
+            dropped.gold += 1;
+        } else {
+            kept.push(day);
+        }
+    }
+    kept.sort_by_key(|r| (r.ms, r.copper));
     let view = view_of(&kept, dropped, &native);
     Built { kept, view }
 }
@@ -759,12 +869,13 @@ pub fn read_view(char_dir: &Path) -> Option<View> {
     serde_json::from_str(&text).ok()
 }
 
-/// The records of every source file for the characters in `own`, by Name-Surname.
+/// The archive entries of every source file for the characters in `own`, by Name-Surname. A file
+/// that does not read, or a table it lacks, adds nothing.
 pub fn read_all(
     game_dirs: &[PathBuf],
     own: &[String],
-) -> (BTreeMap<String, Vec<Rec>>, Vec<String>) {
-    let mut by: BTreeMap<String, Vec<Rec>> = BTreeMap::new();
+) -> (BTreeMap<String, Vec<Entry>>, Vec<String>) {
+    let mut by: BTreeMap<String, Vec<Entry>> = BTreeMap::new();
     let mut notes = Vec::new();
     for game in game_dirs {
         for (path, source) in find_files(game) {
@@ -772,6 +883,17 @@ pub fn read_all(
                 notes.push(format!("{}: unreadable", path.display()));
                 continue;
             };
+            if source == SOURCE_MASTERCRAFT {
+                match read_mastercraft(&path, &text, own) {
+                    Ok(days) => {
+                        for (me, entry) in days {
+                            by.entry(me).or_default().push(entry);
+                        }
+                    }
+                    Err(e) => notes.push(format!("{}: {e}", path.display())),
+                }
+                continue;
+            }
             let recs = if source == SOURCE_TSM {
                 read_tsm(&text)
             } else {
@@ -787,10 +909,10 @@ pub fn read_all(
             };
             match recs {
                 Ok(recs) => {
-                    for r in recs {
-                        let key = name_key(&r.player);
+                    for (player, entry) in recs {
+                        let key = name_key(&player);
                         if let Some(me) = own.iter().find(|o| name_key(o) == key) {
-                            by.entry(me.clone()).or_default().push(r);
+                            by.entry(me.clone()).or_default().push(entry);
                         }
                     }
                 }
@@ -799,4 +921,25 @@ pub fn read_all(
         }
     }
     (by, notes)
+}
+
+fn read_mastercraft(
+    path: &Path,
+    text: &str,
+    own: &[String],
+) -> Result<Vec<(String, Entry)>, String> {
+    let Some(db) = lua::parse_named(text, mastercraft::TABLE)? else {
+        return Ok(Vec::new());
+    };
+    let folder = path
+        .parent()
+        .and_then(Path::parent)
+        .map(gamedir::character_names)
+        .unwrap_or_default();
+    Ok(mastercraft::days(
+        &db,
+        &folder,
+        own,
+        Local::now().date_naive(),
+    ))
 }

@@ -1,10 +1,13 @@
-//! Mastercraft's saved variables, read into the account's `mc` fishing total of the counts archive
-//! (Scarlet's FORMAT.md and the website's DESIGN.md, "Addon counts"). Only `fishing.life` is read. The
-//! file also holds the names of other players, which are never read, logged or archived.
+//! Mastercraft's saved variables: the account's `mc` fishing total for the counts archive (Scarlet's
+//! FORMAT.md and the website's DESIGN.md, "Addon counts") and each character's last balance of every
+//! local day for the imports archive (FORMAT.md, "Imported history"). The file also holds the names
+//! of other players, which are never read, logged or archived.
 
 use crate::counts::{self, Record};
 use crate::fishing::int;
+use crate::importarchive::Entry;
 use crate::lua::Lua;
+use chrono::NaiveDate;
 use std::collections::BTreeMap;
 
 pub const FILE: &str = "Mastercraft.lua";
@@ -44,4 +47,61 @@ pub fn life(db: &Lua, modified: i64) -> Option<Record> {
             ("gained".to_string(), gained),
         ]),
     })
+}
+
+fn plain(s: &str) -> String {
+    s.chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
+}
+
+fn character_of<'a>(entry: &Lua, chars: &'a [String]) -> Option<&'a String> {
+    let name = plain(entry.get("name")?.as_str()?);
+    let surname = entry.get("surname").and_then(Lua::as_str).map(plain);
+    let mut fit = chars.iter().filter(|c| {
+        let (n, r) = c.split_once('-').unwrap_or((c, ""));
+        plain(n) == name
+            && surname
+                .as_deref()
+                .is_none_or(|w| w.is_empty() || w == plain(r))
+    });
+    let first = fit.next()?;
+    fit.next().is_none().then_some(first)
+}
+
+/// Every day `history[<GUID>][<YYYY-MM-DD>].g` holds, each with its character. `folder` is every
+/// character of the file's game account and `own` the exported ones. A GUID is matched to a
+/// character through its `chars[<GUID>]` name, and one that fits none is skipped. The day `today`
+/// and later ones are not over and are left out.
+pub fn days(db: &Lua, folder: &[String], own: &[String], today: NaiveDate) -> Vec<(String, Entry)> {
+    let mut out = Vec::new();
+    let (Some(known), Some(history)) = (db.get("chars"), db.get("history")) else {
+        return out;
+    };
+    for (guid, by_day) in history.items().unwrap_or(&[]) {
+        let Some(name) = known
+            .get(guid)
+            .and_then(|e| character_of(e, folder))
+            .filter(|n| own.contains(n))
+        else {
+            continue;
+        };
+        for (date, day) in by_day.items().unwrap_or(&[]) {
+            let Some(copper) = day.get("g").and_then(Lua::as_num) else {
+                continue;
+            };
+            let over = NaiveDate::parse_from_str(date, "%Y-%m-%d").is_ok_and(|d| d < today);
+            if copper.is_finite() && copper >= 0.0 && over {
+                out.push((
+                    name.clone(),
+                    Entry::McDay {
+                        date: date.clone(),
+                        copper: copper.round() as i64,
+                    },
+                ));
+            }
+        }
+    }
+    out
 }

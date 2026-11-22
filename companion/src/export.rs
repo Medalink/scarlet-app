@@ -8,6 +8,7 @@ use crate::events;
 use crate::fishing;
 use crate::foreverfishing;
 use crate::import;
+use crate::importarchive::Archive;
 use crate::inventory::{self, Inventory};
 use crate::lua::{self, Lua};
 use crate::mastercraft;
@@ -668,6 +669,10 @@ fn imports_stale(wows: &[PathBuf], out: &Path) -> bool {
     })
 }
 
+fn imports_file(dir: &Path, name: &str) -> PathBuf {
+    dir.join(crate::importarchive::DIR).join(name)
+}
+
 fn refresh_imports(
     wows: &[PathBuf],
     out: &Path,
@@ -677,10 +682,8 @@ fn refresh_imports(
 ) {
     let games: Vec<PathBuf> = wows.iter().map(|w| crate::gamedir::game_dir(w)).collect();
     let mut sources_changed = false;
-    let mut any = false;
     for game in &games {
         for (path, _) in import::find_files(game) {
-            any = true;
             let (key, stamp) = import_stamp(&path);
             if state.0.get(&key) != Some(&stamp) {
                 sources_changed = true;
@@ -688,22 +691,46 @@ fn refresh_imports(
             }
         }
     }
-    if !any {
-        return;
-    }
-    let (mut by, notes) = import::read_all(&games, own);
+    let needs_seed = own.iter().any(|name| {
+        let dir = out.join(name);
+        imports_file(&dir, "view.json").is_file() && !imports_file(&dir, "archive.tsv").is_file()
+    });
+    let (mut by, notes) = if sources_changed || needs_seed {
+        import::read_all(&games, own)
+    } else {
+        (BTreeMap::new(), Vec::new())
+    };
     for note in notes {
         eprintln!("scarlet: import: {note}");
     }
+    let today = chrono::Local::now().date_naive();
     for name in own {
         let dir = out.join(name);
-        let redo = sources_changed
-            || touched.contains(name)
-            || (by.contains_key(name) && !dir.join("imports").join("view.json").is_file());
-        if !redo || !dir.join("payloads").is_dir() {
+        if !dir.join("payloads").is_dir() {
             continue;
         }
-        let recs = by.remove(name).unwrap_or_default();
+        let mut archive = match Archive::load(&dir) {
+            Ok(a) => a,
+            Err(e) => {
+                eprintln!("scarlet: {name}: import: {e}");
+                continue;
+            }
+        };
+        let added = archive.merge(by.remove(name).unwrap_or_default());
+        let redo = sources_changed
+            || touched.contains(name)
+            || added > 0
+            || (!archive.is_empty() && !imports_file(&dir, "view.json").is_file());
+        if !redo {
+            continue;
+        }
+        if added > 0 {
+            if let Err(e) = archive.save(&dir) {
+                eprintln!("scarlet: {name}: import: {e}");
+                continue;
+            }
+            println!("{name}: {added} imported records archived");
+        }
         let evs = match load_events(&dir, name) {
             Ok(e) => e,
             Err(e) => {
@@ -711,7 +738,7 @@ fn refresh_imports(
                 continue;
             }
         };
-        let built = import::build(recs, &evs);
+        let built = import::build(&archive, &evs, today);
         if let Err(e) = import::write(&dir, name, &built) {
             eprintln!("scarlet: {name}: import: {e}");
             continue;
