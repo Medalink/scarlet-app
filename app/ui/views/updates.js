@@ -48,9 +48,7 @@ function line(parent, name, value) {
 
 function status(info) {
   const s = el("div", "status");
-  if (info.dev && !info.enabled) {
-    s.textContent = "This is a development build. It does not check for updates.";
-  } else if (info.installing) {
+  if (info.installing) {
     s.textContent = progress
       ? `Downloading… ${bytes(progress[0])}${progress[1] ? ` of ${bytes(progress[1])}` : ""}`
       : "Downloading…";
@@ -62,6 +60,8 @@ function status(info) {
   } else if (info.offered) {
     s.className = "status ok";
     s.textContent = `Version ${info.offered.version} is available.`;
+  } else if (!info.enabled) {
+    s.textContent = `This is a development build. It does not update itself.${info.latest ? ` The latest ${info.track} is ${info.latest}.` : ""}`;
   } else if (info.latest && info.ahead_of_track) {
     s.textContent = `This build is newer than the latest ${info.track} (${info.latest}). Updates resume with the next ${info.track}.`;
   } else if (info.latest) {
@@ -262,7 +262,7 @@ export async function renderUpdates(body) {
     actions.style.marginTop = "14px";
     const check = el("button", "btn", "Check for updates");
     check.type = "button";
-    check.disabled = !info.enabled || info.checking || info.installing;
+    check.disabled = info.checking || info.installing;
     check.onclick = async () => {
       check.disabled = true;
       await invoke("update_check");

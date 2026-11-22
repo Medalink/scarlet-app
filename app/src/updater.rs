@@ -8,8 +8,9 @@
 //! The plugin downloads the installer and checks its minisign signature against the key in
 //! `tauri.conf.json`; this module only picks the endpoint at run time, decides whether the
 //! feed's version is newer (never a downgrade) and shows the notes. A build whose version is
-//! the placeholder `0.0.0-dev` (a plain `cargo build`) never checks, unless `SCARLET_UPDATE_BASE`
-//! points it at a test server: `<base>/<release|beta>/latest.json` and `<base>/releases.json`.
+//! the placeholder `0.0.0-dev` (a plain `cargo build`) reads the feed, so it keeps the addon
+//! current, but never offers the installer, unless `SCARLET_UPDATE_BASE` points it at a test
+//! server: `<base>/<release|beta>/latest.json` and `<base>/releases.json`.
 
 use crate::commands::state;
 use crate::settings;
@@ -67,7 +68,8 @@ pub fn override_base() -> Option<String> {
         .filter(|v| !v.is_empty())
 }
 
-/// Updates (and the addon sync that rides on the feed) run in released builds only.
+/// The app offers to install a newer build of itself: released builds only. Every build reads
+/// the feed for the addon.
 pub fn enabled(app: &AppHandle) -> bool {
     !is_dev(&version(app)) || override_base().is_some()
 }
@@ -201,7 +203,7 @@ async fn fetch(app: &AppHandle) -> Result<Found, String> {
         .raw_json
         .get("addon")
         .and_then(|a| serde_json::from_value::<AddonOffer>(a.clone()).ok());
-    let newer = remote > current;
+    let newer = remote > current && enabled(app);
     let notes = clean_notes(update.body.as_deref().unwrap_or(""));
     let date = update.date.map(|d| d.to_string());
     Ok(Found {
@@ -221,9 +223,6 @@ fn now_ms() -> i64 {
 
 /// Reads the feed of the chosen track, keeps the update it offers, then lets the addon follow it.
 pub async fn refresh(app: &AppHandle) {
-    if !enabled(app) {
-        return;
-    }
     {
         let mut s = shared();
         if s.checking || s.installing {
@@ -258,9 +257,6 @@ pub fn kick(app: AppHandle) {
 
 /// Checks a little after start and every few hours while the app is open.
 pub fn spawn(app: AppHandle) {
-    if !enabled(&app) {
-        return;
-    }
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_secs(10));
         loop {
