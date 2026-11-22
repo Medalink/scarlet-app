@@ -32,7 +32,7 @@ const VIEWS = [
   { key: "charts", shows: /Experience over time 95 1,605 .* Top spells cast Heroic Strike 1 /, never: /Experience over time No data/ },
   { key: "loot", shows: /Drop rates .* Solo Stonetusk Boar .* Chunk of Boar Meat 100% 1\/1 .* Testa Fixture Solo 3 /, never: /No creature loot with an item list|No loot recorded yet/ },
   { key: "talents", shows: /Arms · 3 points, 2 available .* Improved Heroic Strike 2\/3 Deflection 2\/2 .* Picked 1→2\/3/, never: /No talent lines recorded|Select a character/ },
-  { key: "items", shows: /Linen Cloth 2589 3 Testa Fixture 3 in bags/, never: /No bags or bank recorded yet|No items match/ },
+  { key: "items", shows: /Linen Cloth 2589 23 Testa Fixture 3 in bags Warband bank 20 .* Warband bank Testa Fixture 1 .* 12g ?34s/, never: /No bags or bank recorded yet|No items match/ },
   { key: "addons", shows: /GatherMate2 1 .* GatherMate2 Testa Fixture \(2447\) map 1429 at 43\.9, 67\.0/, never: /No lines from other addons/ },
   { key: "compress", shows: /Export now .* 2 file\(s\) .* Payloads .* [1-9]\d* events loaded/, never: /Data folder .* · 0 events loaded/ },
   { key: "settings", shows: /WoW folders .* E2EONE .* E2ETWO/, never: /No game accounts yet/ },
