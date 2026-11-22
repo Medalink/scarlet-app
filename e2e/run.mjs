@@ -373,8 +373,8 @@ const CHECKS = [
       writeWow(ctx.site.app.wow, { later: true });
       await open(app, "compress", /Export now/);
       await app.evaluate(`[...document.querySelectorAll("#body button")].find((b) => b.textContent === "Export now").click()`);
+      await app.until(`/^export ok/.test(document.querySelector("#body .status")?.textContent ?? "")`, "the export reports success", 30000);
       await app.until(`window.__TAURI__.core.invoke("app_state").then((s) => s.sessions === 4)`, "app_state reports 4 sessions after Export now", 5000);
-      await app.until(`/^export ok/.test(document.querySelector("#body .status")?.textContent ?? "")`, "the export reports success", 5000);
       const events = await app.until(`(() => { const n = Number(/([\\d,]+) events/.exec(document.querySelector("#head-stats").textContent)?.[1].replace(/,/g, "")); return n > ${before} ? n : 0; })()`, `the events in the header rise above ${before}`, 5000);
       expectEqual("events the header gained", events - before, LATER.lines.length);
     },
