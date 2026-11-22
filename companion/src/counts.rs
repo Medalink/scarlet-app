@@ -15,8 +15,14 @@ const DAY_S: i64 = 86_400;
 pub const FISHING_LOG: &str = "fl";
 pub const FOREVER_FISHING: &str = "ff";
 pub const MASTERCRAFT: &str = "mc";
+pub const RXP: &str = "rxp";
+pub const FDJ: &str = "fdj";
 pub const SESSION: &str = "session";
+pub const LEVEL: &str = "level";
 pub const LIFE: &str = "life";
+pub const KILL: &str = "kill";
+pub const RUN: &str = "run";
+pub const XP: &str = "xp";
 pub const CHARACTER: &str = "c";
 pub const ACCOUNT: &str = "a";
 pub const FISHING: &str = "fishing";
@@ -317,15 +323,22 @@ fn field(rec: &Record, name: &str) -> Option<i64> {
     rec.fields.get(name).copied()
 }
 
+fn mapped(rec: &Record, source: &str, metric: &'static str) -> Vec<(&'static str, i64)> {
+    field(rec, source)
+        .map(|n| (metric, n))
+        .into_iter()
+        .collect()
+}
+
 fn scarlet_amounts(rec: &Record) -> Vec<(&'static str, i64)> {
     match (rec.origin.as_str(), rec.window.as_str(), rec.kind.as_str()) {
         (FISHING_LOG, SESSION, FISHING) => fishing_log_amounts(rec),
         (FOREVER_FISHING, SESSION, FISHING) => forever_fishing_amounts(rec),
         (MASTERCRAFT, LIFE, FISHING) => mastercraft_amounts(rec),
-        (MASTERCRAFT, LIFE, HERB | ORE) => field(rec, "c")
-            .map(|n| ("attempts", n))
-            .into_iter()
-            .collect(),
+        (MASTERCRAFT, LIFE, HERB | ORE) => mapped(rec, "c", "attempts"),
+        (RXP, LEVEL, KILL) => mapped(rec, "count", "kills"),
+        (RXP, LEVEL, XP) => mapped(rec, "xp", "xp"),
+        (FDJ, SESSION, RUN) => mapped(rec, "runs", "runs"),
         _ => Vec::new(),
     }
 }

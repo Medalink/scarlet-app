@@ -5,6 +5,7 @@
 pub mod addons;
 pub mod archive;
 pub mod counts;
+pub mod dungeonjournal;
 pub mod events;
 pub mod export;
 pub mod fishing;
@@ -18,6 +19,7 @@ pub mod loot;
 pub mod lua;
 pub mod mastercraft;
 pub mod overview;
+pub mod rxp;
 pub mod tables;
 pub mod talents;
 pub mod upload;

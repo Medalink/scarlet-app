@@ -64,6 +64,15 @@ pub fn character_names(account: &Path) -> Vec<String> {
         .collect()
 }
 
+/// The `SavedVariables` folder of character `name` (`Name-Surname`) in a game account folder.
+pub fn character_saved_variables(account: &Path, name: &str) -> Option<PathBuf> {
+    sorted_dirs(account)
+        .into_iter()
+        .filter(|realm| realm.file_name().is_some_and(|n| n != "SavedVariables"))
+        .map(|realm| realm.join(name).join("SavedVariables"))
+        .find(|p| p.is_dir())
+}
+
 /// True when `p` is a World of Warcraft folder that has a WoW Forever game folder.
 pub fn is_wow_root(p: &Path) -> bool {
     p.join(FOREVER).is_dir()

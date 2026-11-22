@@ -4,6 +4,7 @@
 use crate::addons;
 use crate::archive;
 use crate::counts;
+use crate::dungeonjournal;
 use crate::events;
 use crate::fishing;
 use crate::foreverfishing;
@@ -13,6 +14,7 @@ use crate::inventory::{self, Inventory};
 use crate::lua::{self, Lua};
 use crate::mastercraft;
 use crate::overview::{self, Overview};
+use crate::rxp;
 use crate::tables;
 use flate2::read::{DeflateDecoder, ZlibDecoder};
 use serde::{Deserialize, Serialize};
@@ -523,6 +525,7 @@ const COUNTS_STAMP: &str = "counts2";
 
 struct CountSources {
     files: Vec<PathBuf>,
+    character_files: Vec<(String, PathBuf)>,
     exported: Vec<String>,
 }
 
@@ -539,8 +542,21 @@ fn count_sources(wows: &[PathBuf], out: &Path) -> Vec<CountSources> {
                 .into_iter()
                 .filter(|name| out.join(name).join("payloads").is_dir())
                 .collect();
-            if !files.is_empty() && !exported.is_empty() {
-                found.push(CountSources { files, exported });
+            let character_files: Vec<(String, PathBuf)> = exported
+                .iter()
+                .filter_map(|name| {
+                    let sv = crate::gamedir::character_saved_variables(&account, name)?;
+                    Some([rxp::FILE, dungeonjournal::FILE].map(|f| (name.clone(), sv.join(f))))
+                })
+                .flatten()
+                .filter(|(_, p)| p.is_file())
+                .collect();
+            if (!files.is_empty() || !character_files.is_empty()) && !exported.is_empty() {
+                found.push(CountSources {
+                    files,
+                    character_files,
+                    exported,
+                });
             }
         }
     }
@@ -548,14 +564,16 @@ fn count_sources(wows: &[PathBuf], out: &Path) -> Vec<CountSources> {
 }
 
 fn count_stamps(src: &CountSources) -> Vec<(String, u64)> {
-    src.files
+    let account_files = src.files.iter().flat_map(|file| {
+        src.exported
+            .iter()
+            .map(move |name| source_stamp(file, &format!("{COUNTS_STAMP}:{name}")))
+    });
+    let character_files = src
+        .character_files
         .iter()
-        .flat_map(|file| {
-            src.exported
-                .iter()
-                .map(move |name| source_stamp(file, &format!("{COUNTS_STAMP}:{name}")))
-        })
-        .collect()
+        .map(|(_, file)| source_stamp(file, COUNTS_STAMP));
+    account_files.chain(character_files).collect()
 }
 
 fn counts_stale(wows: &[PathBuf], out: &Path) -> bool {
@@ -633,6 +651,30 @@ fn feed_mastercraft(file: &Path, exported: &[String], out: &Path) -> bool {
     }
 }
 
+fn feed_character(
+    file: &Path,
+    name: &str,
+    out: &Path,
+    table: &str,
+    label: &str,
+    read: impl FnOnce(&Lua) -> Vec<counts::Record>,
+) -> bool {
+    let Some(db) = read_table(file, table) else {
+        return false;
+    };
+    match counts::feed(&out.join(name), read(&db)) {
+        Ok(0) => false,
+        Ok(n) => {
+            println!("{name}: {n} {label} archived");
+            true
+        }
+        Err(e) => {
+            eprintln!("scarlet: {name}: counts: {e}");
+            false
+        }
+    }
+}
+
 fn refresh_counts(wows: &[PathBuf], out: &Path, state: &mut State) -> bool {
     let mut wrote = false;
     for src in count_sources(wows, out) {
@@ -650,6 +692,31 @@ fn refresh_counts(wows: &[PathBuf], out: &Path, state: &mut State) -> bool {
                     wrote |= feed_forever_fishing(file, &src.exported, out);
                 }
                 Some(mastercraft::FILE) => wrote |= feed_mastercraft(file, &src.exported, out),
+                _ => {}
+            }
+        }
+        for (name, file) in &src.character_files {
+            match file.file_name().and_then(|n| n.to_str()) {
+                Some(rxp::FILE) => {
+                    wrote |= feed_character(
+                        file,
+                        name,
+                        out,
+                        rxp::TABLE,
+                        "RXPGuides level records",
+                        |db| rxp::read(db, name),
+                    );
+                }
+                Some(dungeonjournal::FILE) => {
+                    wrote |= feed_character(
+                        file,
+                        name,
+                        out,
+                        dungeonjournal::TABLE,
+                        "ForeverDungeonJournal runs",
+                        dungeonjournal::read,
+                    );
+                }
                 _ => {}
             }
         }
