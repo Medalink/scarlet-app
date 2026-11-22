@@ -434,8 +434,10 @@ fn fishing_accounts(wows: &[PathBuf]) -> Vec<fishing::Account> {
         .collect()
 }
 
+const FISHING_STAMP: &str = "fishing2";
+
 fn fishing_changed(state: &State, path: &Path) -> bool {
-    let (key, stamp) = source_stamp(path, "fishing");
+    let (key, stamp) = source_stamp(path, FISHING_STAMP);
     state.0.get(&key) != Some(&stamp)
 }
 
@@ -462,22 +464,29 @@ fn fishing_stale(wows: &[PathBuf], out: &Path) -> bool {
 fn refresh_fishing(wows: &[PathBuf], out: &Path, state: &mut State) -> bool {
     let mut wrote = false;
     for acc in fishing_accounts(wows) {
-        let chars = recorded_fishing_chars(&acc, out);
+        let chars: Vec<(String, PathBuf)> = recorded_fishing_chars(&acc, out)
+            .into_iter()
+            .cloned()
+            .collect();
         if chars.is_empty() {
             continue;
         }
-        let account_stamp = acc.db.as_deref().map(|p| source_stamp(p, "fishing"));
-        let account_changed = account_stamp
-            .as_ref()
-            .is_some_and(|(key, stamp)| state.0.get(key) != Some(stamp));
-        for (name, file) in chars {
-            let (key, stamp) = source_stamp(file, "fishing");
-            if !account_changed && state.0.get(&key) == Some(&stamp) {
-                continue;
-            }
-            state.0.insert(key, stamp);
-            match fishing::read(acc.db.as_deref(), file) {
-                Ok(lines) => match fishing::write(&out.join(name), name, &lines) {
+        let stamps: Vec<(String, u64)> = acc
+            .db
+            .iter()
+            .chain(chars.iter().map(|(_, file)| file))
+            .map(|p| source_stamp(p, FISHING_STAMP))
+            .collect();
+        if stamps
+            .iter()
+            .all(|(key, stamp)| state.0.get(key) == Some(stamp))
+        {
+            continue;
+        }
+        state.0.extend(stamps);
+        for (name, read) in fishing::read_chars(acc.db.as_deref(), &chars) {
+            match read {
+                Ok(lines) => match fishing::write(&out.join(&name), &name, &lines) {
                     Ok(()) => {
                         println!("{name}: {} lines from The Fishing Log", lines.len());
                         wrote = true;
@@ -486,9 +495,6 @@ fn refresh_fishing(wows: &[PathBuf], out: &Path, state: &mut State) -> bool {
                 },
                 Err(e) => eprintln!("scarlet: {name}: The Fishing Log: {e}"),
             }
-        }
-        if let Some((key, stamp)) = account_stamp {
-            state.0.insert(key, stamp);
         }
     }
     wrote

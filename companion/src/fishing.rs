@@ -831,11 +831,17 @@ fn own_lines(account: Option<&Lua>, character: &Path) -> Result<Vec<Line>, Strin
     let ids = fish_ids(account, Some(&db));
     Ok(read_char(&db, &ids)
         .into_iter()
-        .filter(|l| {
-            !(l.code == "JP"
-                && matches!(l.fields.first().map(String::as_str), None | Some("" | "0")))
-        })
+        .filter(|l| !is_placeholder(l))
         .collect())
+}
+
+fn is_placeholder(l: &Line) -> bool {
+    let blank = |i: usize| matches!(l.fields.get(i).map(String::as_str), None | Some("" | "0"));
+    match l.code {
+        "JP" => blank(0),
+        "JB" => blank(2) && blank(4) && blank(5),
+        _ => false,
+    }
 }
 
 /// The payload text: `scarletfishing<TAB>1<TAB>Name-Surname`, then `<epoch ms><TAB><code><TAB><fields>`.
