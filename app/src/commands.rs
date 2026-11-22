@@ -874,14 +874,13 @@ pub fn charts(app: AppHandle, ch: Option<String>) -> Charts {
                 "DR" if r.fields.get(4).is_some_and(|p| p == "1")
                     && !gates.entry(r.ch).or_default().killing_blow(r.ms) => {}
                 "DR" => {
-                    let who = match r.fields.get(2).filter(|s| !s.is_empty()) {
-                        _ if r.fields.get(3).map(String::as_str) == Some("1") => {
-                            scarlet::events::environmental_killer(&r.fields)
-                                .unwrap_or("The environment")
-                                .to_string()
-                        }
-                        Some(src) => src.clone(),
-                        None => spell_name(id_of(r, 0)),
+                    let who = match (
+                        scarlet::events::environmental_killer(&r.fields),
+                        r.fields.get(2).filter(|s| !s.is_empty()),
+                    ) {
+                        (Some(world), _) => world.to_string(),
+                        (None, Some(src)) => src.clone(),
+                        (None, None) => spell_name(id_of(r, 0)),
                     };
                     *killers.entry(who).or_default() += 1;
                 }

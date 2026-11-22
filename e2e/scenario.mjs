@@ -6,8 +6,8 @@ import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
 
-const ELWYNN = 1429;
-const WESTFALL = 1436;
+export const ELWYNN = 1429;
+export const WESTFALL = 1436;
 export const GUILD = "Ember Guard";
 const TEN_YEARS = 315360000;
 

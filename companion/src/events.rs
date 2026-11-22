@@ -921,7 +921,8 @@ impl Deaths {
     }
 }
 
-/// The plain word for what killed a character when the killing blow came from the world, as written in `DR` field 17.
+/// The name of what killed a character when the killing blow came from the world: the cause in `DR` field 17, or
+/// "The environment" when the line names none.
 pub fn environmental_killer(f: &[String]) -> Option<&'static str> {
     let g = |i: usize| f.get(i).map(String::as_str).unwrap_or("");
     if g(3) != "1" {
@@ -934,7 +935,7 @@ pub fn environmental_killer(f: &[String]) -> Option<&'static str> {
         "Fire" => Some("Fire"),
         "Lava" => Some("Lava"),
         "Slime" => Some("Slime"),
-        _ => None,
+        _ => Some("The environment"),
     }
 }
 

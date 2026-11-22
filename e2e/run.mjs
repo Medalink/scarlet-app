@@ -9,7 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { launch } from "./cdp.mjs";
-import { CHARACTERS, GUILD, LATER, lineCount, savedVariablesPath, writeWow } from "./scenario.mjs";
+import { CHARACTERS, ELWYNN, GUILD, LATER, WESTFALL, lineCount, savedVariablesPath, writeWow } from "./scenario.mjs";
 
 const REPO = path.resolve(import.meta.dirname, "..");
 const WINDOWS = process.platform === "win32";
@@ -296,11 +296,18 @@ const CHECKS = [
     async run(ctx) {
       const app = running(ctx);
       await selectCharacter(app, TESTA);
+      const spots = (map, ch) => app.evaluate(`window.__TAURI__.core.invoke("map_layers", { map: ${map}, ch: ${JSON.stringify(ch)} }).then((l) => l.deaths.length)`);
       await open(app, "overview", /Deaths .* 2 deaths\. Killed most by (Fall|Harvest Reaper), 1 time\./);
       await open(app, "stats", / 2 Deaths /);
+      await open(app, "charts", /What killed you (Fall 1 Harvest Reaper 1|Harvest Reaper 1 Fall 1) /);
+      expectEqual("death places of Testa in Westfall", await spots(WESTFALL, TESTA), 2);
+      const killers = JSON.parse(read(path.join(ctx.site.app.out, TESTA, "overview.json"))).killers;
+      expectEqual("killers in Testa-Fixture/overview.json", JSON.stringify(killers.map((k) => `${k.name} ${k.n}`).sort()), JSON.stringify(["Fall 1", "Harvest Reaper 1"]));
       await selectCharacter(app, PROBE);
       await open(app, "overview", /Deaths .* 1 death\. Killed most by Kobold Vermin, 1 time\./, /2 deaths/);
       await open(app, "stats", / 1 Deaths /);
+      await open(app, "charts", /What killed you Kobold Vermin 1 /, /Kobold Vermin 2/);
+      expectEqual("death places of Probe in Elwynn", await spots(ELWYNN, PROBE), 1);
     },
   },
   {
