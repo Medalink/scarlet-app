@@ -57,18 +57,26 @@ pub fn items(app: AppHandle, query: String) -> Items {
 
 fn search(loaded: Vec<(String, Inventory)>, query: &str) -> Items {
     let q = query.trim().to_lowercase();
+    let mut known: HashMap<i64, &str> = HashMap::new();
+    for (_, inv) in &loaded {
+        for (id, item_name) in &inv.names {
+            if !item_name.is_empty() {
+                known.entry(*id).or_insert(item_name);
+            }
+        }
+    }
     let mut by_item: HashMap<i64, ItemRow> = HashMap::new();
     for (name, inv) in &loaded {
         let ids = inv.bags.keys().chain(inv.bank.keys());
         for id in ids {
-            let item_name = inv.names.get(id).cloned().unwrap_or_default();
+            let item_name = known.get(id).copied().unwrap_or_default();
             let hit = q.is_empty() || item_name.to_lowercase().contains(&q) || id.to_string() == q;
             if !hit {
                 continue;
             }
             let row = by_item.entry(*id).or_insert_with(|| ItemRow {
                 id: *id,
-                name: item_name,
+                name: item_name.to_string(),
                 total: 0,
                 holders: Vec::new(),
             });
