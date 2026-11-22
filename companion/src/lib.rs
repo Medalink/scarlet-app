@@ -8,6 +8,7 @@ pub mod counts;
 pub mod events;
 pub mod export;
 pub mod fishing;
+pub mod foreverfishing;
 pub mod gamedir;
 pub mod import;
 pub mod inventory;

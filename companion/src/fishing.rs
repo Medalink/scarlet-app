@@ -4,6 +4,7 @@
 //! a snapshot of what the files hold now, timed by what it describes.
 
 use crate::counts;
+use crate::gamedir::sorted_dirs;
 use crate::lua::{self, Lua};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -52,18 +53,6 @@ pub fn find(game: &Path) -> Vec<Account> {
     out
 }
 
-fn sorted_dirs(dir: &Path) -> Vec<PathBuf> {
-    let mut dirs: Vec<PathBuf> = fs::read_dir(dir)
-        .into_iter()
-        .flatten()
-        .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .filter(|p| p.is_dir())
-        .collect();
-    dirs.sort();
-    dirs
-}
-
 fn get<'a>(v: &'a Lua, key: &str) -> Option<&'a Lua> {
     v.get(key)
 }
@@ -76,11 +65,11 @@ fn num(v: &Lua, key: &str) -> Option<f64> {
     get(v, key)?.as_num().filter(|n| n.is_finite())
 }
 
-fn int(v: &Lua, key: &str) -> Option<i64> {
+pub(crate) fn int(v: &Lua, key: &str) -> Option<i64> {
     num(v, key).map(|n| n.round() as i64)
 }
 
-fn text<'a>(v: &'a Lua, key: &str) -> Option<&'a str> {
+pub(crate) fn text<'a>(v: &'a Lua, key: &str) -> Option<&'a str> {
     get(v, key)?.as_str()
 }
 

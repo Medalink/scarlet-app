@@ -13,6 +13,7 @@ pub(crate) const PAYLOAD_MAGIC: &str = "scarletcounts";
 const DAY_S: i64 = 86_400;
 
 pub const FISHING_LOG: &str = "fl";
+pub const FOREVER_FISHING: &str = "ff";
 pub const SESSION: &str = "session";
 pub const LIFE: &str = "life";
 pub const CHARACTER: &str = "c";
@@ -277,24 +278,44 @@ fn field(rec: &Record, name: &str) -> Option<i64> {
 }
 
 fn scarlet_amounts(rec: &Record) -> Vec<(&'static str, i64)> {
+    if rec.window != SESSION || rec.kind != FISHING {
+        return Vec::new();
+    }
+    match rec.origin.as_str() {
+        FISHING_LOG => fishing_log_amounts(rec),
+        FOREVER_FISHING => forever_fishing_amounts(rec),
+        _ => Vec::new(),
+    }
+}
+
+fn fishing_log_amounts(rec: &Record) -> Vec<(&'static str, i64)> {
     let mut out = Vec::new();
-    if rec.origin == FISHING_LOG && rec.window == SESSION && rec.kind == FISHING {
-        for (metric, source) in [
-            ("casts", "outcomes.casts"),
-            ("landed", "outcomes.landed"),
-            ("unknown", "outcomes.unknown"),
-        ] {
-            if let Some(n) = field(rec, source) {
-                out.push((metric, n));
-            }
-        }
-        let count = field(rec, "count");
-        let junk = field(rec, "spots.junk");
-        if count.is_some() || junk.is_some() {
-            out.push(("items", count.unwrap_or(0) + junk.unwrap_or(0)));
+    for (metric, source) in [
+        ("casts", "outcomes.casts"),
+        ("landed", "outcomes.landed"),
+        ("unknown", "outcomes.unknown"),
+    ] {
+        if let Some(n) = field(rec, source) {
+            out.push((metric, n));
         }
     }
+    let count = field(rec, "count");
+    let junk = field(rec, "spots.junk");
+    if count.is_some() || junk.is_some() {
+        out.push(("items", count.unwrap_or(0) + junk.unwrap_or(0)));
+    }
     out
+}
+
+fn forever_fishing_amounts(rec: &Record) -> Vec<(&'static str, i64)> {
+    [
+        ("casts", "casts"),
+        ("landed", "successfulCasts"),
+        ("items", "catches"),
+    ]
+    .into_iter()
+    .filter_map(|(metric, source)| Some((metric, field(rec, source)?)))
+    .collect()
 }
 
 fn yc_line(rec: &Record) -> Option<String> {

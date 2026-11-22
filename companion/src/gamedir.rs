@@ -36,6 +36,34 @@ pub fn game_dir(wow: &Path) -> PathBuf {
     found.into_iter().next().unwrap_or(forever)
 }
 
+pub(crate) fn sorted_dirs(dir: &Path) -> Vec<PathBuf> {
+    let mut dirs: Vec<PathBuf> = fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.is_dir())
+        .collect();
+    dirs.sort();
+    dirs
+}
+
+/// The game account folders of a game folder (`WTF\Account\<account>`).
+pub fn account_dirs(game: &Path) -> Vec<PathBuf> {
+    sorted_dirs(&game.join("WTF").join("Account"))
+}
+
+/// The `Name-Surname` of every character folder of a game account folder
+/// (`<account>\<realm>\<Name-Surname>`), in path order.
+pub fn character_names(account: &Path) -> Vec<String> {
+    sorted_dirs(account)
+        .into_iter()
+        .filter(|realm| realm.file_name().is_some_and(|n| n != "SavedVariables"))
+        .flat_map(|realm| sorted_dirs(&realm))
+        .filter_map(|ch| Some(ch.file_name()?.to_string_lossy().into_owned()))
+        .collect()
+}
+
 /// True when `p` is a World of Warcraft folder that has a WoW Forever game folder.
 pub fn is_wow_root(p: &Path) -> bool {
     p.join(FOREVER).is_dir()

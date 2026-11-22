@@ -6,6 +6,7 @@ use crate::archive;
 use crate::counts;
 use crate::events;
 use crate::fishing;
+use crate::foreverfishing;
 use crate::import;
 use crate::inventory::{self, Inventory};
 use crate::lua::{self, Lua};
@@ -146,6 +147,7 @@ pub fn has_new_all(wows: &[PathBuf], out: &Path) -> bool {
     wows.iter().any(|w| data_addon_missing(w))
         || imports_stale(wows, out)
         || fishing_stale(wows, out)
+        || counts_stale(wows, out)
         || find_sv_all(wows).unwrap_or_default().iter().any(|sv| {
             let t = fs::metadata(sv).and_then(|m| m.modified()).ok();
             match (t, done) {
@@ -316,13 +318,14 @@ pub fn export_new_all(wows: &[PathBuf], out: &Path) -> Result<bool, Box<dyn Erro
     let touched: Vec<String> = runs.keys().cloned().collect();
     refresh_imports(wows, out, &mut state, &touched, &own);
     let fishing_wrote = refresh_fishing(wows, out, &mut state);
+    let counts_wrote = refresh_counts(wows, out, &mut state);
     for name in &own {
         if let Err(e) = counts::rebuild(&out.join(name), name) {
             eprintln!("scarlet: {name}: counts: {e}");
         }
     }
     save_state(&state_path, &state)?;
-    let wrote = !runs.is_empty() || !addon_runs.is_empty() || fishing_wrote;
+    let wrote = !runs.is_empty() || !addon_runs.is_empty() || fishing_wrote || counts_wrote;
     if runs.is_empty() && addon_runs.is_empty() {
         let fail = if bad > 0 {
             format!(", {bad} chunk(s) failed to decode")
@@ -508,6 +511,107 @@ fn refresh_fishing(wows: &[PathBuf], out: &Path, state: &mut State) -> bool {
                     }
                 }
                 Err(e) => eprintln!("scarlet: {name}: The Fishing Log: {e}"),
+            }
+        }
+    }
+    wrote
+}
+
+const COUNTS_STAMP: &str = "counts1";
+
+struct CountSources {
+    files: Vec<PathBuf>,
+    exported: Vec<String>,
+}
+
+fn count_sources(wows: &[PathBuf], out: &Path) -> Vec<CountSources> {
+    let mut found = Vec::new();
+    for wow in wows {
+        for account in crate::gamedir::account_dirs(&crate::gamedir::game_dir(wow)) {
+            let files: Vec<PathBuf> = [foreverfishing::FILE]
+                .iter()
+                .map(|f| account.join("SavedVariables").join(f))
+                .filter(|p| p.is_file())
+                .collect();
+            let exported: Vec<String> = crate::gamedir::character_names(&account)
+                .into_iter()
+                .filter(|name| out.join(name).join("payloads").is_dir())
+                .collect();
+            if !files.is_empty() && !exported.is_empty() {
+                found.push(CountSources { files, exported });
+            }
+        }
+    }
+    found
+}
+
+fn count_stamps(src: &CountSources) -> Vec<(String, u64)> {
+    src.files
+        .iter()
+        .flat_map(|file| {
+            src.exported
+                .iter()
+                .map(move |name| source_stamp(file, &format!("{COUNTS_STAMP}:{name}")))
+        })
+        .collect()
+}
+
+fn counts_stale(wows: &[PathBuf], out: &Path) -> bool {
+    let state = load_state(&out.join("state.json"));
+    count_sources(wows, out).iter().any(|src| {
+        count_stamps(src)
+            .iter()
+            .any(|(key, stamp)| state.0.get(key) != Some(stamp))
+    })
+}
+
+fn read_table(file: &Path, table: &str) -> Option<Lua> {
+    let text = fs::read_to_string(file).map_err(|e| e.to_string());
+    match text.and_then(|t| lua::parse_named(&t, table)) {
+        Ok(db) => db,
+        Err(e) => {
+            eprintln!("scarlet: {}: {e}", file.file_name()?.to_string_lossy());
+            None
+        }
+    }
+}
+
+fn feed_forever_fishing(file: &Path, exported: &[String], out: &Path) -> bool {
+    let Some(db) = read_table(file, foreverfishing::TABLE) else {
+        return false;
+    };
+    let (by_name, unmatched) = foreverfishing::assign(foreverfishing::read(&db), exported);
+    if unmatched > 0 {
+        println!("{unmatched} ForeverFishing sessions matched no exported character");
+    }
+    let mut wrote = false;
+    for (name, records) in by_name {
+        match counts::feed(&out.join(&name), records) {
+            Ok(0) => {}
+            Ok(n) => {
+                println!("{name}: {n} ForeverFishing sessions archived");
+                wrote = true;
+            }
+            Err(e) => eprintln!("scarlet: {name}: counts: {e}"),
+        }
+    }
+    wrote
+}
+
+fn refresh_counts(wows: &[PathBuf], out: &Path, state: &mut State) -> bool {
+    let mut wrote = false;
+    for src in count_sources(wows, out) {
+        let stamps = count_stamps(&src);
+        if stamps
+            .iter()
+            .all(|(key, stamp)| state.0.get(key) == Some(stamp))
+        {
+            continue;
+        }
+        state.0.extend(stamps);
+        for file in &src.files {
+            if file.file_name().is_some_and(|n| n == foreverfishing::FILE) {
+                wrote |= feed_forever_fishing(file, &src.exported, out);
             }
         }
     }
