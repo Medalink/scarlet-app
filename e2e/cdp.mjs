@@ -39,6 +39,7 @@ export async function launch({ exe, home }) {
   const launcher = spawn("pwsh", ["-NoProfile", "-File", LAUNCHER, "-Parent", String(process.pid), "-Exe", exe], {
     env: ownEnvironment(home, port),
     stdio: ["ignore", "pipe", "pipe"],
+    windowsHide: true,
   });
   let exitCode = null;
   let stderr = "";

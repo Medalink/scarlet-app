@@ -57,7 +57,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const scarlet = (ctx, ...args) => {
   const { SCARLET_HOME, SCARLET_OUT, SCARLET_SETTINGS, ...env } = process.env;
-  const run = spawnSync(ctx.cli, args, { encoding: "utf8", env, timeout: 60_000 });
+  const run = spawnSync(ctx.cli, args, { encoding: "utf8", env, timeout: 60_000, windowsHide: true });
   return { code: run.status, out: run.stdout ?? "", err: run.stderr ?? "" };
 };
 
@@ -79,7 +79,7 @@ const csvRows = (file) => read(file).trim().split(/\r?\n/).length - 1;
 
 const names = (dir) => (fs.existsSync(dir) ? fs.readdirSync(dir).sort() : null);
 
-const registry = (key, value) => spawnSync("reg", ["query", key, ...(value ? ["/v", value] : [])], { encoding: "utf8" }).stdout ?? "";
+const registry = (key, value) => spawnSync("reg", ["query", key, ...(value ? ["/v", value] : [])], { encoding: "utf8", windowsHide: true }).stdout ?? "";
 
 const documents = () => {
   const personal = /Personal\s+REG_(?:EXPAND_)?SZ\s+(.+)/.exec(registry(String.raw`HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders`, "Personal"))?.[1].trim();
@@ -365,7 +365,7 @@ async function runChecks(checks, ctx) {
 function build(crates) {
   const began = performance.now();
   for (const crate of crates) {
-    const run = spawnSync("cargo", ["build", "-q"], { cwd: path.join(REPO, crate), encoding: "utf8", timeout: 900_000 });
+    const run = spawnSync("cargo", ["build", "-q"], { cwd: path.join(REPO, crate), encoding: "utf8", timeout: 900_000, windowsHide: true });
     if (run.status !== 0) {
       console.error(`build failed in ${crate}/\n${String(run.stderr).split("\n").slice(-25).join("\n")}`);
       process.exit(1);
