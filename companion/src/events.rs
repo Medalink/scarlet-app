@@ -69,6 +69,7 @@ pub fn word(code: &str) -> &str {
         "I" => "item",
         "SN" => "spellname",
         "IN" => "itemname",
+        "ON" => "objectname",
         "CH" => "channel",
         "CI" => "interrupt",
         "AFK" => "afk",
@@ -785,7 +786,7 @@ fn club_role(v: &str) -> &str {
     }
 }
 
-/// Key for the names map: `n` npc, `s` spell, `i` item.
+/// Key for the names map: `n` npc, `s` spell, `i` item, `j` object.
 pub fn name_key(kind: char, id: &str) -> String {
     format!("{kind}{id}")
 }
@@ -806,6 +807,7 @@ pub fn name_kind(code: &str) -> Option<char> {
         "BN" => Some('p'),
         "TN" => Some('t'),
         "TY" => Some('g'),
+        "ON" => Some('j'),
         _ => None,
     }
 }
@@ -1414,7 +1416,7 @@ fn details(code: &str, f: &[String], names: &HashMap<String, String>) -> String 
         }
         "NP" => {
             let who = if g(0) == "o" {
-                format!("object {}", g(1))
+                label('j', g(1), names, "object")
             } else {
                 label('n', g(1), names, "npc")
             };
@@ -1627,7 +1629,7 @@ fn details(code: &str, f: &[String], names: &HashMap<String, String>) -> String 
             let from = match g(0) {
                 "c" => format!("from {} ({slots} slots)", label('n', g(1), names, "npc")),
                 "g" if g(1) == FISHING_BOBBER => format!("from the fishing bobber ({slots} slots)"),
-                "g" => format!("from object {} ({slots} slots)", g(1)),
+                "g" => format!("from {} ({slots} slots)", label('j', g(1), names, "object")),
                 "i" if !g(1).is_empty() => format!("from opening {} ({slots} slots)", item(1)),
                 "i" => format!("from a bag item ({slots} slots)"),
                 _ => format!("from elsewhere ({slots} slots)"),
@@ -1644,7 +1646,7 @@ fn details(code: &str, f: &[String], names: &HashMap<String, String>) -> String 
             let from = match g(1) {
                 "c" => format!("from {} ({slots} slots)", label('n', g(2), names, "npc")),
                 "g" if g(2) == FISHING_BOBBER => format!("from the fishing bobber ({slots} slots)"),
-                "g" => format!("from object {} ({slots} slots)", g(2)),
+                "g" => format!("from {} ({slots} slots)", label('j', g(2), names, "object")),
                 _ => format!("from elsewhere ({slots} slots)"),
             };
             let items = loot_items(g(4), names);
@@ -2680,7 +2682,7 @@ fn details(code: &str, f: &[String], names: &HashMap<String, String>) -> String 
             };
             format!("{label} by {by}")
         }
-        "N" => format!("{} ({})", g(1), g(0)),
+        "N" | "ON" => format!("{} ({})", g(1), g(0)),
         "F" => {
             if g(0) == "1" {
                 "started".into()
