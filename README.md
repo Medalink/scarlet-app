@@ -37,6 +37,7 @@ node e2e/run.mjs [--only cli|app] [--no-build] [--exe <scarlet-app.exe>] [--cli 
 
 It needs Node 24 and cargo, builds both crates with the dev profile (about 1 s when nothing changed, 9 to 16 s after a
 one-file change; printed apart from the checks) and writes an invented World of Warcraft folder into a temp folder.
+`ship` runs it after the gates when a change touches `companion/`, `app/` or `e2e/`.
 - The cli lane runs the real `scarlet` command on that folder: the export, the addon files, a second export that
   changes nothing, a later session picked up, and an unknown command refused.
 - The app lane (Windows only) starts the real app and drives its page: the 13 views for the selected character, the
