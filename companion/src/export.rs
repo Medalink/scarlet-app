@@ -314,9 +314,9 @@ pub fn export_new_all(wows: &[PathBuf], out: &Path) -> Result<bool, Box<dyn Erro
 
     let touched: Vec<String> = runs.keys().cloned().collect();
     refresh_imports(wows, out, &mut state, &touched, &own);
-    refresh_fishing(wows, out, &mut state, &own);
+    let fishing_wrote = refresh_fishing(wows, out, &mut state);
     save_state(&state_path, &state)?;
-    let wrote = !runs.is_empty() || !addon_runs.is_empty();
+    let wrote = !runs.is_empty() || !addon_runs.is_empty() || fishing_wrote;
     if runs.is_empty() && addon_runs.is_empty() {
         let fail = if bad > 0 {
             format!(", {bad} chunk(s) failed to decode")
@@ -439,48 +439,59 @@ fn fishing_changed(state: &State, path: &Path) -> bool {
     state.0.get(&key) != Some(&stamp)
 }
 
+fn recorded_fishing_chars<'a>(acc: &'a fishing::Account, out: &Path) -> Vec<&'a (String, PathBuf)> {
+    acc.chars
+        .iter()
+        .filter(|(name, _)| out.join(name).join("payloads").is_dir())
+        .collect()
+}
+
 fn fishing_stale(wows: &[PathBuf], out: &Path) -> bool {
     let state = load_state(&out.join("state.json"));
     fishing_accounts(wows).iter().any(|acc| {
-        acc.chars.iter().any(|(name, _)| {
-            let dir = out.join(name);
-            dir.join("payloads").is_dir()
-                && (!fishing::written(&dir) || acc.files().any(|p| fishing_changed(&state, p)))
-        })
+        let chars = recorded_fishing_chars(acc, out);
+        let account_changed = acc
+            .db
+            .as_deref()
+            .is_some_and(|p| fishing_changed(&state, p));
+        !chars.is_empty()
+            && (account_changed || chars.iter().any(|(_, file)| fishing_changed(&state, file)))
     })
 }
 
-fn refresh_fishing(wows: &[PathBuf], out: &Path, state: &mut State, own: &[String]) {
+fn refresh_fishing(wows: &[PathBuf], out: &Path, state: &mut State) -> bool {
+    let mut wrote = false;
     for acc in fishing_accounts(wows) {
-        let account_changed = acc.db.as_deref().is_some_and(|p| fishing_changed(state, p));
-        for (name, file) in &acc.chars {
-            let dir = out.join(name);
-            if !own.contains(name) || !dir.join("payloads").is_dir() {
-                continue;
-            }
-            if !account_changed && !fishing_changed(state, file) && fishing::written(&dir) {
-                continue;
-            }
-            let lines = match fishing::read(acc.db.as_deref(), file) {
-                Ok(lines) => lines,
-                Err(e) => {
-                    eprintln!("scarlet: {name}: The Fishing Log: {e}");
-                    continue;
-                }
-            };
-            if let Err(e) = fishing::write(&dir, name, &lines) {
-                eprintln!("scarlet: {name}: The Fishing Log: {e}");
-                continue;
-            }
-            println!("{name}: {} lines from The Fishing Log", lines.len());
-            let (key, stamp) = source_stamp(file, "fishing");
-            state.0.insert(key, stamp);
+        let chars = recorded_fishing_chars(&acc, out);
+        if chars.is_empty() {
+            continue;
         }
-        if let Some(db) = &acc.db {
-            let (key, stamp) = source_stamp(db, "fishing");
+        let account_stamp = acc.db.as_deref().map(|p| source_stamp(p, "fishing"));
+        let account_changed = account_stamp
+            .as_ref()
+            .is_some_and(|(key, stamp)| state.0.get(key) != Some(stamp));
+        for (name, file) in chars {
+            let (key, stamp) = source_stamp(file, "fishing");
+            if !account_changed && state.0.get(&key) == Some(&stamp) {
+                continue;
+            }
+            state.0.insert(key, stamp);
+            match fishing::read(acc.db.as_deref(), file) {
+                Ok(lines) => match fishing::write(&out.join(name), name, &lines) {
+                    Ok(()) => {
+                        println!("{name}: {} lines from The Fishing Log", lines.len());
+                        wrote = true;
+                    }
+                    Err(e) => eprintln!("scarlet: {name}: The Fishing Log: {e}"),
+                },
+                Err(e) => eprintln!("scarlet: {name}: The Fishing Log: {e}"),
+            }
+        }
+        if let Some((key, stamp)) = account_stamp {
             state.0.insert(key, stamp);
         }
     }
+    wrote
 }
 
 fn imports_stale(wows: &[PathBuf], out: &Path) -> bool {

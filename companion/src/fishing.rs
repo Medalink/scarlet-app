@@ -30,12 +30,6 @@ pub struct Account {
     pub chars: Vec<(String, PathBuf)>,
 }
 
-impl Account {
-    pub fn files(&self) -> impl Iterator<Item = &PathBuf> {
-        self.db.iter().chain(self.chars.iter().map(|(_, p)| p))
-    }
-}
-
 /// Every game account under `game` that has a file of The Fishing Log, its own or a character's.
 pub fn find(game: &Path) -> Vec<Account> {
     let mut out = Vec::new();
@@ -818,13 +812,4 @@ pub fn write(
     fs::write(&tmp, payload)?;
     fs::rename(&tmp, &scl)?;
     Ok(())
-}
-
-/// Whether a character's payload is there.
-pub fn written(char_dir: &Path) -> bool {
-    char_dir
-        .join(DIR)
-        .join("payloads")
-        .join("fishing.scl")
-        .is_file()
 }
