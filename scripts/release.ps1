@@ -204,13 +204,17 @@ function Read-SignCommand {
 }
 
 # The dlib signs through the cached Azure CLI login. Check it before a long build, never print the token.
+function Get-AzTokenExpiry([string]$Resource) {
+    [datetime]::Parse((Invoke-Tool 'az' @('account', 'get-access-token', '--resource', $Resource, '--query', 'expiresOn', '-o', 'tsv'))[0])
+}
+
 function Test-SignLogin {
     try {
-        $expires = (Invoke-Tool 'az' @('account', 'get-access-token', '--resource', 'https://codesigning.azure.net', '--query', 'expiresOn', '-o', 'tsv'))[0]
+        $expires = Get-AzTokenExpiry 'https://codesigning.azure.net'
+        if ($expires -lt (Get-Date).AddMinutes(30)) { $null = Get-AzTokenExpiry 'https://management.azure.com' }
     }
     catch { throw "Signing cannot get an Azure token: $($_.Exception.Message). Run `az login` as the account that owns the signing profile, then rerun." }
-    if ([datetime]::Parse($expires) -lt (Get-Date).AddMinutes(30)) { throw "The Azure login expires at $expires, too soon for a build. Run `az login`, then rerun." }
-    Write-Host "signing login valid until $expires"
+    Write-Host "signing login valid; az renews the signing token as it signs"
 }
 
 # Throws unless the file carries a trusted, timestamped Authenticode signature; returns the signer.

@@ -87,9 +87,12 @@ owner's other products.
   `SCARLET_SIGN_COMMAND` environment variable) names the tool: `signtool.exe` with the Azure Artifact Signing
   dlib and its metadata file, and the timestamp server `http://timestamp.acs.microsoft.com`. The file holds paths
   only. The script passes it to Tauri as `bundle.windows.signCommand`.
-- Authentication is the cached `az login` of the account that owns the signing profile. The script checks the
-  token before it builds and stops with the reason when it is missing or about to expire. Run `az login` and
-  rerun.
+- Authentication is the cached `az login` of the account that owns the signing profile. The dlib asks `az` for a
+  token at each signature, and `az` renews a token that has less than 5 minutes left, so a signing token that
+  expires soon is fine and the script never waits on it. Before the build it checks the login works: when the
+  cached signing token has less than 30 minutes left, it also asks for a token for `https://management.azure.com`,
+  which makes `az` use its login when that token is not cached. It stops only when `az` cannot get a token. Then
+  run `az login` and rerun.
 - Before upload, the script requires `Get-AuthenticodeSignature` to report `Valid` with a timestamp for the
   installer and the app exe. After publishing it downloads the installer from GitHub, checks the SHA-256 sums and
   the signature again, and turns the release back into a draft if anything differs.
