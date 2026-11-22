@@ -238,6 +238,93 @@ const savedVariables = (character, extra) => {
 /** The SavedVariables file of a character's account under a World of Warcraft folder. */
 export const savedVariablesPath = (wow, character) => path.join(wow, "_forever_", "WTF", "Account", character.account, "SavedVariables", "Scarlet.lua");
 
+/** The Fishing Log's saved variables for one character and its account (Scarlet's FORMAT.md, "The Fishing Log"). */
+export const FISHING = {
+  character: "Testa-Fixture",
+  rival: "Rival-Angler",
+  account: `TheFishingLogDB = {
+["lastSeen"] = 1795300000,
+["fishNames"] = {
+[6362] = "Raw Rockscale Cod",
+},
+["spotNames"] = {
+["a977"] = "Wavestrider Beach",
+},
+["spotWhere"] = {
+["a977"] = {
+["map"] = 1446,
+["x"] = 0.5,
+["y"] = 0.25,
+["mine"] = true,
+},
+},
+["spots"] = {
+["a977"] = {
+["seasonID"] = 24322,
+["fish"] = {
+[6362] = {
+["h"] = "Rival Angler-SomeRealm",
+["t"] = 1795100000,
+["w"] = 15.5,
+},
+},
+["season"] = {
+[6362] = {
+["h"] = "Testa-Fixture",
+["t"] = 1795200000,
+["w"] = 13.3,
+},
+},
+},
+},
+["factions"] = {
+["rivalangler"] = "A",
+},
+}
+`,
+  char: `TheFishingLogChar = {
+["records"] = {
+["a977"] = {
+[6362] = {
+["when"] = 1795200000,
+["weight"] = 13.3,
+["name"] = "Raw Rockscale Cod",
+["specimen"] = true,
+},
+},
+},
+["history"] = {
+{
+["when"] = 1795200500,
+["zone"] = "Tanaris",
+["sub"] = "Wavestrider Beach",
+["duration"] = 600,
+["count"] = 4,
+["total"] = 30.25,
+["biggest"] = 13.3,
+["biggestName"] = "Raw Rockscale Cod",
+["solo"] = true,
+["outcomes"] = {
+["casts"] = 5,
+["landed"] = 4,
+},
+},
+},
+["profile"] = {
+["updated"] = 1795200600,
+["xp"] = 120,
+["journal"] = {
+[6362] = {
+["c"] = 4,
+["b"] = 13.3,
+["s"] = 13.3,
+},
+},
+},
+}
+`,
+};
+
 /** Writes the World of Warcraft folder; `later` adds the chunk a second export has to find. */
 export function writeWow(wow, { later = false } = {}) {
   for (const character of CHARACTERS) {
@@ -245,6 +332,12 @@ export function writeWow(wow, { later = false } = {}) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, savedVariables(character, later && character.name === LATER.character ? LATER : null));
   }
+  const angler = CHARACTERS.find((c) => c.name === FISHING.character);
+  const account = path.join(wow, "_forever_", "WTF", "Account", angler.account);
+  const charFile = path.join(account, "91", angler.name, "SavedVariables", "TheFishingLog.lua");
+  fs.mkdirSync(path.dirname(charFile), { recursive: true });
+  fs.writeFileSync(charFile, FISHING.char);
+  fs.writeFileSync(path.join(account, "SavedVariables", "TheFishingLog.lua"), FISHING.account);
   fs.mkdirSync(path.join(wow, "_forever_", "Interface", "AddOns", "Scarlet"), { recursive: true });
   return wow;
 }

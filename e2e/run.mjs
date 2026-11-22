@@ -9,7 +9,8 @@ import os from "node:os";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { launch } from "./cdp.mjs";
-import { CHARACTERS, ELWYNN, GUILD, LATER, WESTFALL, lineCount, savedVariablesPath, writeWow } from "./scenario.mjs";
+import zlib from "node:zlib";
+import { CHARACTERS, ELWYNN, FISHING, GUILD, LATER, WESTFALL, lineCount, savedVariablesPath, writeWow } from "./scenario.mjs";
 
 const REPO = path.resolve(import.meta.dirname, "..");
 const WINDOWS = process.platform === "win32";
@@ -182,6 +183,31 @@ const CHECKS = [
   },
   {
     lane: "cli",
+    name: "The Fishing Log's records and leaderboard are read",
+    run(ctx) {
+      const file = path.join(ctx.site.cli.out, FISHING.character, "fishing", "payloads", "fishing.scl");
+      if (!fs.existsSync(file)) throw mismatch("the Fishing Log payload", file, "missing");
+      const lines = zlib.zstdDecompressSync(fs.readFileSync(file)).toString("utf8").trimEnd().split("\n");
+      const row = (...fields) => fields.join("\t");
+      expectEqual("the payload header", lines[0], row("scarletfishing", 1, FISHING.character));
+      const want = [
+        row(1795100000000, "JK", "a977", "a", "", 6362, 15.5, FISHING.rival),
+        row(1795200000000, "JK", "a977", "s", 24322, 6362, 13.3, FISHING.character),
+        row(1795200000000, "JR", "a977", 6362, 13.3, 1),
+        row(1795200500000, "JH", "Tanaris", "Wavestrider Beach", 600, 4, 30.25, 13.3, 6362, "Raw Rockscale Cod", "", "", 1, 5, 4, "", "", "", "", "", ""),
+        row(1795300000000, "JN", "a977", "Wavestrider Beach", 1446, 5000, 2500, 1),
+        row(1795300000000, "JE", FISHING.rival, "A"),
+      ];
+      for (const line of want) {
+        if (!lines.includes(line)) throw mismatch("a Fishing Log line", line, lines.slice(1).join(" | "));
+      }
+      for (const c of CHARACTERS.filter((c) => c.name !== FISHING.character)) {
+        if (fs.existsSync(path.join(ctx.site.cli.out, c.name, "fishing"))) throw mismatch(`${c.name}: a Fishing Log payload`, "none", "written");
+      }
+    },
+  },
+  {
+    lane: "cli",
     name: "a guild bank read before the guild line is filed under the guild",
     run(ctx) {
       for (const c of CHARACTERS) {
@@ -212,6 +238,7 @@ const CHECKS = [
       const run = exportSite(ctx, s);
       expectEqual("exit code", run.code, 0);
       expectMatch("the output", run.out, /no new chunks/);
+      expectNoMatch("the output", run.out, /from The Fishing Log/);
       expectEqual("payload files after the second export", CHARACTERS.map((c) => hashOf(path.join(s.out, c.name, "payloads"))), before);
     },
   },

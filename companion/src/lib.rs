@@ -6,6 +6,7 @@ pub mod addons;
 pub mod archive;
 pub mod events;
 pub mod export;
+pub mod fishing;
 pub mod gamedir;
 pub mod import;
 pub mod inventory;

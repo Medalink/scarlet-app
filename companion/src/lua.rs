@@ -271,6 +271,8 @@ impl<'a> P<'a> {
                 self.expect(b'=')?;
                 match k {
                     Lua::Str(s) => s,
+                    Lua::Int(i) => i.to_string(),
+                    Lua::Float(f) => f.to_string(),
                     other => format!("{other:?}"),
                 }
             } else {

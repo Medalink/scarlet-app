@@ -4,6 +4,7 @@
 use crate::addons;
 use crate::archive;
 use crate::events;
+use crate::fishing;
 use crate::import;
 use crate::inventory::{self, Inventory};
 use crate::lua::{self, Lua};
@@ -143,6 +144,7 @@ pub fn has_new_all(wows: &[PathBuf], out: &Path) -> bool {
         .ok();
     wows.iter().any(|w| data_addon_missing(w))
         || imports_stale(wows, out)
+        || fishing_stale(wows, out)
         || find_sv_all(wows).unwrap_or_default().iter().any(|sv| {
             let t = fs::metadata(sv).and_then(|m| m.modified()).ok();
             match (t, done) {
@@ -312,6 +314,7 @@ pub fn export_new_all(wows: &[PathBuf], out: &Path) -> Result<bool, Box<dyn Erro
 
     let touched: Vec<String> = runs.keys().cloned().collect();
     refresh_imports(wows, out, &mut state, &touched, &own);
+    refresh_fishing(wows, out, &mut state, &own);
     save_state(&state_path, &state)?;
     let wrote = !runs.is_empty() || !addon_runs.is_empty();
     if runs.is_empty() && addon_runs.is_empty() {
@@ -413,12 +416,71 @@ fn write_overview(dir: &Path, ov: &Overview) -> Result<(), Box<dyn Error>> {
 }
 
 fn import_stamp(path: &Path) -> (String, u64) {
+    source_stamp(path, "import")
+}
+
+fn source_stamp(path: &Path, tag: &str) -> (String, u64) {
     let stamp = fs::metadata(path)
         .and_then(|m| m.modified())
         .ok()
         .and_then(|t| t.duration_since(SystemTime::UNIX_EPOCH).ok())
         .map_or(0, |d| d.as_secs());
-    (format!("{}#import", state_key(path)), stamp)
+    (format!("{}#{tag}", state_key(path)), stamp)
+}
+
+fn fishing_accounts(wows: &[PathBuf]) -> Vec<fishing::Account> {
+    wows.iter()
+        .flat_map(|w| fishing::find(&crate::gamedir::game_dir(w)))
+        .collect()
+}
+
+fn fishing_changed(state: &State, path: &Path) -> bool {
+    let (key, stamp) = source_stamp(path, "fishing");
+    state.0.get(&key) != Some(&stamp)
+}
+
+fn fishing_stale(wows: &[PathBuf], out: &Path) -> bool {
+    let state = load_state(&out.join("state.json"));
+    fishing_accounts(wows).iter().any(|acc| {
+        acc.chars.iter().any(|(name, _)| {
+            let dir = out.join(name);
+            dir.join("payloads").is_dir()
+                && (!fishing::written(&dir) || acc.files().any(|p| fishing_changed(&state, p)))
+        })
+    })
+}
+
+fn refresh_fishing(wows: &[PathBuf], out: &Path, state: &mut State, own: &[String]) {
+    for acc in fishing_accounts(wows) {
+        let account_changed = acc.db.as_deref().is_some_and(|p| fishing_changed(state, p));
+        for (name, file) in &acc.chars {
+            let dir = out.join(name);
+            if !own.contains(name) || !dir.join("payloads").is_dir() {
+                continue;
+            }
+            if !account_changed && !fishing_changed(state, file) && fishing::written(&dir) {
+                continue;
+            }
+            let lines = match fishing::read(acc.db.as_deref(), file) {
+                Ok(lines) => lines,
+                Err(e) => {
+                    eprintln!("scarlet: {name}: The Fishing Log: {e}");
+                    continue;
+                }
+            };
+            if let Err(e) = fishing::write(&dir, name, &lines) {
+                eprintln!("scarlet: {name}: The Fishing Log: {e}");
+                continue;
+            }
+            println!("{name}: {} lines from The Fishing Log", lines.len());
+            let (key, stamp) = source_stamp(file, "fishing");
+            state.0.insert(key, stamp);
+        }
+        if let Some(db) = &acc.db {
+            let (key, stamp) = source_stamp(db, "fishing");
+            state.0.insert(key, stamp);
+        }
+    }
 }
 
 fn imports_stale(wows: &[PathBuf], out: &Path) -> bool {

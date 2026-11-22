@@ -7,10 +7,10 @@ use super::keys::{self, KeyStore};
 use super::state::{self, CharState, LogEntry, UploadState, now};
 use super::{Error, Result};
 use scarlet_part::build::{Built, Options, build_parts};
-use scarlet_part::imports;
-use scarlet_part::load::{load_dir, load_imports};
+use scarlet_part::load::{load_dir, load_fishing, load_imports};
 use scarlet_part::pseudo::hex;
 use scarlet_part::wire;
+use scarlet_part::{fishing, imports};
 use serde_json::{Value, json};
 use std::collections::{BTreeSet, HashMap};
 use std::io::Write;
@@ -185,6 +185,10 @@ impl Session {
         built
             .parts
             .extend(imports::build_parts(&character, imported, &opts));
+        let fished = load_fishing(&dir.join("fishing").join("payloads"), &character);
+        built
+            .parts
+            .extend(fishing::build_parts(&character, fished, &opts));
         Ok((character, built))
     }
 
