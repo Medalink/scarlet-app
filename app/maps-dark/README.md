@@ -1,6 +1,6 @@
 # Dark map sheets
 
-54 WebP sheets, named `<uiMapID>.webp`: 2004 x 1336, and 1024 x 1024 for the two square continent maps
+55 WebP sheets, named `<uiMapID>.webp`: 2004 x 1336, and 1024 x 1024 for the two square continent maps
 (1463, 1464). The Map view's Survey look draws its base from them, so it works without OpenMap and without
 a `maps` folder.
 
@@ -16,7 +16,9 @@ a `maps` folder.
   neighbouring zones are one flat tone. Their water is read from the unmasked cut (`--sea`), so a hatched
   sea reads as sea. The continents and the world carry the shore only. 6 are cities (1453 Stormwind City,
   1454 Orgrimmar, 1455 Ironforge, 1456 Thunder Bluff, 1457 Darnassus, 1458 Undercity), drawn from the
-  owner's extracted maps.
+  owner's extracted maps. 1 is Zephras Isle (2521), which is its own continent and not in OpenMap's stitched art:
+  it is drawn from the owner's extracted map too, with everything outside OpenMap's `MapCore` mask of the island
+  (the clouds and towers painted round it) turned to open sea first (`--land`).
 - The installer and the release build carry this folder as `dark\` beside the exe
   (`bundle.resources` in `app/tauri.conf.json`). `map_image_dark` reads it from Tauri's resource folder.
 - The maps this pack lacks fall back to the `maps` folder in the data folder, then to OpenMap's art.
@@ -28,6 +30,7 @@ scarlet-app.exe --openmap-cut <cut>
 scarlet-app.exe --openmap-cut <plain> --plain
 node tools/render-dark.mjs <cut> app/maps-dark all --sea <plain> --quality 0.7
 node tools/render-dark.mjs <maps folder> app/maps-dark 1453,1454,1455,1456,1457,1458 --quality 0.7
+node tools/render-dark.mjs <maps folder> app/maps-dark 2521 --land <OpenMap folder>/Media/Textures/Forever/MapCore --quality 0.7
 ```
 
 The game's map art is Blizzard Entertainment's.
