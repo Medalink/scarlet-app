@@ -16,21 +16,22 @@ const WINDOWS = process.platform === "win32";
 const USAGE = "usage: node e2e/run.mjs [--only cli|app] [--no-build] [--exe <scarlet-app.exe>] [--cli <scarlet>] [--keep <dir>]";
 const TESTA = CHARACTERS[0].name;
 const PROBE = CHARACTERS[1].name;
+const SHOWN = { testa: TESTA.replace("-", " "), probe: PROBE.replace("-", " ") };
 
 const BODY = `document.querySelector("#body").innerText.replace(/\\s+/g, " ")`;
 
 const VIEWS = [
-  { key: "overview", shows: /Testa-Fixture Level 6 Human Warrior Alliance in Westfall/, never: /No characters recorded yet/ },
+  { key: "overview", shows: /Testa Fixture Level 6 Human Warrior Alliance in Westfall/, never: /No characters recorded yet/ },
   { key: "stats", shows: /1,605 Experience .* 2 Kills/, never: /No recorded time yet/ },
   { key: "heatmap", shows: /Peak: [1-9]\d* events in an hour/, never: /Peak: 0 events|No events yet/ },
   { key: "timeline", shows: /kill Stonetusk Boar \(113\) by you/, never: /No events|Nothing recorded/ },
-  { key: "sessions", shows: /Testa-Fixture 2m 5s Westfall 0 0 0c 0 .* Testa-Fixture 2m 10s Elwynn Forest 2 1605 \+3s43c 1/, never: /No sessions yet\./ },
+  { key: "sessions", shows: /Testa Fixture 2m 5s Westfall 0 0 0c 0 .* Testa Fixture 2m 10s Elwynn Forest 2 1605 \+3s43c 1/, never: /No sessions yet\./ },
   { key: "map", shows: /Elwynn Forest 16 points Westfall 10 points/, never: /No path points yet/ },
   { key: "charts", shows: /Experience over time 95 1,605 .* Top spells cast Heroic Strike 1 /, never: /Experience over time No data/ },
-  { key: "loot", shows: /Drop rates .* Solo Stonetusk Boar .* Chunk of Boar Meat 100% 1\/1 .* Testa-Fixture Solo 3 /, never: /No creature loot with an item list|No loot recorded yet/ },
+  { key: "loot", shows: /Drop rates .* Solo Stonetusk Boar .* Chunk of Boar Meat 100% 1\/1 .* Testa Fixture Solo 3 /, never: /No creature loot with an item list|No loot recorded yet/ },
   { key: "talents", shows: /Arms · 3 points, 2 available .* Improved Heroic Strike 2\/3 Deflection 2\/2 .* Picked 1→2\/3/, never: /No talent lines recorded|Select a character/ },
-  { key: "items", shows: /Linen Cloth 2589 3 Testa-Fixture 3 in bags/, never: /No bags or bank recorded yet|No items match/ },
-  { key: "addons", shows: /GatherMate2 1 .* GatherMate2 Testa-Fixture \(2447\) map 1429 at 43\.9, 67\.0/, never: /No lines from other addons/ },
+  { key: "items", shows: /Linen Cloth 2589 3 Testa Fixture 3 in bags/, never: /No bags or bank recorded yet|No items match/ },
+  { key: "addons", shows: /GatherMate2 1 .* GatherMate2 Testa Fixture \(2447\) map 1429 at 43\.9, 67\.0/, never: /No lines from other addons/ },
   { key: "compress", shows: /Export now .* 2 file\(s\) .* Payloads .* [1-9]\d* events loaded/, never: /Data folder .* · 0 events loaded/ },
   { key: "settings", shows: /WoW folders .* E2EONE .* E2ETWO/, never: /No game accounts yet/ },
 ];
@@ -262,9 +263,9 @@ const CHECKS = [
     async run(ctx) {
       const app = running(ctx);
       await selectCharacter(app, "");
-      await open(app, "overview", new RegExp(`^(?=.*Level target)(?=.*${TESTA})(?=.*${PROBE})`));
+      await open(app, "overview", new RegExp(`^(?=.*Level target)(?=.*${SHOWN.testa})(?=.*${SHOWN.probe})`));
       await selectCharacter(app, PROBE);
-      await open(app, "overview", /Probe-Lane Level 3 Gnome Mage/);
+      await open(app, "overview", /Probe Lane Level 3 Gnome Mage/);
       expectNoMatch("the overview of one character", await app.evaluate(BODY), /Level target/);
     },
   },
@@ -286,7 +287,7 @@ const CHECKS = [
         await sleep(20);
       }
       expectEqual("group_by_account in settings.json", saved.group_by_account, true);
-      await open(app, "overview", new RegExp(`^(?=.*game account E2EONE)(?=.*game account E2ETWO)(?=.*${TESTA})(?=.*${PROBE})`, "i"));
+      await open(app, "overview", new RegExp(`^(?=.*game account E2EONE)(?=.*game account E2ETWO)(?=.*${SHOWN.testa})(?=.*${SHOWN.probe})`, "i"));
     },
   },
   {
