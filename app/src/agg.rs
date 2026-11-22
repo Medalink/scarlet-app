@@ -83,6 +83,7 @@ pub struct Agg {
     /// Open spans per character, so "All characters" never closes one
     /// character's span with another's line.
     open: std::collections::HashMap<u32, Spans>,
+    gates: std::collections::HashMap<u32, scarlet::events::Deaths>,
     ch: u32,
 }
 
@@ -164,7 +165,11 @@ const REGISTRY: &[(&str, Handler)] = &[
         a.cast_s += num(f, 1);
     }),
     ("CH", |a, f, _ms| a.cast_s += num(f, 1)),
-    ("D", |a, _f, _ms| a.deaths += 1),
+    ("D", |a, _f, ms| {
+        if a.gates.entry(a.ch).or_default().died(ms) {
+            a.deaths += 1;
+        }
+    }),
     ("Q", |a, f, _ms| match g(f, 0) {
         "1" => a.quests += 1,
         "2" => a.completed += 1,

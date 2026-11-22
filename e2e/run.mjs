@@ -38,7 +38,7 @@ const VIEWS = [
   { key: "talents", shows: /Arms · 3 points, 2 available .* Improved Heroic Strike 2\/3 Deflection 2\/2 .* Picked 1→2\/3/, never: /No talent lines recorded|Select a character/ },
   {
     key: "items",
-    shows: /^(?=.*Linen Cloth 2589 28 1s ?50c \d{4}-\d\d-\d\d \d\d:\d\d Testa Fixture 3 in bags Warband bank \(E2EONE\) 20 Warband bank \(E2ETWO\) 5 .* Wool Cloth 2592 7 – Guild bank 7 .* Warband bank \(E2EONE\) Testa Fixture 1 .* 12g ?34s .* Warband bank \(E2ETWO\) Probe Lane 1 .* 5g .* Guild bank Probe Lane 1 .* 98g ?76s)(?=.*Recipes Recipe Known by Makes Needs Bolt of Linen Cloth Testa Fixture Bolt of Linen Cloth x1 Linen Cloth x2)(?!.*1s ?25c)/,
+    shows: /^(?=.*Linen Cloth 2589 28 1s ?50c \d{4}-\d\d-\d\d \d\d:\d\d Testa Fixture 3 in bags Warband bank \(E2EONE\) 20 Warband bank \(E2ETWO\) 5 Wool Cloth 2592 7 – Guild bank 7 .* Warband bank \(E2EONE\) Testa Fixture 1 .* 12g ?34s Warband bank \(E2ETWO\) Probe Lane 1 .* 5g ?00s Guild bank Probe Lane 1 .* 98g ?76s)(?=.*Recipes Recipe Known by Makes Needs Bolt of Linen Cloth Testa Fixture Bolt of Linen Cloth x1 Linen Cloth x2)(?!.*1s ?25c)/,
     never: /No bags or bank recorded yet|No items match|Guild bank \(|account unknown/,
   },
   { key: "addons", shows: /GatherMate2 1 .* GatherMate2 Testa Fixture \(2447\) map 1429 at 43\.9, 67\.0/, never: /No lines from other addons/ },
@@ -174,6 +174,9 @@ const CHECKS = [
         if (!fs.existsSync(path.join(s.out, file))) throw mismatch("a file the export writes", file, "missing");
       }
       expectMatch("a known line in Testa-Fixture/scarlet.txt", read(path.join(s.out, TESTA, "scarlet.txt")), /zone\s+Elwynn Forest - Goldshire/);
+      const exported = read(path.join(s.out, TESTA, "scarlet.txt"));
+      expectMatch("the killing blow of a creature in Testa-Fixture/scarlet.txt", exported, /deathhit\s+Reaper Slam \(5101\) for 412 from Harvest Reaper \(115\), the killing blow \(37 overkill\), avoidable, deadly, the killer was a creature \(level 12, elite\), 7 hits in the recap/);
+      expectMatch("the killing blow of a fall in Testa-Fixture/scarlet.txt", exported, /deathhit\s+a fall for 640, the killing blow \(12 overkill\), avoidable, 2 hits in the recap/);
       expectMatch("a known line in Probe-Lane/scarlet.txt", read(path.join(s.out, PROBE, "scarlet.txt")), /kill\s+Kobold Vermin \(6\) by you/);
     },
   },
@@ -274,6 +277,34 @@ const CHECKS = [
   })),
   {
     lane: "app",
+    name: "the timeline reads each hit of a death recap",
+    async run(ctx) {
+      const app = running(ctx);
+      await selectCharacter(app, TESTA);
+      await open(app, "timeline", /kill Stonetusk Boar/);
+      const search = async (term, shows) => {
+        await app.evaluate(`(() => { const q = document.querySelector('#body input[placeholder^="Search"]'); q.value = ${JSON.stringify(term)}; q.dispatchEvent(new Event("input")); })()`);
+        await app.until(`${patternExpression(shows)}.test(${BODY})`, `the timeline searched for ${term} shows ${shows}`);
+      };
+      await search("avoidable", /^(?=.*Reaper Slam \(5101\) for 412 from Harvest Reaper \(115\), the killing blow \(37 overkill\), avoidable, deadly, the killer was a creature \(level 12, elite\), 7 hits in the recap)(?=.*a fall for 640, the killing blow \(12 overkill\), avoidable, 2 hits in the recap)(?!.*from the environment)/);
+      await search("before death", /^(?=.*a melee swing for 88 from Harvest Reaper, 1s before death)(?=.*Reaper Slam \(5101\) for 150 from Harvest Reaper, 55 absorbed, 3s before death)(?=.*a ranged shot for 61 from Defias Thug)(?=.*Rust Bleed \(5102\) for 20 from Harvest Reaper, 7 resisted, 3 blocked, 5s before death)(?=.*a melee swing for 70 from Harvest Reaper, 8s before death)(?!.*spell \?)/);
+    },
+  },
+  {
+    lane: "app",
+    name: "a death counts once and a fall is named as the killer",
+    async run(ctx) {
+      const app = running(ctx);
+      await selectCharacter(app, TESTA);
+      await open(app, "overview", /Deaths .* 2 deaths\. Killed most by (Fall|Harvest Reaper), 1 time\./);
+      await open(app, "stats", / 2 Deaths /);
+      await selectCharacter(app, PROBE);
+      await open(app, "overview", /Deaths .* 1 death\. Killed most by Kobold Vermin, 1 time\./, /2 deaths/);
+      await open(app, "stats", / 1 Deaths /);
+    },
+  },
+  {
+    lane: "app",
     name: "the character filter works",
     async run(ctx) {
       const app = running(ctx);
@@ -317,7 +348,7 @@ const CHECKS = [
         await open(
           app,
           "items",
-          /Linen Cloth 2589 28 Testa Fixture 3 in bags Warband bank \(account unknown, Probe Lane\) 5 Warband bank \(account unknown, Testa Fixture\) 20 .* Guild bank Probe Lane 1/,
+          /Linen Cloth 2589 28 1s ?50c \d{4}-\d\d-\d\d \d\d:\d\d Testa Fixture 3 in bags Warband bank \(account unknown, Probe Lane\) 5 Warband bank \(account unknown, Testa Fixture\) 20 .* Guild bank Probe Lane 1/,
           /Warband bank \(E2E|Guild bank \(/,
         );
       } finally {

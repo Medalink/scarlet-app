@@ -56,6 +56,7 @@ pub struct Feed {
     here: Option<(u32, Pt)>,
     sub: Option<(u32, String)>,
     fished_at: i64,
+    deaths: scarlet::events::Deaths,
 }
 
 fn int(f: &[String], i: usize) -> Option<i32> {
@@ -76,6 +77,7 @@ impl Feed {
             here: None,
             sub: None,
             fished_at: i64::MIN / 2,
+            deaths: Default::default(),
         }
     }
 
@@ -145,7 +147,13 @@ impl Feed {
                     self.at(out, a).teleports.push([[fx, fy], [tx, ty]]);
                 }
             }
+            "D" => {
+                self.deaths.died(ms);
+            }
             "DL" => {
+                if self.deaths.repeated() {
+                    return;
+                }
                 if let (Some(m), Some(x), Some(y)) = (map_id(f, 0), int(f, 1), int(f, 2)) {
                     self.at(out, m).deaths.push([x, y]);
                 }

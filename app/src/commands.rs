@@ -778,6 +778,7 @@ pub fn charts(app: AppHandle, ch: Option<String>) -> Charts {
         let mut kills: HashMap<String, i64> = HashMap::new();
         let mut emotes: HashMap<String, i64> = HashMap::new();
         let mut killers: HashMap<String, i64> = HashMap::new();
+        let mut gates: HashMap<u32, scarlet::events::Deaths> = HashMap::new();
         let field = |r: &crate::store::Row, i: usize| -> i64 {
             r.fields.get(i).and_then(|f| f.parse().ok()).unwrap_or(0)
         };
@@ -866,13 +867,18 @@ pub fn charts(app: AppHandle, ch: Option<String>) -> Charts {
                         *emotes.entry(t.to_lowercase()).or_default() += 1;
                     }
                 }
-                // One death has up to 3 DR lines; only the killing blow (pos 1) names the
-                // killer. Lines from before pos existed count as before.
+                "D" => {
+                    gates.entry(r.ch).or_default().died(r.ms);
+                }
                 "DR" if r.fields.get(4).is_some_and(|p| !p.is_empty() && p != "1") => {}
+                "DR" if r.fields.get(4).is_some_and(|p| p == "1")
+                    && !gates.entry(r.ch).or_default().killing_blow(r.ms) => {}
                 "DR" => {
                     let who = match r.fields.get(2).filter(|s| !s.is_empty()) {
                         _ if r.fields.get(3).map(String::as_str) == Some("1") => {
-                            "The environment".to_string()
+                            scarlet::events::environmental_killer(&r.fields)
+                                .unwrap_or("The environment")
+                                .to_string()
                         }
                         Some(src) => src.clone(),
                         None => spell_name(id_of(r, 0)),

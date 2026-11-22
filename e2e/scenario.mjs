@@ -13,6 +13,12 @@ const TEN_YEARS = 315360000;
 
 const session = (start, lines) => ({ start, lines });
 
+const hit = (pos, h) => [
+  "DR", h.spell ?? "", h.amount, h.source ?? "", h.env ?? 0, pos, h.over ?? "", h.hp, 1800, h.before ?? 0, h.school ?? 1,
+  h.kind ?? "", h.level ?? "", h.rank ?? "", h.race ?? "", h.guild ?? "", h.hits ?? "",
+  h.event, h.type ?? "", h.absorbed ?? 0, h.resisted ?? 0, h.blocked ?? 0, h.flags ?? "", h.npc ?? "",
+];
+
 const walk = (from, map, points) => points.map(([x, y, facing], i) => [from + i * 5, "P", map, x, y, facing]);
 
 export const CHARACTERS = [
@@ -110,13 +116,28 @@ export const CHARACTERS = [
         [31, "N", 115, "Harvest Reaper"],
         [31, "NS", 115, 12, "normal", "Mechanical", 9, "", 0, 2, WESTFALL, 54, 50],
         [32, "F", 1],
+        [38, "SN", 5101, "Reaper Slam"],
+        [38, "SN", 5102, "Rust Bleed"],
         [39, "D"],
         [39, "DL", WESTFALL, 5420, 5040],
+        [39, ...hit(1, { spell: 5101, amount: 412, source: "Harvest Reaper", over: 37, hp: 0, kind: "c", level: 12, rank: "elite", hits: 7, event: "SPELL_DAMAGE", flags: "ad", npc: 115 })],
+        [39, ...hit(2, { spell: "?", amount: 88, source: "Harvest Reaper", hp: 412, before: 1, event: "SWING_DAMAGE" })],
+        [39, ...hit(3, { spell: 5101, amount: 150, source: "Harvest Reaper", hp: 500, before: 3, event: "SPELL_DAMAGE", absorbed: 55 })],
+        [39, ...hit(4, { amount: 61, source: "Defias Thug", hp: 650, before: 4, event: "RANGE_DAMAGE" })],
+        [39, ...hit(5, { spell: 5102, amount: 20, source: "Harvest Reaper", hp: 711, before: 5, event: "SPELL_PERIODIC_DAMAGE", resisted: 7, blocked: 3 })],
+        [39, ...hit(6, { amount: 74, source: "Harvest Reaper", hp: 731, before: 6, event: "SWING_DAMAGE" })],
+        [39, ...hit(7, { amount: 70, source: "Harvest Reaper", hp: 805, before: 8, event: "SWING_DAMAGE" })],
         [39, "F", 0, 7],
         [45, "R"],
         [90, "U"],
         ...walk(95, WESTFALL, [[5420, 5040, 0], [5480, 4960, 1], [5540, 4890, 1], [5600, 4820, 0], [5650, 4760, 0]]),
+        [118, "D"],
+        [118, "DL", WESTFALL, 5650, 4760],
+        [118, ...hit(1, { amount: 640, env: 1, over: 12, hp: 0, event: "ENVIRONMENTAL_DAMAGE", type: "Falling", hits: 2, flags: "a" })],
+        [118, ...hit(2, { amount: 35, source: "Harvest Reaper", hp: 640, before: 2, event: "SWING_DAMAGE" })],
+        [119, "R"],
         [120, "W", "f", 260, 25, 0, ""],
+        [124, "U"],
         [125, "BC", "b", "2589:3,6948:1"],
         [125, "RO", 0, 3600, 0],
         [125, "ES"],
@@ -144,6 +165,15 @@ export const CHARACTERS = [
         [31, "F", 0, 4],
         [31, "X", 60, 360, 1400, "k", 6],
         [32, "M", 9, 0, 129],
+        ...[34, 35].flatMap((at) => [
+          [at, "D"],
+          [at, "DL", ELWYNN, 4990, 4060],
+        ]),
+        ...[35, 36].flatMap((at) => [
+          [at, "DR", 133, 15, "Kobold Vermin", 0, 1, 3, 0, 120, 0, 4],
+          [at, "DR", "", 9, "Kobold Vermin", 0, 2, "", 15, 120, 3, 4],
+          [at, "DR", "", 7, "Kobold Vermin", 0, 3, "", 24, 120, 5, 4],
+        ]),
         [39, "IN", 6948, "Hearthstone"],
         [40, "BC", "b", "6948:1"],
         [40, "IN", 2592, "Wool Cloth"],

@@ -884,6 +884,60 @@ fn label(kind: char, id: &str, names: &HashMap<String, String>, fallback: &str) 
     }
 }
 
+const SAME_DEATH_MS: i64 = 3000;
+
+fn same_death(last: &mut Option<i64>, ms: i64) -> bool {
+    let again = last.is_some_and(|l| (0..=SAME_DEATH_MS).contains(&(ms - l)));
+    if !again {
+        *last = Some(ms);
+    }
+    again
+}
+
+/// Reads one character's death lines in time order and tells a death written twice from two deaths. Lines before
+/// 2026-11-22 could hold one death as `D`, `DL`, `D`, `DL` and then its recap twice.
+#[derive(Default)]
+pub struct Deaths {
+    died: Option<i64>,
+    blow: Option<i64>,
+    repeat: bool,
+}
+
+impl Deaths {
+    /// Reads a `D` line; false when it is a second event for the death before it.
+    pub fn died(&mut self, ms: i64) -> bool {
+        self.repeat = same_death(&mut self.died, ms);
+        !self.repeat
+    }
+
+    /// True when the last `D` read was a second event for the same death, so the `DL` after it marks the same place.
+    pub fn repeated(&self) -> bool {
+        self.repeat
+    }
+
+    /// Reads a killing blow (`DR` pos 1); false when it is the same recap written again.
+    pub fn killing_blow(&mut self, ms: i64) -> bool {
+        !same_death(&mut self.blow, ms)
+    }
+}
+
+/// The plain word for what killed a character when the killing blow came from the world, as written in `DR` field 17.
+pub fn environmental_killer(f: &[String]) -> Option<&'static str> {
+    let g = |i: usize| f.get(i).map(String::as_str).unwrap_or("");
+    if g(3) != "1" {
+        return None;
+    }
+    match g(17) {
+        "Falling" => Some("Fall"),
+        "Drowning" => Some("Drowning"),
+        "Fatigue" => Some("Fatigue"),
+        "Fire" => Some("Fire"),
+        "Lava" => Some("Lava"),
+        "Slime" => Some("Slime"),
+        _ => None,
+    }
+}
+
 /// A spot on a map from the `P` units: the map, then the map percent to one decimal.
 fn spot(map: &str, x: &str, y: &str) -> String {
     if map.is_empty() {
@@ -1243,24 +1297,59 @@ fn details(code: &str, f: &[String], names: &HashMap<String, String>) -> String 
         ),
         "GR" => format!("preset {} hardcore {}", g(0), g(1)),
         "DR" => {
-            let from = if g(3) == "1" {
-                "the environment".to_string()
-            } else if g(2).is_empty() {
+            let world = match g(17) {
+                "Falling" => Some("a fall"),
+                "Drowning" => Some("drowning"),
+                "Fatigue" => Some("fatigue"),
+                "Fire" => Some("fire"),
+                "Lava" => Some("lava"),
+                "Slime" => Some("slime"),
+                _ => None,
+            }
+            .filter(|_| g(3) == "1");
+            let named_spell = !g(0).is_empty() && g(0) != "?";
+            let what = match (g(16), world) {
+                ("SWING_DAMAGE", _) => "a melee swing".to_string(),
+                ("RANGE_DAMAGE", _) if named_spell => format!("a ranged shot ({})", spell(0)),
+                ("RANGE_DAMAGE", _) => "a ranged shot".to_string(),
+                (_, Some(w)) => w.to_string(),
+                _ if named_spell => spell(0),
+                _ if g(0) == "?" => "a hit the client did not name".to_string(),
+                _ => "hit".to_string(),
+            };
+            let source = if g(2).is_empty() || g(2) == "?" {
                 "unknown".to_string()
+            } else if g(10) == "c" && !g(22).is_empty() && g(22) != "?" {
+                match names.get(&name_key('n', g(22))) {
+                    Some(n) => format!("{n} ({})", g(22)),
+                    None => format!("{} (npc {})", g(2), g(22)),
+                }
             } else {
                 g(2).to_string()
             };
-            let what = if g(0).is_empty() {
-                "hit".to_string()
-            } else {
-                spell(0)
-            };
-            let mut s = format!("{what} for {} from {from}", g(1));
+            let mut s = format!("{what} for {}", g(1));
+            if world.is_none() {
+                if g(3) == "1" {
+                    s.push_str(" from the environment");
+                } else {
+                    s.push_str(&format!(" from {source}"));
+                }
+            }
             if g(4) == "1" {
                 s.push_str(", the killing blow");
             }
             if !g(5).is_empty() && g(5) != "0" && g(5) != "-1" {
                 s.push_str(&format!(" ({} overkill)", g(5)));
+            }
+            for (i, word) in [(18, "absorbed"), (19, "resisted"), (20, "blocked")] {
+                if !g(i).is_empty() && g(i) != "0" && g(i) != "?" {
+                    s.push_str(&format!(", {} {word}", g(i)));
+                }
+            }
+            for (letter, word) in [('a', "avoidable"), ('d', "deadly"), ('h', "caster hidden")] {
+                if g(21).contains(letter) {
+                    s.push_str(&format!(", {word}"));
+                }
             }
             if !g(8).is_empty() && g(8) != "0" {
                 s.push_str(&format!(", {}s before death", g(8)));
@@ -1575,6 +1664,12 @@ fn details(code: &str, f: &[String], names: &HashMap<String, String>) -> String 
         "PR" => {
             if let Some(event) = g(0).strip_prefix("?e:") {
                 format!("content probe: event {event} fired")
+            } else if let Some(structure) = g(0).strip_prefix("?k:") {
+                if g(2).is_empty() {
+                    format!("content probe: fields of {structure}")
+                } else {
+                    format!("content probe: fields of {structure}: {}", g(2))
+                }
             } else if let Some(function) = g(0).strip_prefix("?f:") {
                 match (g(1), g(2).is_empty()) {
                     ("1", true) => format!("content probe: function {function} returned something"),

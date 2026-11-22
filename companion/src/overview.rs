@@ -548,6 +548,7 @@ struct Builder {
     mate_class: HashMap<String, String>,
     killers: HashMap<String, i64>,
     death_zones: HashMap<String, i64>,
+    deaths: crate::events::Deaths,
     moved: HashMap<usize, i64>,
     rested: Option<Rested>,
     gapped: std::collections::BTreeSet<u32>,
@@ -591,6 +592,7 @@ impl Builder {
             mate_class: HashMap::new(),
             killers: HashMap::new(),
             death_zones: HashMap::new(),
+            deaths: Default::default(),
             moved: HashMap::new(),
             rested: None,
             gapped: std::collections::BTreeSet::new(),
@@ -1039,6 +1041,9 @@ impl Builder {
                 }
             }
             "D" => {
+                if !self.deaths.died(ms) {
+                    return;
+                }
                 o.row.dd += 1;
                 if let Some(l) = o.lv() {
                     l.dd += 1;
@@ -1079,13 +1084,14 @@ impl Builder {
                 }
             }
             "GM" => self.mate(ms, f),
-            "DR" => {
-                if f.get(4).map(String::as_str) == Some("1")
-                    && let Some(src) = f.get(2).filter(|s| !s.is_empty() && *s != "?")
-                {
+            "DR" if f.get(4).map(String::as_str) == Some("1") => {
+                let killer = crate::events::environmental_killer(f)
+                    .map(str::to_string)
+                    .or_else(|| f.get(2).filter(|s| !s.is_empty() && *s != "?").cloned());
+                if let Some(src) = killer.filter(|_| self.deaths.killing_blow(ms)) {
                     *self.killers.entry(src.clone()).or_default() += 1;
                     if at_cap {
-                        *self.acc.killers.entry(src.clone()).or_default() += 1;
+                        *self.acc.killers.entry(src).or_default() += 1;
                     }
                 }
             }
