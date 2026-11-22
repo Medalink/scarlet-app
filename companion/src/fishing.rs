@@ -778,6 +778,66 @@ pub fn read(account: Option<&Path>, character: &Path) -> Result<Vec<Line>, Strin
     Ok(lines)
 }
 
+/// Each character's lines for one game account, in the order given. The account's file goes to one
+/// character only, the one with the most lines of its own (the first by name on a tie), so its record
+/// book, boards and anglers are not repeated for every alt. A character that never fished gets no
+/// lines. An account file that does not read fails every character.
+pub fn read_chars(
+    account: Option<&Path>,
+    chars: &[(String, PathBuf)],
+) -> Vec<(String, Result<Vec<Line>, String>)> {
+    let acc_db = match account {
+        Some(p) => fs::read_to_string(p)
+            .map_err(|e| e.to_string())
+            .and_then(|text| lua::parse_named(&text, "TheFishingLogDB")),
+        None => Ok(None),
+    };
+    let mut out: Vec<(String, Result<Vec<Line>, String>)> = chars
+        .iter()
+        .map(|(name, file)| {
+            let lines = match &acc_db {
+                Ok(acc) => own_lines(acc.as_ref(), file),
+                Err(e) => Err(e.clone()),
+            };
+            (name.clone(), lines)
+        })
+        .collect();
+    let main = out
+        .iter()
+        .enumerate()
+        .filter_map(|(i, (name, r))| r.as_ref().ok().map(|l| (l.len(), name, i)))
+        .filter(|(len, _, _)| *len > 0)
+        .max_by(|a, b| a.0.cmp(&b.0).then(b.1.cmp(a.1)))
+        .map(|(_, _, i)| i);
+    if let (Some(i), Ok(Some(db))) = (main, &acc_db)
+        && let Ok(lines) = &mut out[i].1
+    {
+        lines.extend(read_account(db));
+    }
+    for (_, r) in &mut out {
+        if let Ok(lines) = r {
+            lines.sort();
+            lines.dedup();
+        }
+    }
+    out
+}
+
+fn own_lines(account: Option<&Lua>, character: &Path) -> Result<Vec<Line>, String> {
+    let text = fs::read_to_string(character).map_err(|e| e.to_string())?;
+    let Some(db) = lua::parse_named(&text, "TheFishingLogChar")? else {
+        return Ok(Vec::new());
+    };
+    let ids = fish_ids(account, Some(&db));
+    Ok(read_char(&db, &ids)
+        .into_iter()
+        .filter(|l| {
+            !(l.code == "JP"
+                && matches!(l.fields.first().map(String::as_str), None | Some("" | "0")))
+        })
+        .collect())
+}
+
 /// The payload text: `scarletfishing<TAB>1<TAB>Name-Surname`, then `<epoch ms><TAB><code><TAB><fields>`.
 pub fn scl_text(name: &str, lines: &[Line]) -> String {
     let mut out = format!("{MAGIC}\t1\t{name}\n");
