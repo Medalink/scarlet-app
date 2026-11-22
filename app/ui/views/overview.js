@@ -4,7 +4,7 @@
 // experience by level and gold, dungeons, played with and deaths, play time
 // by day and by zone, play history.
 
-import { invoke, esc, num, dur, moneyHtml, dateStr, SERIES, state } from "../lib.js";
+import { invoke, esc, displayName, num, dur, moneyHtml, dateStr, SERIES, state } from "../lib.js";
 
 export const CLASS_COLOR = {
   DEATHKNIGHT: "#C41E3A",
@@ -129,7 +129,7 @@ function header(ov, name, eta) {
   const last = ov.through ? `<p class="ch-note">Last session ${day(ov.through * 1000)} ${hm(ov.through * 1000)}</p>` : "";
   return `<section class="ch-head" style="--cls:${color}">
     <div>
-      <h1 class="ch-name">${esc(name)}</h1>
+      <h1 class="ch-name">${esc(displayName(name))}</h1>
       <p class="ch-sub"><i class="dot"></i>${bits.map((b) => `<span>${esc(b)}</span>`).join("")}</p>
       ${bar}
     </div>
@@ -452,7 +452,7 @@ function runsMod(ov) {
 function matesMod(ov, cls = "") {
   if (!ov.mates.length) return mod(cls, "Played with", empty("No group members recorded"));
   const rows = ov.mates.slice(0, 4).map((m) => ({
-    who: m.name,
+    who: displayName(m.name),
     v: m.p,
     val: `${dur(m.p)} · ${plural(m.n, "session", "sessions")}`,
     color: CLASS_COLOR[m.class] || "",

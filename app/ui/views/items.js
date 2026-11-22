@@ -1,7 +1,7 @@
 // Items: what every character carries in its bags and bank, searched by item name or id.
 // The model comes from the `items` command.
 
-import { invoke, el, esc, num, dateTime } from "../lib.js";
+import { invoke, el, esc, displayName, num, dateTime } from "../lib.js";
 
 const when = (secs) => (secs ? dateTime(secs * 1000) : "–");
 
@@ -11,7 +11,7 @@ function holders(row) {
       const parts = [];
       if (h.bags) parts.push(`${num(h.bags)} in bags`);
       if (h.bank) parts.push(`${num(h.bank)} in bank`);
-      return `${esc(h.character)} ${parts.join(", ")}`;
+      return `${esc(displayName(h.character))} ${parts.join(", ")}`;
     })
     .join("<br>");
 }
@@ -21,7 +21,7 @@ function carriers(view) {
   p.innerHTML = "<h3>Characters</h3>";
   const rows = view.characters
     .map(
-      (c) => `<tr><td>${esc(c.name)}</td><td class="num">${num(c.stacks)}</td>
+      (c) => `<tr><td>${esc(displayName(c.name))}</td><td class="num">${num(c.stacks)}</td>
         <td class="gap">${when(c.bags_at)}</td><td>${when(c.bank_at)}</td></tr>`
     )
     .join("");

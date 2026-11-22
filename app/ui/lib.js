@@ -121,6 +121,8 @@ export function esc(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
 }
 
+export const displayName = (name) => String(name ?? "").replace("-", " ");
+
 // A cumulative series as an SVG area chart. series: [[ms, v], ...]
 export function lineChart(series, color = "#ff2d55", h = 150) {
   if (!series.length) return `<div class="empty">No data yet.</div>`;

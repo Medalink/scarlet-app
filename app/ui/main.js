@@ -1,6 +1,6 @@
 // Shell: sidebar nav, character filter, store-changed refresh, hash routing.
 
-import { invoke, el, $, num, esc, state } from "./lib.js";
+import { invoke, el, $, num, esc, displayName, state } from "./lib.js";
 import * as overview from "./views/overview.js";
 import * as roster from "./views/roster.js";
 import * as stats from "./views/stats.js";
@@ -97,7 +97,7 @@ async function refreshCharSelector() {
   const prev = state.ch;
   sel.innerHTML = `<option value="">All characters</option>`;
   for (const c of state.store?.chars ?? []) {
-    sel.insertAdjacentHTML("beforeend", `<option value="${esc(c)}">${esc(c)}</option>`);
+    sel.insertAdjacentHTML("beforeend", `<option value="${esc(c)}">${esc(displayName(c))}</option>`);
   }
   sel.value = prev ?? "";
 }

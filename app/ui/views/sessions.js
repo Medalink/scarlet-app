@@ -1,7 +1,7 @@
 // Sessions: S..ES runs with duration, zones, kills, xp, money and casts.
 // Click a row to open its range in the timeline.
 
-import { invoke, el, state, dur, moneyHtml, dateTime, esc } from "../lib.js";
+import { invoke, el, state, dur, moneyHtml, dateTime, esc, displayName } from "../lib.js";
 
 export async function render(body) {
   body.innerHTML = "";
@@ -20,7 +20,7 @@ export async function render(body) {
   for (const s of rows.slice().reverse()) {
     const tr = el("tr", "click");
     tr.innerHTML = `<td>${dateTime(s.start)}</td>
-      <td class="dim">${esc(s.char_name)}</td>
+      <td class="dim">${esc(displayName(s.char_name))}</td>
       <td>${dur(s.duration)}</td>
       <td class="zones">${s.zones.map(esc).join(" · ") || "—"}</td>
       <td class="num">${s.kills}</td>

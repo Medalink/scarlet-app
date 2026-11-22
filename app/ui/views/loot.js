@@ -1,7 +1,7 @@
 // Loot: drop rates per creature and item, one column per loot rule, and what
 // each player received and rolled under each rule.
 
-import { invoke, el, state, esc, num } from "../lib.js";
+import { invoke, el, state, esc, displayName, num } from "../lib.js";
 
 const METHOD = {
   solo: "Solo",
@@ -105,7 +105,7 @@ function attributionTable(view) {
     .sort((a, b) => a.who.localeCompare(b.who) || a.rule - b.rule)
     .map((a) => {
       const q = a.quality;
-      return `<tr><td>${esc(a.who)}</td><td>${esc(ruleLabel(view.rules[a.rule]))}</td>
+      return `<tr><td>${esc(displayName(a.who))}</td><td>${esc(ruleLabel(view.rules[a.rule]))}</td>
         <td class="num">${num(a.items)}</td>
         <td class="num">${num(q[0])}</td><td class="num">${num(q[1])}</td><td class="num">${num(q[2])}</td>
         <td class="num">${num(q[3])}</td><td class="num">${num(q[4] + q[5])}</td><td class="num">${num(q[6])}</td>

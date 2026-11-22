@@ -1,6 +1,6 @@
 // Settings: one page per topic, chosen by the tabs at the top and by the hash (#settings/updates).
 
-import { invoke, el, esc, openmapMissing } from "../lib.js";
+import { invoke, el, esc, displayName, openmapMissing } from "../lib.js";
 import { renderUpload } from "./upload.js";
 import { renderUpdates, renderAddon, watchProblems, refreshProblems } from "./updates.js";
 
@@ -214,7 +214,7 @@ async function drawBoxes(body, box, s, dataIn) {
     for (const a of f.accounts) {
       const tr = el("tr");
       const when = a.saved ? new Date(a.saved * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }) : "no recording yet";
-      tr.innerHTML = `<td>${esc(a.name)}</td><td>${a.characters.length ? esc(a.characters.join(", ")) : ""}</td><td class="dim">${esc(when)}</td>`;
+      tr.innerHTML = `<td>${esc(a.name)}</td><td>${a.characters.length ? esc(a.characters.map(displayName).join(", ")) : ""}</td><td class="dim">${esc(when)}</td>`;
       t.appendChild(tr);
     }
     if (f.accounts.length) card.appendChild(t);

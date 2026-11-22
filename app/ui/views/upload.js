@@ -1,7 +1,7 @@
 // Settings > Website: the master switch, the website address, one switch per sharing group and per
 // character, the account link and the removals. Off until the player turns it on.
 
-import { invoke, el, bytes, num } from "../lib.js";
+import { invoke, el, bytes, num, displayName } from "../lib.js";
 
 // What each group holds (docs/DESIGN.md, Sharing groups). Labels come from the app.
 const HOLDS = {
@@ -135,7 +135,7 @@ export async function renderUpload(body) {
       if (e.error) text = `Failed: ${e.error}`;
       else if (!e.parts) text = "Nothing new";
       else
-        text = `Sent ${num(e.parts)} ${e.parts === 1 ? "part" : "parts"} of ${num(e.sessions)} ${e.sessions === 1 ? "session" : "sessions"} for ${e.characters.join(", ")}`;
+        text = `Sent ${num(e.parts)} ${e.parts === 1 ? "part" : "parts"} of ${num(e.sessions)} ${e.sessions === 1 ? "session" : "sessions"} for ${e.characters.map(displayName).join(", ")}`;
       text += `. ${bytes(e.sent)}`;
       if (e.repeats) text += `, checked ${num(e.repeats + 1)} times`;
       val.textContent = text + ".";
@@ -197,7 +197,7 @@ export async function renderUpload(body) {
       for (const c of v.characters) {
         const row = el("div");
         row.style.marginBottom = "12px";
-        const s = sw(c.name, c.on);
+        const s = sw(displayName(c.name), c.on);
         s.onclick = () => act(() => invoke("upload_set_character", { name: c.name, on: !c.on }));
         const line = el("div", "note");
         line.style.marginTop = "2px";

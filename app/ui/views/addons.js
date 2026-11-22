@@ -1,7 +1,7 @@
 // Addons: lines Scarlet recorded from other installed addons. They come from a
 // separate stream and are not part of any other view's numbers.
 
-import { invoke, el, state, esc, num, dateTime } from "../lib.js";
+import { invoke, el, state, esc, displayName, num, dateTime } from "../lib.js";
 
 function panel(title) {
   const p = el("div", "panel");
@@ -39,7 +39,7 @@ function recent(view) {
     tb.innerHTML = hit
       .map(
         (l) => `<tr><td class="dim">${dateTime(l.ms)}</td><td>${esc(l.label)}</td>
-          <td class="dim">${esc(l.character)}</td><td>${esc(l.text)}</td></tr>`,
+          <td class="dim">${esc(displayName(l.character))}</td><td>${esc(l.text)}</td></tr>`,
       )
       .join("");
     note.textContent =

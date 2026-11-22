@@ -2,7 +2,7 @@
 // The model comes from the `roster` command. Section order: totals, characters by game
 // account, gold and transfers, played together, play time by day, time per level, professions.
 
-import { invoke, esc, num, dur, moneyHtml, dateStr } from "../lib.js";
+import { invoke, esc, displayName, num, dur, moneyHtml, dateStr } from "../lib.js";
 import { CLASS_COLOR, className, raceName, day, hm, longDur, playTime, signed, empty, mod, mondayOf, axisTime } from "./overview.js";
 
 const DAYS = 30;
@@ -15,13 +15,13 @@ let transfersAll = false;
 
 const tone = (i) => `var(--alt-${(i % TONES) + 1})`;
 const sum = (rows, f) => rows.reduce((a, r) => a + f(r), 0);
-const named = (c) => `<span class="who-c"><i class="dot-c" style="background:${CLASS_COLOR[c.class] || "var(--muted)"}"></i>${esc(c.name)}</span>`;
+const named = (c) => `<span class="who-c"><i class="dot-c" style="background:${CLASS_COLOR[c.class] || "var(--muted)"}"></i>${esc(displayName(c.name))}</span>`;
 const nameOf = (name) => {
   const c = data.chars.find((x) => x.name === name);
-  return c ? named(c) : esc(name);
+  return c ? named(c) : esc(displayName(name));
 };
 const key = () =>
-  `<ul class="key">${data.chars.map((c, i) => `<li><i style="background:${tone(i)}"></i>${esc(c.name)}</li>`).join("")}</ul>`;
+  `<ul class="key">${data.chars.map((c, i) => `<li><i style="background:${tone(i)}"></i>${esc(displayName(c.name))}</li>`).join("")}</ul>`;
 
 function pick(name) {
   const sel = document.querySelector("#char");
@@ -237,7 +237,7 @@ function wireDays(body) {
       .map((p, ci) => [p, ci])
       .filter(([p]) => p)
       .sort((a, b) => b[0] - a[0])
-      .map(([p, ci]) => `${esc(data.chars[ci].name)} ${playTime(p)}`);
+      .map(([p, ci]) => `${esc(displayName(data.chars[ci].name))} ${playTime(p)}`);
     out.innerHTML = d.total ? `<b>${day(d.t)}</b> · ${playTime(d.total)} · ${who.join(" · ")}` : `<b>${day(d.t)}</b> · not played`;
   };
   const at = (e) => {
@@ -291,7 +291,7 @@ function wireLevels(body) {
       .map((c, i) => ({ i, p: (c.levels.find((l) => l[0] === lv) || [0, 0])[1] }))
       .filter((r) => r.p)
       .sort((a, b) => b.p - a.p)
-      .map((r) => `${esc(data.chars[r.i].name)} ${dur(r.p)}`);
+      .map((r) => `${esc(displayName(data.chars[r.i].name))} ${dur(r.p)}`);
     out.innerHTML = `<b>Level ${lv}</b> · ${rows.length ? rows.join(" · ") : "no time recorded"}`;
   };
   plot.addEventListener("pointermove", (e) => {

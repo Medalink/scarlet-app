@@ -3838,12 +3838,52 @@ pub fn scl_line(ev: &Ev) -> String {
     s
 }
 
+/// A character's name as the app shows it: first name and surname, `Name-Surname` as `Name Surname`.
+/// Recordings, payloads and `scarlet.txt` keep the stored `Name-Surname`.
+pub fn display_name(name: &str) -> String {
+    name.replacen('-', " ", 1)
+}
+
+fn player_shaped(name: &str) -> bool {
+    let part = |p: &str| {
+        let mut c = p.chars();
+        c.next().is_some_and(char::is_uppercase) && c.all(|c| c.is_lowercase() || c == '\'')
+    };
+    name.split_once('-')
+        .is_some_and(|(a, b)| part(a) && part(b))
+}
+
+fn player_fields(code: &str, f: &[String]) -> &'static [usize] {
+    let kind = f.first().map_or("", String::as_str);
+    match (code, kind) {
+        ("DR", _) if f.get(2).is_some_and(|s| player_shaped(s)) => &[2],
+        ("GL", "c") => &[1, 2],
+        ("GL", "m" | "l" | "p") | ("RC", "s" | "r") => &[1],
+        ("CM", "i" | "j") => &[3],
+        ("GI", "e") => &[],
+        ("PK" | "LW" | "IV" | "PM" | "AL" | "DU", _) => &[0],
+        ("GM" | "DP" | "QA" | "ML" | "TR" | "LT" | "LD" | "FR" | "GI" | "DW" | "DQ", _) => &[1],
+        ("LM", _) => &[2],
+        ("GU", _) => &[5],
+        _ => &[],
+    }
+}
+
 /// `(word, details)` for an event, the two halves of a rendered timeline
-/// line without the timestamp. Unknown codes render as the code plus the
-/// fields joined, never an error.
+/// line without the timestamp, with player names as `display_name` shows them.
+/// Unknown codes render as the code plus the fields joined, never an error.
 pub fn event_parts(ev: &Ev, names: &HashMap<String, String>) -> (String, String) {
-    (
-        word(&ev.code).to_string(),
-        details(&ev.code, &ev.fields, names),
-    )
+    let at = player_fields(&ev.code, &ev.fields);
+    let text = if at.is_empty() {
+        details(&ev.code, &ev.fields, names)
+    } else {
+        let mut fields = ev.fields.clone();
+        for &i in at {
+            if let Some(v) = fields.get_mut(i) {
+                *v = display_name(v);
+            }
+        }
+        details(&ev.code, &fields, names)
+    };
+    (word(&ev.code).to_string(), text)
 }
