@@ -208,9 +208,22 @@ pub fn set_group_by_account(app: AppHandle, on: bool) -> Result<bool, String> {
     Ok(on)
 }
 
+fn view_to_store(view: &str) -> String {
+    let (key, sub) = match view.split_once('/') {
+        Some((key, sub)) => (key, sub),
+        None => return view.to_string(),
+    };
+    let digits = |v: &str| !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit());
+    match sub.split_once('-') {
+        Some((from, to)) if key == "sessions" && digits(from) && digits(to) => key.to_string(),
+        _ => view.to_string(),
+    }
+}
+
 /// Persist the last view so the app reopens on it.
 #[tauri::command(async)]
 pub fn save_view(app: AppHandle, view: String) {
+    let view = view_to_store(&view);
     {
         let mut st = state(&app).settings.lock().unwrap();
         // Re-rendering the same view writes nothing.

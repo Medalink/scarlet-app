@@ -3,7 +3,7 @@
 
 use crate::agg::Agg;
 use crate::settings::{self, Settings};
-use crate::store::Store;
+use crate::store::{Row, Session, Store};
 use chrono::{Datelike, Local, TimeZone, Timelike};
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap};
@@ -177,18 +177,6 @@ pub async fn map_image(app: AppHandle, map: u32) -> tauri::ipc::Response {
     tauri::ipc::Response::new(bytes.unwrap_or_default())
 }
 
-/// Scan events for one character (or all) through the registry.
-fn scan(st: &Store, ch: Option<u32>) -> Agg {
-    let mut a = Agg::new();
-    for r in &st.events {
-        if ch.is_some_and(|c| r.ch != c) {
-            continue;
-        }
-        a.apply(r.ch, &r.code, &r.fields, r.ms);
-    }
-    a
-}
-
 #[derive(Serialize)]
 pub struct TimeSplit {
     label: &'static str,
@@ -244,168 +232,185 @@ pub async fn stats(app: AppHandle, ch: Option<String>) -> Stats {
 fn stats_sync(app: AppHandle, ch: Option<String>) -> Stats {
     with_store(&app, |st| {
         let c = ch.and_then(|n| st.char_index(&n));
-        let a = scan(st, c);
-        // Time in game: the sum of the sessions (S to ES, or to the last line of
-        // one that ended without ES), never the time between them.
-        let total = st
-            .sessions
-            .iter()
-            .filter(|s| c.is_none_or(|cc| s.ch == cc))
-            .map(|s| (s.end - s.start).max(0))
-            .sum::<i64>()
-            / 1000;
-        let still = (total - a.moving_s() - a.taxi_s - a.afk_s).max(0);
-        let mut time = vec![
-            ("Running", a.foot_s),
-            ("Walking", a.walk_s),
-            ("Mounted", a.mount_s),
-            ("Swimming", a.swim_s),
-            ("Flying", a.fly_s),
-            ("On flights", a.taxi_s),
-            ("AFK", a.afk_s),
-            ("Standing still", still),
-        ]
-        .into_iter()
-        .filter(|(_, s)| *s > 0)
-        .map(|(label, seconds)| TimeSplit { label, seconds })
-        .collect::<Vec<_>>();
-        time.sort_by_key(|t| std::cmp::Reverse(t.seconds));
-        let card = |label, v: (i64, String)| (label, v.0, v.1);
-        let t = |label, s: i64| (label, s, dur(s));
-        let sections = [
-            section(
-                "Character",
-                vec![
-                    t("Time recorded", total),
-                    card("Levels gained", n(a.levels as i64)),
-                    card("Experience", n(a.xp)),
-                    ("Gold earned", a.earned, money(a.earned)),
-                    ("Gold spent", a.spent, money(a.spent)),
-                    card("Items looted", n(a.loot as i64)),
-                    card("Collectibles", n(a.collected as i64)),
-                    card("Screenshots", n(a.screenshots as i64)),
-                    card("Cinematics watched", n(a.cinematics_watched as i64)),
-                    card("Cinematics skipped", n(a.cinematics_skipped as i64)),
-                ],
-            ),
-            section(
-                "Combat",
-                vec![
-                    card("Kills", n(a.kills as i64)),
-                    card("Damage done", n(a.damage)),
-                    card("Healing done", n(a.healing)),
-                    card("Damage taken", n(a.taken)),
-                    card("Best DPS", n(a.best_dps)),
-                    card("Fights recorded", n(a.fights as i64)),
-                    card("Deaths", n(a.deaths as i64)),
-                    t("Time crowd-controlled", a.cc_s),
-                    card("Duels won", n(a.duels_won as i64)),
-                    card("Duels lost", n(a.duels_lost as i64)),
-                    card("Honorable kills", n(a.honor_kills)),
-                    ("Repair bills", a.repaired, money(a.repaired)),
-                ],
-            ),
-            section(
-                "Travel",
-                vec![
-                    ("Distance", a.distance(), format_yd(a.distance())),
-                    card("Steps", n(a.steps() as i64)),
-                    card("Jumps", n(a.jumps as i64)),
-                    card("Areas discovered", n(a.discoveries as i64)),
-                    card("Camp visits", n(a.camps as i64)),
-                    t("Time at camp", a.camp_s),
-                    t("Time on flights", a.taxi_s),
-                ],
-            ),
-            section(
-                "Quests and world",
-                vec![
-                    card("Quests accepted", n(a.quests as i64)),
-                    card("Quests completed", n(a.completed as i64)),
-                    card("Quests abandoned", n(a.abandoned as i64)),
-                    t("Time casting", a.cast_s),
-                    card("Spells cast", n(a.casts as i64)),
-                    card("Buffs gained", n(a.buffs as i64)),
-                    card("NPCs talked to", n(a.npc_talks as i64)),
-                    card("Creatures seen", n(a.creatures.len() as i64)),
-                    card("Vendors catalogued", n(a.vendors.len() as i64)),
-                    card("Trainers catalogued", n(a.trainers.len() as i64)),
-                    card("Items identified", n(a.items_known.len() as i64)),
-                ],
-            ),
-            section(
-                "Crafting and loot",
-                vec![
-                    card("Crafts started", n(a.crafts_started as i64)),
-                    card("Items crafted", n(a.crafted)),
-                    card("First crafts", n(a.first_crafts as i64)),
-                    card("Concentration spent", n(a.concentration)),
-                    card(
-                        "Loot from creatures",
-                        n(a.loot_sources.get("c").copied().unwrap_or(0) as i64),
-                    ),
-                    card(
-                        "Loot from objects",
-                        n(a.loot_sources.get("g").copied().unwrap_or(0) as i64),
-                    ),
-                    card(
-                        "Loot from bag items",
-                        n(a.loot_sources.get("i").copied().unwrap_or(0) as i64),
-                    ),
-                    card(
-                        "Loot from elsewhere",
-                        n(a.loot_sources.get("o").copied().unwrap_or(0) as i64),
-                    ),
-                ],
-            ),
-            section(
-                "Social",
-                vec![
-                    card("Players grouped with", n(a.mates.len() as i64)),
-                    t("Time in a group", a.group_s),
-                    card("Emotes", n(a.emotes as i64)),
-                    card("Said lol", n(a.lols as i64)),
-                    card("Said rip", n(a.rips as i64)),
-                    card("Chat messages sent", n(a.chat_sent as i64)),
-                    card("Chat words sent", n(a.chat_words as i64)),
-                    card("Players inspected", n(a.inspections as i64)),
-                    card("Players met", n(a.players_met.len() as i64)),
-                ],
-            ),
-        ]
-        .into_iter()
-        .flatten()
-        .collect();
-        let pair = |l1, s1: i64, l2| {
-            let s1 = s1.min(total);
-            (
-                TimeSplit {
-                    label: l1,
-                    seconds: s1,
-                },
-                TimeSplit {
-                    label: l2,
-                    seconds: total - s1,
-                },
-            )
-        };
-        let splits = if total > 0 {
-            vec![
-                pair("In combat", a.combat_s, "Out of combat"),
-                pair("In a group", a.group_s, "Solo"),
-                pair("Resting", a.rested_s, "Out in the world"),
-                pair("AFK", a.afk_s, "At the keyboard"),
-            ]
-        } else {
-            Vec::new()
-        };
-        Stats {
-            sections,
-            total_ms: total * 1000,
-            time,
-            splits,
-        }
+        build_stats(
+            st,
+            |r| c.is_none_or(|cc| r.ch == cc),
+            |s| c.is_none_or(|cc| s.ch == cc),
+        )
     })
+}
+
+/// The Stats the Stats view and a run summary share: over the events `event`
+/// picks, with the recorded time of the sessions `session` picks.
+pub fn build_stats(
+    st: &Store,
+    event: impl Fn(&Row) -> bool,
+    session: impl Fn(&Session) -> bool,
+) -> Stats {
+    let mut a = Agg::new();
+    for r in st.events.iter().filter(|r| event(r)) {
+        a.apply(r.ch, &r.code, &r.fields, r.ms);
+    }
+    // Time in game: the sum of the sessions (S to ES, or to the last line of
+    // one that ended without ES), never the time between them.
+    let total = st
+        .sessions
+        .iter()
+        .filter(|s| session(s))
+        .map(|s| (s.end - s.start).max(0))
+        .sum::<i64>()
+        / 1000;
+    let still = (total - a.moving_s() - a.taxi_s - a.afk_s).max(0);
+    let mut time = vec![
+        ("Running", a.foot_s),
+        ("Walking", a.walk_s),
+        ("Mounted", a.mount_s),
+        ("Swimming", a.swim_s),
+        ("Flying", a.fly_s),
+        ("On flights", a.taxi_s),
+        ("AFK", a.afk_s),
+        ("Standing still", still),
+    ]
+    .into_iter()
+    .filter(|(_, s)| *s > 0)
+    .map(|(label, seconds)| TimeSplit { label, seconds })
+    .collect::<Vec<_>>();
+    time.sort_by_key(|t| std::cmp::Reverse(t.seconds));
+    let card = |label, v: (i64, String)| (label, v.0, v.1);
+    let t = |label, s: i64| (label, s, dur(s));
+    let sections = [
+        section(
+            "Character",
+            vec![
+                t("Time recorded", total),
+                card("Levels gained", n(a.levels as i64)),
+                card("Experience", n(a.xp)),
+                ("Gold earned", a.earned, money(a.earned)),
+                ("Gold spent", a.spent, money(a.spent)),
+                card("Items looted", n(a.loot as i64)),
+                card("Collectibles", n(a.collected as i64)),
+                card("Screenshots", n(a.screenshots as i64)),
+                card("Cinematics watched", n(a.cinematics_watched as i64)),
+                card("Cinematics skipped", n(a.cinematics_skipped as i64)),
+            ],
+        ),
+        section(
+            "Combat",
+            vec![
+                card("Kills", n(a.kills as i64)),
+                card("Damage done", n(a.damage)),
+                card("Healing done", n(a.healing)),
+                card("Damage taken", n(a.taken)),
+                card("Best DPS", n(a.best_dps)),
+                card("Fights recorded", n(a.fights as i64)),
+                card("Deaths", n(a.deaths as i64)),
+                t("Time crowd-controlled", a.cc_s),
+                card("Duels won", n(a.duels_won as i64)),
+                card("Duels lost", n(a.duels_lost as i64)),
+                card("Honorable kills", n(a.honor_kills)),
+                ("Repair bills", a.repaired, money(a.repaired)),
+            ],
+        ),
+        section(
+            "Travel",
+            vec![
+                ("Distance", a.distance(), format_yd(a.distance())),
+                card("Steps", n(a.steps() as i64)),
+                card("Jumps", n(a.jumps as i64)),
+                card("Areas discovered", n(a.discoveries as i64)),
+                card("Camp visits", n(a.camps as i64)),
+                t("Time at camp", a.camp_s),
+                t("Time on flights", a.taxi_s),
+            ],
+        ),
+        section(
+            "Quests and world",
+            vec![
+                card("Quests accepted", n(a.quests as i64)),
+                card("Quests completed", n(a.completed as i64)),
+                card("Quests abandoned", n(a.abandoned as i64)),
+                t("Time casting", a.cast_s),
+                card("Spells cast", n(a.casts as i64)),
+                card("Buffs gained", n(a.buffs as i64)),
+                card("NPCs talked to", n(a.npc_talks as i64)),
+                card("Creatures seen", n(a.creatures.len() as i64)),
+                card("Vendors catalogued", n(a.vendors.len() as i64)),
+                card("Trainers catalogued", n(a.trainers.len() as i64)),
+                card("Items identified", n(a.items_known.len() as i64)),
+            ],
+        ),
+        section(
+            "Crafting and loot",
+            vec![
+                card("Crafts started", n(a.crafts_started as i64)),
+                card("Items crafted", n(a.crafted)),
+                card("First crafts", n(a.first_crafts as i64)),
+                card("Concentration spent", n(a.concentration)),
+                card(
+                    "Loot from creatures",
+                    n(a.loot_sources.get("c").copied().unwrap_or(0) as i64),
+                ),
+                card(
+                    "Loot from objects",
+                    n(a.loot_sources.get("g").copied().unwrap_or(0) as i64),
+                ),
+                card(
+                    "Loot from bag items",
+                    n(a.loot_sources.get("i").copied().unwrap_or(0) as i64),
+                ),
+                card(
+                    "Loot from elsewhere",
+                    n(a.loot_sources.get("o").copied().unwrap_or(0) as i64),
+                ),
+            ],
+        ),
+        section(
+            "Social",
+            vec![
+                card("Players grouped with", n(a.mates.len() as i64)),
+                t("Time in a group", a.group_s),
+                card("Emotes", n(a.emotes as i64)),
+                card("Said lol", n(a.lols as i64)),
+                card("Said rip", n(a.rips as i64)),
+                card("Chat messages sent", n(a.chat_sent as i64)),
+                card("Chat words sent", n(a.chat_words as i64)),
+                card("Players inspected", n(a.inspections as i64)),
+                card("Players met", n(a.players_met.len() as i64)),
+            ],
+        ),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    let pair = |l1, s1: i64, l2| {
+        let s1 = s1.min(total);
+        (
+            TimeSplit {
+                label: l1,
+                seconds: s1,
+            },
+            TimeSplit {
+                label: l2,
+                seconds: total - s1,
+            },
+        )
+    };
+    let splits = if total > 0 {
+        vec![
+            pair("In combat", a.combat_s, "Out of combat"),
+            pair("In a group", a.group_s, "Solo"),
+            pair("Resting", a.rested_s, "Out in the world"),
+            pair("AFK", a.afk_s, "At the keyboard"),
+        ]
+    } else {
+        Vec::new()
+    };
+    Stats {
+        sections,
+        total_ms: total * 1000,
+        time,
+        splits,
+    }
 }
 
 #[derive(Serialize)]

@@ -327,6 +327,17 @@ const CHECKS = [
   })),
   {
     lane: "app",
+    name: "the run summary shows the run around a session",
+    async run(ctx) {
+      const app = running(ctx);
+      await selectCharacter(app, PROBE);
+      const shows = /^(?=.*Testa Fixture)(?=.*level 6)(?=.*A Threat Within)(?=.*1,605 Experience)(?=.* 2 Kills)(?!.*Probe Lane)/;
+      await app.evaluate(`location.hash = "sessions/1795000000000-1795000130000"`);
+      await app.until(`${patternExpression(shows)}.test(${BODY})`, `the run summary shows ${shows}`);
+    },
+  },
+  {
+    lane: "app",
     name: "the timeline reads each hit of a death recap",
     async run(ctx) {
       const app = running(ctx);

@@ -394,6 +394,22 @@ td.dim:first-child { color: var(--muted); }
 .money .s { color: var(--silver); }
 .money .c { color: var(--copper); }
 
+.run-head { margin: 0 0 4px; color: var(--text); font-size: 15px; }
+.run-highlights { background: #101012; border: 1px solid var(--line2); border-radius: 3px; padding: 6px 0; }
+.run-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 14px;
+  height: 24px;
+  font: 400 12px/1 var(--mono);
+  font-stretch: 82%;
+  color: var(--text);
+  white-space: nowrap;
+}
+.run-char { width: 140px; flex: none; color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+.run-zones { color: var(--muted); font-size: 14px; }
+
 /* Timeline ---------------------------------------------------------------- */
 
 .tl-wrap { display: flex; flex-direction: column; height: 100%; gap: 10px; }

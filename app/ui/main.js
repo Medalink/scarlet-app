@@ -184,7 +184,6 @@ async function boot() {
     await setView();
   };
   await setView();
-
   window.addEventListener("hashchange", setView);
   window.addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
@@ -202,6 +201,13 @@ async function boot() {
       history.forward();
     }
   });
+
+  const openRun = async () => {
+    const run = await invoke("take_wow_run").catch(() => null);
+    if (run) location.hash = `sessions/${run.from}-${run.to}`;
+  };
+  await window.__TAURI__.event.listen("wow-run", openRun);
+  await openRun();
 
   // How many clients run: two for a player who dual boxes. Cheap, so it is asked every 5 s.
   const askClients = async () => {

@@ -18,6 +18,7 @@ mod mapart;
 mod openmap;
 mod ops;
 mod roster;
+mod run;
 mod settings;
 mod store;
 mod talents;
@@ -65,6 +66,9 @@ fn main() {
         return;
     }
     updater::note_start();
+    if let Some(run) = run::from_args() {
+        run::set_pending(run);
+    }
     // One Scarlet window: a second launch brings the open one to the front and exits.
     let restarted = std::env::args().any(|a| a == launch::RESTARTED);
     let mut tries = 0;
@@ -100,6 +104,8 @@ fn main() {
             commands::overview,
             roster::roster,
             commands::stats,
+            run::run_summary,
+            run::take_wow_run,
             commands::heatmap,
             commands::timeline,
             commands::sessions,
@@ -188,6 +194,10 @@ fn main() {
                 discover::spawn(app.handle().clone());
             }
             updater::spawn(app.handle().clone());
+            {
+                let app = app.handle().clone();
+                std::thread::spawn(move || run::watch_window(app));
+            }
             upload::start_if_on_after_launch(app.handle());
             // Keeps the startup entry pointing at this exe and the watcher running after
             // a rebuild or a kill.

@@ -14,10 +14,7 @@ function show(value) {
   return esc(t);
 }
 
-export async function render(body) {
-  const data = await invoke("stats", { ch: state.ch });
-  body.innerHTML = "";
-
+export function renderStats(body, data) {
   for (const s of data.sections) {
     body.appendChild(el("h3", "section-title", esc(s.title)));
     const grid = el("div", "grid");
@@ -56,4 +53,10 @@ export async function render(body) {
     }
     body.appendChild(q);
   }
+}
+
+export async function render(body) {
+  const data = await invoke("stats", { ch: state.ch });
+  body.innerHTML = "";
+  renderStats(body, data);
 }

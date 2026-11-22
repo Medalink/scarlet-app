@@ -13,7 +13,7 @@ use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use windows_sys::Win32::Foundation::{
-    CloseHandle, ERROR_ALREADY_EXISTS, ERROR_FILE_NOT_FOUND, GetLastError, HANDLE,
+    CloseHandle, ERROR_ALREADY_EXISTS, ERROR_FILE_NOT_FOUND, FILETIME, GetLastError, HANDLE,
     INVALID_HANDLE_VALUE, WAIT_OBJECT_0, WAIT_TIMEOUT,
 };
 use windows_sys::Win32::System::Diagnostics::ToolHelp::{
@@ -23,9 +23,9 @@ use windows_sys::Win32::System::Registry::{
     HKEY_CURRENT_USER, REG_SZ, RegDeleteKeyValueW, RegSetKeyValueW,
 };
 use windows_sys::Win32::System::Threading::{
-    CREATE_NO_WINDOW, CreateMutexW, DETACHED_PROCESS, OpenMutexW, OpenProcess, PROCESS_NAME_WIN32,
-    PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW, SYNCHRONIZATION_SYNCHRONIZE,
-    WaitForMultipleObjects,
+    CREATE_NO_WINDOW, CreateMutexW, DETACHED_PROCESS, GetProcessTimes, OpenMutexW, OpenProcess,
+    PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
+    SYNCHRONIZATION_SYNCHRONIZE, WaitForMultipleObjects,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     FindWindowExW, GetWindowThreadProcessId, IsIconic, MB_ICONERROR, MB_OK, MessageBoxW,
@@ -200,7 +200,7 @@ fn image_path(pid: u32) -> Option<String> {
     p
 }
 
-enum Seen {
+pub(crate) enum Seen {
     /// Running: one handle per client (dual boxing runs several from the same folder), each
     /// able to be waited on and closed by the caller.
     Running(Vec<HANDLE>),
@@ -214,7 +214,7 @@ const MAX_CLIENTS: usize = 60;
 
 /// Looks for every process running from exactly one of `targets`, the `Wow.exe` of each WoW folder
 /// (retail and Classic are Wow.exe too).
-fn find(targets: &[String]) -> Seen {
+pub(crate) fn find(targets: &[String]) -> Seen {
     let snap = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
     if snap == INVALID_HANDLE_VALUE {
         return Seen::Unknown;
@@ -264,9 +264,12 @@ fn find(targets: &[String]) -> Seen {
     }
 }
 
-fn open_app() {
+fn open_app(run: Option<crate::run::Run>) {
     if let Ok(exe) = exe() {
         let mut cmd = std::process::Command::new(&exe);
+        if let Some(r) = run {
+            cmd.arg(format!("--wow-run={}-{}", r.from, r.to));
+        }
         if let Some(dir) = exe.parent() {
             cmd.current_dir(dir);
         }
@@ -291,6 +294,7 @@ pub fn watch() {
     let mut gone = 0;
     let mut targets: Vec<String> = Vec::new();
     let mut clients: Vec<HANDLE> = Vec::new();
+    let mut run_from: Option<i64> = None;
     loop {
         // A missing or half-written file keeps the last good path; only a real "off" exits.
         match settings::try_load() {
@@ -339,8 +343,14 @@ pub fn watch() {
                 } else {
                     find(&targets)
                 } {
-                    Seen::Running(found) => clients = found,
-                    Seen::Stopped => was = false,
+                    Seen::Running(found) => {
+                        run_from = earliest_start(&found, run_from);
+                        clients = found;
+                    }
+                    Seen::Stopped => {
+                        was = false;
+                        run_over(run_from.take());
+                    }
                     Seen::Unknown => {}
                 }
             }
@@ -352,8 +362,9 @@ pub fn watch() {
             find(&targets)
         } {
             Seen::Running(found) => {
+                run_from = earliest_start(&found, run_from);
                 if !was && !app_open() {
-                    open_app();
+                    open_app(None);
                 }
                 was = true;
                 gone = 0;
@@ -364,11 +375,23 @@ pub fn watch() {
                 gone += 1;
                 if gone >= 2 {
                     was = false;
+                    run_over(run_from.take());
                 }
             }
             Seen::Unknown => {}
         }
         std::thread::sleep(POLL);
+    }
+}
+
+fn run_over(from: Option<i64>) {
+    if let Some(from) = from
+        && !app_open()
+    {
+        open_app(Some(crate::run::Run {
+            from,
+            to: crate::run::now_ms(),
+        }));
     }
 }
 
@@ -413,11 +436,27 @@ pub fn wow_paths() -> Vec<PathBuf> {
 }
 
 /// The normalised `Wow.exe` path of each WoW folder.
-fn exes(folders: &[PathBuf]) -> Vec<String> {
+pub(crate) fn exes(folders: &[PathBuf]) -> Vec<String> {
     folders
         .iter()
         .map(|f| norm(&scarlet::gamedir::game_dir(f).join("Wow.exe")))
         .collect()
+}
+
+pub(crate) fn earliest_start(clients: &[HANDLE], from: Option<i64>) -> Option<i64> {
+    clients.iter().filter_map(|&h| created(h)).chain(from).min()
+}
+
+fn created(h: HANDLE) -> Option<i64> {
+    let mut birth = FILETIME::default();
+    let mut exit = FILETIME::default();
+    let mut kernel = FILETIME::default();
+    let mut user = FILETIME::default();
+    let ok = unsafe { GetProcessTimes(h, &mut birth, &mut exit, &mut kernel, &mut user) };
+    (ok != 0).then(|| {
+        let since_1601 = ((birth.dwHighDateTime as i64) << 32) | birth.dwLowDateTime as i64;
+        (since_1601 - 116_444_736_000_000_000) / 10_000
+    })
 }
 
 /// For each folder, how many WoW Forever clients run from it: two or more in one folder when
