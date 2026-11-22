@@ -8,6 +8,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// One event: epoch milliseconds, code, fields. Both `archive::Event` and the
 /// app's store rows lend themselves to this shape.
@@ -1383,11 +1384,8 @@ pub fn build_among<'a>(
 
 // Level estimates ------------------------------------------------------------
 
-/// Played seconds `recent` covers, the days the calendar rate is measured
-/// over, the played seconds the estimates need in all and on one level to
-/// count it, and the largest rise a level.
 const PACE_SECONDS: i64 = 36_000;
-const MIN_PLAYED: i64 = 900;
+const MIN_FIT_LEVELS: usize = 5;
 const MIN_LEVEL_PLAYED: i64 = 900;
 const MAX_GROWTH: f64 = 1.05;
 const DAY_WINDOW: i64 = 14;
@@ -1516,7 +1514,8 @@ pub fn level_eta(
     let day_start = now - DAY_WINDOW * 86_400;
     let day_played: i64 = rows.iter().filter(|r| r.t >= day_start).map(|r| r.p).sum();
     let Some(pace) = Pace::fit(levels, level) else {
-        eta.basis = "No level times yet: they need 15m played with XP recorded".into();
+        eta.basis =
+            format!("Needs {MIN_FIT_LEVELS} complete levels of 15m or more with XP recorded");
         return eta;
     };
     let oldest = if first > 0 {
@@ -1576,7 +1575,6 @@ pub fn level_eta(
 struct Pace {
     a: f64,
     slope: f64,
-    /// Levels the fit used (all levels played when the pace is flat).
     points: usize,
 }
 
@@ -1585,47 +1583,28 @@ impl Pace {
         (self.a + self.slope * n as f64).exp()
     }
 
-    /// "7 levels", or "1 level".
     fn levels_text(&self) -> String {
-        match self.points {
-            1 => "1 level".into(),
-            n => format!("{n} levels"),
-        }
+        format!("{} complete levels", self.points)
     }
 
     fn flat(&self) -> bool {
         self.slope == 0.0
     }
 
-    /// The level-weighted fit of docs/OVERVIEW.md; none without enough played
-    /// time or XP. `levels` holds the per-level totals, `level` is the current one.
     fn fit(levels: &BTreeMap<u32, LevelTotal>, level: i64) -> Option<Pace> {
-        let (mut played, mut gained) = (0i64, 0i64);
         let mut pts: Vec<(f64, f64, f64)> = Vec::new();
         for (&n, t) in levels {
-            if i64::from(n) > level {
+            if i64::from(n) > level || !t.complete {
                 continue;
             }
             let s = &t.share;
             let x = s.xk + s.xd + s.xq + s.xe + s.xo;
-            played += s.p;
-            gained += x;
             if s.p >= MIN_LEVEL_PLAYED && x > 0 {
                 pts.push((f64::from(n), s.p as f64, (x as f64 / s.p as f64).ln()));
             }
         }
-        if played < MIN_PLAYED || gained <= 0 {
+        if pts.len() < MIN_FIT_LEVELS {
             return None;
-        }
-        if pts.len() < 3 {
-            return Some(Pace {
-                a: (gained as f64 / played as f64).ln(),
-                slope: 0.0,
-                points: levels
-                    .iter()
-                    .filter(|(n, t)| i64::from(**n) <= level && t.share.p > 0)
-                    .count(),
-            });
         }
         let w: f64 = pts.iter().map(|q| q.1).sum();
         let mean_n = pts.iter().map(|q| q.1 * q.0).sum::<f64>() / w;
@@ -1877,6 +1856,14 @@ pub fn alts_of(me: &str, ov: &Overview, all: &[(String, Overview)]) -> Vec<AltRo
     rows
 }
 
+static GROUP_BY_ACCOUNT: AtomicBool = AtomicBool::new(false);
+
+/// Whether the digest asks the addon to list characters by game account. Off by default: the
+/// field is written only when on.
+pub fn set_group_by_account(on: bool) {
+    GROUP_BY_ACCOUNT.store(on, Ordering::Relaxed);
+}
+
 fn render_digest(
     chars: &[(String, Overview)],
     made: i64,
@@ -1927,6 +1914,9 @@ fn render_digest(
         }
     }
     let mut out = format!("ScarletDigest = {{\n  v = 1, made = {made},\n");
+    if GROUP_BY_ACCOUNT.load(Ordering::Relaxed) {
+        out.push_str("  groupByAccount = true,\n");
+    }
     if !accounts.is_empty()
         && let Ok(a) = serde_json::to_value(accounts)
     {

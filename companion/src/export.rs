@@ -332,6 +332,17 @@ pub fn export_new_all(wows: &[PathBuf], out: &Path) -> Result<bool, Box<dyn Erro
     Ok(wrote)
 }
 
+/// Sets whether the digest lists characters by game account and writes it again at once, so the
+/// game sees the change at its next `/reload` without waiting for a recording.
+pub fn set_group_by_account(wows: &[PathBuf], out: &Path, on: bool) {
+    let _one = EXPORT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    overview::set_group_by_account(on);
+    let accounts = save_accounts(wows, out);
+    for wow in wows {
+        write_digest(wow, out, &accounts);
+    }
+}
+
 /// Every payload of one character, in time order.
 fn load_events(dir: &Path, name: &str) -> std::io::Result<Vec<archive::Event>> {
     let mut evs: Vec<archive::Event> = Vec::new();
