@@ -73,9 +73,14 @@ export async function render(body) {
     refresh();
   };
   sw.onclick = async () => {
-    const on = await invoke("toggle_watch", { on: !sw.classList.contains("on") });
-    setSwitch(sw, on);
-    refresh();
+    try {
+      const on = await invoke("toggle_watch", { on: !sw.classList.contains("on") });
+      setSwitch(sw, on);
+      refresh();
+    } catch (e) {
+      status.className = "status err";
+      status.textContent = String(e);
+    }
   };
 
   const st = state.store;

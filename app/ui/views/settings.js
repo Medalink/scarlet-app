@@ -1,6 +1,7 @@
 // Settings: one page per topic, chosen by the tabs at the top and by the hash (#settings/updates).
 
 import { invoke, el, esc, displayName, openmapMissing, makeSwitch, setSwitch } from "../lib.js";
+import { openSetup } from "../setup.js";
 import { renderUpload } from "./upload.js";
 import { renderUpdates, renderAddon, watchProblems, refreshProblems } from "./updates.js";
 
@@ -119,6 +120,11 @@ async function general(body) {
     x.style.width = "fit-content";
   }
   body.append(sw, grp, swSt);
+  const again = el("button", "btn", "Run setup again");
+  again.type = "button";
+  again.style.marginTop = "22px";
+  again.onclick = () => openSetup();
+  body.appendChild(again);
   const boxes = el("div");
   boxes.style.marginTop = "22px";
   body.appendChild(boxes);

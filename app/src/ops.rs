@@ -97,10 +97,23 @@ pub async fn compress_logs(app: AppHandle) -> String {
     .await
 }
 
-#[tauri::command]
-pub fn toggle_watch(app: AppHandle, on: bool) -> bool {
+/// Turn "Watch SavedVariables" on or off: the switch and the `watch` setting, so a player
+/// whose folder was not found by itself keeps exporting after they pick one in setup.
+#[tauri::command(async)]
+pub fn toggle_watch(app: AppHandle, on: bool) -> Result<bool, String> {
     set_watch(&app, on);
-    WATCH_ON.load(Ordering::Relaxed)
+    let watch = WATCH_ON.load(Ordering::Relaxed);
+    let cur = settings::update(|c| c.watch = watch)?;
+    *state(&app).settings.lock().unwrap() = cur;
+    Ok(watch)
+}
+
+/// Record that the first-run setup has finished (or was declined), so it does not open again.
+#[tauri::command(async)]
+pub fn set_setup_done(app: AppHandle, done: bool) -> Result<(), String> {
+    let cur = settings::update(|c| c.setup_done = done)?;
+    *state(&app).settings.lock().unwrap() = cur;
+    Ok(())
 }
 
 /// The settings, where they are stored and what is missing on this PC.

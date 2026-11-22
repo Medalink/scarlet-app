@@ -430,6 +430,42 @@ const CHECKS = [
   },
   {
     lane: "app",
+    name: "run setup again walks the three steps",
+    async run(ctx) {
+      const app = running(ctx);
+      const clickSetup = async (name) => {
+        await app.until(
+          `[...document.querySelectorAll("#setup button")].some((b) => b.textContent === ${JSON.stringify(name)})`,
+          `the setup shows the ${name} button`,
+        );
+        await app.evaluate(`[...document.querySelectorAll("#setup button")].find((b) => b.textContent === ${JSON.stringify(name)}).click()`);
+      };
+      await open(app, "settings", /WoW folders/);
+      await app.evaluate(`[...document.querySelectorAll("#body button")].find((b) => b.textContent === "Run setup again").click()`);
+      await app.until(
+        `document.querySelector("#setup")?.innerText.includes("Find WoW Forever") && document.querySelector("#shell").hidden === true`,
+        "the setup shows step 1 and hides the shell",
+      );
+      await clickSetup("Continue");
+      await app.until(`document.querySelector("#setup")?.innerText.includes("Install the Scarlet addon")`, "the setup shows step 2");
+      await clickSetup("Skip");
+      await app.until(`document.querySelector("#setup")?.innerText.includes("Link this app to scarletweb.io")`, "the setup shows step 3");
+      await clickSetup("Not now");
+      await app.until(`!document.querySelector("#setup") && document.querySelector("#shell").hidden === false`, "the setup closed and the shell is back");
+      const file = path.join(ctx.site.app.home, "settings.json");
+      let saved;
+      for (let i = 0; i < 150; i++) {
+        saved = JSON.parse(read(file));
+        if (saved.setup_done === true) break;
+        await sleep(20);
+      }
+      expectEqual("setup_done in settings.json", saved.setup_done, true);
+      await sleep(300);
+      expectEqual("requests the website address received", ctx.website.seen, []);
+    },
+  },
+  {
+    lane: "app",
     name: "an export from inside the app refreshes it",
     async run(ctx) {
       const app = running(ctx);

@@ -62,9 +62,17 @@ pub struct Settings {
     /// one table for every character.
     #[serde(default)]
     pub group_by_account: bool,
+    /// The first-run setup has finished (or was declined) on this PC. A settings file written
+    /// before setup existed counts as done, so only a new install opens it.
+    #[serde(default = "default_setup_done")]
+    pub setup_done: bool,
 }
 
 fn default_keep_addon() -> bool {
+    true
+}
+
+fn default_setup_done() -> bool {
     true
 }
 
@@ -290,6 +298,7 @@ fn fallback() -> Settings {
             track: None,
             keep_addon: true,
             group_by_account: false,
+            setup_done: true,
         };
     }
     let wow = detect_wow();
@@ -306,6 +315,7 @@ fn fallback() -> Settings {
         track: None,
         keep_addon: true,
         group_by_account: false,
+        setup_done: false,
     }
 }
 

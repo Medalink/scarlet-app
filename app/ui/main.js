@@ -17,6 +17,7 @@ import * as items from "./views/items.js";
 import * as addons from "./views/addons.js";
 import * as compress from "./views/compress.js";
 import * as settings from "./views/settings.js";
+import { openSetup } from "./setup.js";
 
 const VIEWS = {
   overview: [() => (state.ch ? "Overview" : "Characters"), { render: (body, sub) => (state.ch ? overview : roster).render(body, sub) }],
@@ -172,13 +173,10 @@ function showVersion(info) {
 
 async function boot() {
   buildNav();
-  const [info, , s] = await Promise.all([
-    invoke("update_info"),
-    loadState(),
-    location.hash ? null : invoke("get_settings"),
-  ]);
+  const [info, , s] = await Promise.all([invoke("update_info"), loadState(), invoke("get_settings")]);
   showVersion(info);
-  if (s?.last_view && VIEWS[routeKey(s.last_view)]) location.hash = s.last_view;
+  if (!location.hash && s?.last_view && VIEWS[routeKey(s.last_view)]) location.hash = s.last_view;
+  if (s && !s.setup_done) openSetup();
   await refreshCharSelector();
   headStats();
   $("#char").onchange = async (e) => {

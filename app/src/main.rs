@@ -122,6 +122,7 @@ fn main() {
             ops::compress_export,
             ops::compress_logs,
             ops::toggle_watch,
+            ops::set_setup_done,
             ops::sizes,
             ops::wow_clients,
             ops::wow_folders,

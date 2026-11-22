@@ -825,3 +825,11 @@ table.talents td[colspan] { white-space: normal; }
 @media (prefers-reduced-motion: reduce) {
   .sweep { display: none; }
 }
+
+.setup { flex: 1; min-height: 0; overflow: auto; padding: 44px 24px 24px; }
+.setup-inner { width: 100%; max-width: 560px; margin: 0 auto; }
+.setup .setup-title { font: 800 34px/1.1 var(--display); color: var(--fg); margin: 4px 0 16px; }
+.setup .setup-body { display: flex; flex-direction: column; }
+.setup .setup-body .note { margin-top: 4px; }
+.setup .setup-foot { display: flex; gap: 10px; align-items: center; margin-top: 26px; }
+#shell[hidden] { display: none; }

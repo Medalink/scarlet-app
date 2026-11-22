@@ -10,10 +10,23 @@ use scarlet::upload::keys;
 use scarlet::upload::session::{self, Session};
 use scarlet::upload::state as ustate;
 use serde::Serialize;
+use std::path::Path;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::time::Duration;
 use tauri::AppHandle;
+
+static OPEN_LOCK: Mutex<()> = Mutex::new(());
+
+fn open_session_locked(
+    cfg: &UploadConfig,
+    out: &Path,
+    store: &dyn keys::KeyStore,
+    create: bool,
+) -> scarlet::upload::Result<Option<Session>> {
+    let _one = OPEN_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    Session::open(cfg, out, store, create)
+}
 
 /// True while an upload runs. A second request while one runs sets `PENDING`, and the running
 /// thread goes round once more, so uploads never overlap and none is lost.
@@ -196,7 +209,7 @@ fn run_once(app: &AppHandle) -> bool {
     if !cfg.enabled {
         return false;
     }
-    let mut sess = match Session::open(&cfg, &s.data, keys::system_store().as_ref(), true) {
+    let mut sess = match open_session_locked(&cfg, &s.data, keys::system_store().as_ref(), true) {
         Ok(Some(sess)) => sess,
         Ok(None) => return false,
         Err(e) => {
@@ -301,8 +314,9 @@ pub async fn upload_set_group(app: AppHandle, key: String, on: bool) -> Result<U
             c.groups.insert(key.clone(), on);
         })?;
         if on && cur.upload.enabled && cur.upload.server_problem().is_none() {
-            let told = Session::open(&cur.upload, &cur.data, keys::system_store().as_ref(), false)
-                .and_then(|s| s.map_or(Ok(()), |mut s| s.restore_group(&key)));
+            let told =
+                open_session_locked(&cur.upload, &cur.data, keys::system_store().as_ref(), false)
+                    .and_then(|s| s.map_or(Ok(()), |mut s| s.restore_group(&key)));
             if let Err(e) = told {
                 set_error(Some(e.to_string()));
             }
@@ -323,7 +337,7 @@ pub async fn upload_remove_group(app: AppHandle, key: String) -> Result<String, 
             c.groups.insert(key.clone(), false);
         })?;
         let Some(mut s) =
-            Session::open(&cur.upload, &cur.data, keys::system_store().as_ref(), false)
+            open_session_locked(&cur.upload, &cur.data, keys::system_store().as_ref(), false)
                 .map_err(|e| e.to_string())?
         else {
             return Ok("The website holds nothing from this PC.".into());
@@ -358,7 +372,7 @@ pub async fn upload_delete_all() -> Result<String, String> {
     blocking(|| {
         let s = settings::load();
         let Some(mut sess) =
-            Session::open(&s.upload, &s.data, keys::system_store().as_ref(), false)
+            open_session_locked(&s.upload, &s.data, keys::system_store().as_ref(), false)
                 .map_err(|e| e.to_string())?
         else {
             return Ok("The website holds nothing from this PC.".into());
@@ -410,7 +424,7 @@ pub async fn upload_linked() -> Result<bool, String> {
         if !s.upload.enabled || s.upload.server_problem().is_some() {
             return Ok(false);
         }
-        match Session::open(&s.upload, &s.data, keys::system_store().as_ref(), false)
+        match open_session_locked(&s.upload, &s.data, keys::system_store().as_ref(), false)
             .map_err(|e| e.to_string())?
         {
             Some(mut sess) => sess.me().map(|m| m.linked).map_err(|e| e.to_string()),
@@ -428,7 +442,7 @@ pub async fn upload_link() -> Result<LinkView, String> {
         if !s.upload.enabled {
             return Err("Uploading is off.".into());
         }
-        let mut sess = Session::open(&s.upload, &s.data, keys::system_store().as_ref(), true)
+        let mut sess = open_session_locked(&s.upload, &s.data, keys::system_store().as_ref(), true)
             .map_err(|e| e.to_string())?
             .ok_or("This install is not set up for uploading yet.")?;
         if sess.me().map_err(|e| e.to_string())?.linked {
