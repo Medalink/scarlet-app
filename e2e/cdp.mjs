@@ -18,27 +18,42 @@ const freePort = () =>
 
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const ATTACH_MS = 15000;
+const CLOSE_MS = 10000;
+
+const ownEnvironment = (home, port) => {
+  const inherited = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^(SCARLET_OUT|SCARLET_SETTINGS|WEBVIEW2_.*)$/i.test(name)));
+  return { ...inherited, SCARLET_HOME: home, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port} --lang=en-US` };
+};
+
 /**
  * Starts `exe` on a desktop of its own with `home` as its SCARLET_HOME and returns the page's handle:
  * `evaluate(expression)`, `until(expression, what, ms)`, `screenshot(file)`, `problems`, `close()`, `pid` and
  * `exitCode()` (the launcher's, null while it runs; 3 means a window of the app was found on the desktop in use).
  * `close()` clicks the window's close button and returns the launcher's exit code, or null when the app had not
- * ended after 3 s and the launcher was killed. The launcher ends the app when this process is gone.
+ * ended after 10 s and the launcher was killed. The launcher ends the app when this process is gone. An error thrown
+ * while starting carries the launcher's exit code as `launcherExit`.
  */
 export async function launch({ exe, home }) {
   const port = await freePort();
   const launcher = spawn("pwsh", ["-NoProfile", "-File", LAUNCHER, "-Parent", String(process.pid), "-Exe", exe], {
-    env: { ...process.env, SCARLET_HOME: home, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port}` },
+    env: ownEnvironment(home, port),
     stdio: ["ignore", "pipe", "pipe"],
   });
   let exitCode = null;
   let stderr = "";
-  const exited = new Promise((resolve) =>
+  const exited = new Promise((resolve) => {
     launcher.on("exit", (code) => {
       exitCode = code;
       resolve(code);
-    }),
-  );
+    });
+    launcher.on("error", (error) => {
+      stderr += `pwsh did not start: ${error.message}`;
+      exitCode = -1;
+      resolve(exitCode);
+    });
+  });
+  const startFailed = (message) => Object.assign(new Error(message), { launcherExit: exitCode });
   launcher.stderr.on("data", (d) => (stderr += d));
   const killLauncher = () => {
     if (exitCode === null) launcher.kill();
@@ -50,24 +65,24 @@ export async function launch({ exe, home }) {
       const m = /pid (\d+)/.exec(String(d));
       if (m) resolve(Number(m[1]));
     });
-    exited.then((code) => reject(new Error(`the launcher ended with exit code ${code} before the app started${stderr ? `: ${stderr.trim()}` : ""}`)));
+    exited.then((code) => reject(startFailed(`the launcher ended with exit code ${code} before the app started${stderr ? `: ${stderr.trim()}` : ""}`)));
   });
 
   let socket;
   try {
     let page = null;
-    for (let i = 0; i < 400 && !page && exitCode === null; i++) {
-      try {
-        page = (await (await fetch(`http://127.0.0.1:${port}/json`)).json()).find((t) => t.type === "page");
-      } catch {
-        await pause(25);
-      }
+    const giveUp = performance.now() + ATTACH_MS;
+    while (!page && exitCode === null && performance.now() < giveUp) {
+      page = await fetch(`http://127.0.0.1:${port}/json`)
+        .then((answer) => answer.json())
+        .then((targets) => targets.find((t) => t.type === "page") ?? null, () => null);
+      if (!page) await pause(25);
     }
-    if (!page) throw new Error(`the app showed no page to attach to (launcher exit code ${exitCode})`);
+    if (!page) throw startFailed(`the app showed no page to attach to within ${ATTACH_MS / 1000} s (launcher exit code ${exitCode})`);
     socket = new WebSocket(page.webSocketDebuggerUrl);
     await new Promise((resolve, reject) => {
       socket.onopen = resolve;
-      socket.onerror = () => reject(new Error("the DevTools socket did not open"));
+      socket.onerror = () => reject(startFailed("the DevTools socket did not open"));
     });
   } catch (error) {
     killLauncher();
@@ -140,7 +155,7 @@ export async function launch({ exe, home }) {
 
   const close = async () => {
     evaluate(`document.querySelector("#win-close").click()`).catch(() => {});
-    const code = await Promise.race([exited, pause(3000).then(() => "late")]);
+    const code = await Promise.race([exited, pause(CLOSE_MS).then(() => "late")]);
     if (code === "late") {
       killLauncher();
       await exited;

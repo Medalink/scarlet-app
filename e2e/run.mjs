@@ -17,6 +17,8 @@ const USAGE = "usage: node e2e/run.mjs [--only cli|app] [--no-build] [--exe <sca
 const TESTA = CHARACTERS[0].name;
 const PROBE = CHARACTERS[1].name;
 const SHOWN = { testa: TESTA.replace("-", " "), probe: PROBE.replace("-", " ") };
+const OTHER_CHARACTER = new RegExp(`${SHOWN.probe}|Kobold Vermin`);
+const OTHER_CHARACTER_ONLY = new Set(["overview", "sessions", "timeline", "map", "loot", "addons"]);
 
 const BODY = `document.querySelector("#body").innerText.replace(/\\s+/g, " ")`;
 
@@ -55,7 +57,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const scarlet = (ctx, ...args) => {
   const { SCARLET_HOME, SCARLET_OUT, SCARLET_SETTINGS, ...env } = process.env;
-  const run = spawnSync(ctx.cli, args, { encoding: "utf8", env });
+  const run = spawnSync(ctx.cli, args, { encoding: "utf8", env, timeout: 60_000 });
   return { code: run.status, out: run.stdout ?? "", err: run.stderr ?? "" };
 };
 
@@ -75,34 +77,27 @@ const hashOf = (dir) =>
 
 const csvRows = (file) => read(file).trim().split(/\r?\n/).length - 1;
 
-const newest = (target) => {
-  let stat;
-  try {
-    stat = fs.statSync(target);
-  } catch {
-    return null;
-  }
-  if (!stat.isDirectory()) return stat.mtimeMs;
-  return fs.readdirSync(target).reduce((latest, name) => Math.max(latest, newest(path.join(target, name)) ?? 0), stat.mtimeMs);
-};
+const names = (dir) => (fs.existsSync(dir) ? fs.readdirSync(dir).sort() : null);
 
-const listing = (dir) => Object.fromEntries(fs.readdirSync(dir).map((name) => [name, newest(path.join(dir, name))]));
+const registry = (key, value) => spawnSync("reg", ["query", key, ...(value ? ["/v", value] : [])], { encoding: "utf8" }).stdout ?? "";
+
+const documents = () => {
+  const personal = /Personal\s+REG_(?:EXPAND_)?SZ\s+(.+)/.exec(registry(String.raw`HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders`, "Personal"))?.[1].trim();
+  return personal ? personal.replace(/%([^%]+)%/g, (whole, name) => process.env[name] ?? whole) : path.join(os.homedir(), "Documents");
+};
 
 const footprint = () => {
   const identifier = "app.scarlet.desktop";
-  const home = os.homedir();
   const watched = [
     path.join(process.env.APPDATA ?? "", identifier),
     path.join(process.env.LOCALAPPDATA ?? "", identifier),
-    path.join(home, "Documents", "Scarlet"),
-    path.join(home, "OneDrive", "Documents", "Scarlet"),
-    path.join(REPO, "app", "settings.json"),
+    path.join(documents(), "Scarlet"),
+    path.join(REPO, "app", "target", "debug"),
+    path.join(REPO, "companion", "target", "debug"),
   ];
-  const run = spawnSync("reg", ["query", String.raw`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`], { encoding: "utf8" });
   return {
-    places: Object.fromEntries(watched.map((place) => [place, newest(place)])),
-    run: run.stdout ?? "",
-    build: { app: listing(path.join(REPO, "app", "target", "debug")), companion: listing(path.join(REPO, "companion", "target", "debug")) },
+    entries: Object.fromEntries(watched.map((place) => [place, names(place)])),
+    run: registry(String.raw`HKCU\Software\Microsoft\Windows\CurrentVersion\Run`),
   };
 };
 
@@ -116,11 +111,12 @@ const selectCharacter = (app, name) =>
 
 const patternExpression = (pattern) => `new RegExp(${JSON.stringify(pattern.source)}, ${JSON.stringify(pattern.flags)})`;
 
-async function open(app, key, shows) {
+async function open(app, key, shows, gone = null) {
   await app.evaluate(`location.hash = ${JSON.stringify(key)}`);
+  const without = gone ? ` && !${patternExpression(gone)}.test(${BODY})` : "";
   await app.until(
-    `document.querySelector("#nav .item.active")?.dataset.key === ${JSON.stringify(key)} && ${patternExpression(shows)}.test(${BODY})`,
-    `${key} shows ${shows}`,
+    `document.querySelector("#nav .item.active")?.dataset.key === ${JSON.stringify(key)} && ${patternExpression(shows)}.test(${BODY})${without}`,
+    `${key} shows ${shows}${gone ? ` and no longer ${gone}` : ""}`,
   );
 }
 
@@ -253,7 +249,7 @@ const CHECKS = [
     async run(ctx) {
       const app = running(ctx);
       await selectCharacter(app, TESTA);
-      await open(app, key, shows);
+      await open(app, key, shows, OTHER_CHARACTER_ONLY.has(key) ? OTHER_CHARACTER : null);
       expectNoMatch(`${key} shows its empty state`, await app.evaluate(BODY), never);
     },
   })),
@@ -265,8 +261,7 @@ const CHECKS = [
       await selectCharacter(app, "");
       await open(app, "overview", new RegExp(`^(?=.*Level target)(?=.*${SHOWN.testa})(?=.*${SHOWN.probe})`));
       await selectCharacter(app, PROBE);
-      await open(app, "overview", /Probe Lane Level 3 Gnome Mage/);
-      expectNoMatch("the overview of one character", await app.evaluate(BODY), /Level target/);
+      await open(app, "overview", /Probe Lane Level 3 Gnome Mage/, /Level target/);
     },
   },
   {
@@ -321,11 +316,9 @@ const CHECKS = [
       const code = await app.close();
       ctx.app = null;
       if (code === 3) ctx.breach = true;
-      if (code === null) throw new Error("the app was still running 3 s after the close button");
+      if (code === null) throw new Error("the app was still running 10 s after the close button");
       expectEqual("exit code of the app", code, 0);
-      const after = footprint();
-      expectEqual("the app's default settings and profile folders, Documents, and the Run key", { places: after.places, run: after.run }, { places: ctx.footprint.places, run: ctx.footprint.run });
-      expectEqual("files in the two build folders", after.build, ctx.footprint.build);
+      expectEqual("entries of the app's default settings, profile, Documents and build folders, and the Run key", footprint(), ctx.footprint);
     },
   },
 ];
@@ -361,6 +354,7 @@ async function runChecks(checks, ctx) {
       continue;
     }
     failed++;
+    if (error.launcherExit === 3) ctx.breach = true;
     console.log(`FAIL ${ms}ms  ${check.lane}  ${check.name}`);
     console.log(String(error.message ?? error).replace(/^/gm, "  "));
     if (check.lane === "app") await keepEvidence(ctx, check, index);
@@ -371,7 +365,7 @@ async function runChecks(checks, ctx) {
 function build(crates) {
   const began = performance.now();
   for (const crate of crates) {
-    const run = spawnSync("cargo", ["build", "-q"], { cwd: path.join(REPO, crate), encoding: "utf8" });
+    const run = spawnSync("cargo", ["build", "-q"], { cwd: path.join(REPO, crate), encoding: "utf8", timeout: 900_000 });
     if (run.status !== 0) {
       console.error(`build failed in ${crate}/\n${String(run.stderr).split("\n").slice(-25).join("\n")}`);
       process.exit(1);

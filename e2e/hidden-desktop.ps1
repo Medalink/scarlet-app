@@ -31,6 +31,7 @@ public static class HiddenDesktop
     const int JobObjectBasicProcessIdList = 3;
     const int JobObjectExtendedLimitInformation = 9;
     const uint WAIT_TIMEOUT = 0x102;
+    const uint RESUME_FAILED = 0xFFFFFFFF;
     const uint SYNCHRONIZE = 0x100000;
     public const int WINDOW_ON_DESKTOP_IN_USE = 3;
 
@@ -82,7 +83,8 @@ public static class HiddenDesktop
     [DllImport("kernel32.dll", SetLastError = true)] static extern bool QueryInformationJobObject(IntPtr job, int kind, IntPtr information, int length, out int returned);
     [DllImport("kernel32.dll", SetLastError = true)] static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
     [DllImport("kernel32.dll")] static extern bool TerminateJobObject(IntPtr job, uint exitCode);
-    [DllImport("kernel32.dll")] static extern uint ResumeThread(IntPtr thread);
+    [DllImport("kernel32.dll", SetLastError = true)] static extern uint ResumeThread(IntPtr thread);
+    [DllImport("kernel32.dll")] static extern bool TerminateProcess(IntPtr process, uint exitCode);
     [DllImport("kernel32.dll")] static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
     [DllImport("kernel32.dll")] static extern bool GetExitCodeProcess(IntPtr process, out uint exitCode);
     [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr OpenProcess(uint access, bool inherit, int process);
@@ -137,10 +139,15 @@ public static class HiddenDesktop
         if (!AssignProcessToJobObject(job, started.hProcess))
         {
             int error = Marshal.GetLastWin32Error();
-            TerminateJobObject(job, 1);
-            throw new Win32Exception(error, "the program could not be put in the job");
+            TerminateProcess(started.hProcess, 1);
+            throw new Win32Exception(error, "the program could not be put in the job, so it was stopped before it ran");
         }
-        ResumeThread(started.hThread);
+        if (ResumeThread(started.hThread) == RESUME_FAILED)
+        {
+            int error = Marshal.GetLastWin32Error();
+            TerminateJobObject(job, 1);
+            throw new Win32Exception(error, "the program could not be resumed, so it was stopped before it ran");
+        }
         Console.Out.WriteLine("pid " + started.dwProcessId);
         Console.Out.Flush();
 
