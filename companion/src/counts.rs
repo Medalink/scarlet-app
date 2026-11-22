@@ -20,6 +20,8 @@ pub const LIFE: &str = "life";
 pub const CHARACTER: &str = "c";
 pub const ACCOUNT: &str = "a";
 pub const FISHING: &str = "fishing";
+pub const HERB: &str = "herb";
+pub const ORE: &str = "ore";
 
 /// One statement an addon makes, with the addon's own numeric fields as it wrote them.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -316,13 +318,14 @@ fn field(rec: &Record, name: &str) -> Option<i64> {
 }
 
 fn scarlet_amounts(rec: &Record) -> Vec<(&'static str, i64)> {
-    if rec.kind != FISHING {
-        return Vec::new();
-    }
-    match (rec.origin.as_str(), rec.window.as_str()) {
-        (FISHING_LOG, SESSION) => fishing_log_amounts(rec),
-        (FOREVER_FISHING, SESSION) => forever_fishing_amounts(rec),
-        (MASTERCRAFT, LIFE) => mastercraft_amounts(rec),
+    match (rec.origin.as_str(), rec.window.as_str(), rec.kind.as_str()) {
+        (FISHING_LOG, SESSION, FISHING) => fishing_log_amounts(rec),
+        (FOREVER_FISHING, SESSION, FISHING) => forever_fishing_amounts(rec),
+        (MASTERCRAFT, LIFE, FISHING) => mastercraft_amounts(rec),
+        (MASTERCRAFT, LIFE, HERB | ORE) => field(rec, "c")
+            .map(|n| ("attempts", n))
+            .into_iter()
+            .collect(),
         _ => Vec::new(),
     }
 }

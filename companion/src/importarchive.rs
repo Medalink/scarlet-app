@@ -43,6 +43,15 @@ pub enum Entry {
     },
     /// Mastercraft's last balance of one local day, `YYYY-MM-DD`.
     McDay { date: String, copper: i64 },
+    /// An auction TradeSkillMaster took back from the mail, expired or cancelled: its item string,
+    /// stack size, the items returned and the row's time.
+    TsmReturn {
+        cancelled: bool,
+        item: String,
+        stack: i64,
+        qty: i64,
+        time: i64,
+    },
 }
 
 fn flag(on: bool, yes: &'static str, no: &'static str) -> &'static str {
@@ -99,6 +108,19 @@ impl Entry {
             Entry::McDay { date, copper } => {
                 vec!["mc-day".into(), date.clone(), copper.to_string()]
             }
+            Entry::TsmReturn {
+                cancelled,
+                item,
+                stack,
+                qty,
+                time,
+            } => vec![
+                flag(*cancelled, "tsm-cancelled", "tsm-expired").into(),
+                item.clone(),
+                stack.to_string(),
+                time.to_string(),
+                qty.to_string(),
+            ],
         }
     }
 
@@ -106,6 +128,7 @@ impl Entry {
         let f = self.fields();
         let n = match self {
             Entry::TsmGold { .. } | Entry::McDay { .. } => 2,
+            Entry::TsmReturn { .. } => 4,
             _ => f.len(),
         };
         f[..n].join("\t")
@@ -148,6 +171,13 @@ impl Entry {
             "mc-day" if f.len() == 3 => Entry::McDay {
                 date: f[1].to_string(),
                 copper: int(2)?,
+            },
+            tag @ ("tsm-expired" | "tsm-cancelled") if f.len() == 5 => Entry::TsmReturn {
+                cancelled: tag == "tsm-cancelled",
+                item: f[1].to_string(),
+                stack: int(2)?,
+                time: int(3)?,
+                qty: int(4)?,
             },
             _ => return None,
         };

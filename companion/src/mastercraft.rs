@@ -1,5 +1,5 @@
-//! Mastercraft's saved variables: the account's `mc` fishing total for the counts archive (Scarlet's
-//! FORMAT.md and the website's DESIGN.md, "Addon counts") and each character's last balance of every
+//! Mastercraft's saved variables: the account's `mc` fishing, herb and ore totals for the counts archive
+//! (Scarlet's FORMAT.md and the website's DESIGN.md, "Addon counts") and each character's last balance of every
 //! local day for the imports archive (FORMAT.md, "Imported history"). The file also holds the names
 //! of other players, which are never read, logged or archived.
 
@@ -47,6 +47,40 @@ pub fn life(db: &Lua, modified: i64) -> Option<Record> {
             ("gained".to_string(), gained),
         ]),
     })
+}
+
+/// The gathers `nodes[<mapID>][i].c` count, summed by profession over every map, as account `life`
+/// claims of kind `herb` (Herbalism) and `ore` (Mining) as of `modified`. A node with no `c` is one
+/// gather, as the addon reads it. A profession with no gathers gives no record, and `gmNodes` is not
+/// read.
+pub fn gathers(db: &Lua, modified: i64) -> Vec<Record> {
+    let mut herb = 0;
+    let mut ore = 0;
+    for (_, map) in db.get("nodes").and_then(Lua::items).unwrap_or(&[]) {
+        for (_, node) in map.items().unwrap_or(&[]) {
+            let c = int(node, "c").unwrap_or(1).max(0);
+            match node.get("p").and_then(Lua::as_str) {
+                Some("Herbalism") => herb += c,
+                Some("Mining") => ore += c,
+                _ => {}
+            }
+        }
+    }
+    [(counts::HERB, herb), (counts::ORE, ore)]
+        .into_iter()
+        .filter(|(_, total)| *total > 0)
+        .map(|(kind, total)| Record {
+            origin: counts::MASTERCRAFT.to_string(),
+            store: String::new(),
+            scope: counts::ACCOUNT.to_string(),
+            window: counts::LIFE.to_string(),
+            kind: kind.to_string(),
+            dims: String::new(),
+            from: None,
+            to: modified,
+            fields: BTreeMap::from([("c".to_string(), total)]),
+        })
+        .collect()
 }
 
 fn plain(s: &str) -> String {

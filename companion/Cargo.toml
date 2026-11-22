@@ -12,7 +12,7 @@ lexopt = "0.3"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 zstd = "=0.14.4"
-scarlet-part = { git = "https://github.com/Medalink/scarlet-web", rev = "1817669487e272ba409bafc8632234df37453df9", package = "scarlet-part" }
+scarlet-part = { git = "https://github.com/Medalink/scarlet-web", rev = "c474e5caab93db0e2a621030557c225a40059658", package = "scarlet-part" }
 ureq = { version = "=3.5.2", default-features = false, features = ["rustls"] }
 ed25519-dalek = { version = "=3.0.0", default-features = false }
 getrandom = "=0.4.3"

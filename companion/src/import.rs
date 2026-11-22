@@ -1,5 +1,5 @@
-//! History brought in from other addons' saved variables: TradeSkillMaster's accounting and gold
-//! log, Auctioneer's BeanCounter and Mastercraft's daily gold. It is a third kind of record beside
+//! History brought in from other addons' saved variables: TradeSkillMaster's accounting, gold log
+//! and returned auctions, Auctioneer's BeanCounter and Mastercraft's daily gold. It is a third kind of record beside
 //! lifetime and observed numbers (docs/FORMAT.md, "Imported history"): never counted as
 //! Scarlet-observed, never added to the overview's earned and spent, and dropped where Scarlet
 //! recorded the same thing itself. What is read is kept in the character's archive
@@ -32,6 +32,7 @@ pub enum Kind {
     Sale,
     Buy,
     Other,
+    Returned,
 }
 
 /// One record read from another addon, before it is checked against Scarlet's own lines.
@@ -46,6 +47,8 @@ pub struct Rec {
     pub via: String,
     pub item: Option<i64>,
     pub qty: i64,
+    /// The stack size of a returned auction, else 0.
+    pub stack: i64,
     /// Gold points: the balance. Sales and buys: the whole amount. Other: signed.
     pub copper: i64,
 }
@@ -176,6 +179,29 @@ pub fn read_tsm(text: &str) -> Result<Vec<(String, Entry)>, String> {
                     ));
                 }
             }
+            ["r", _, "internalData", "csvExpired"] | ["r", _, "internalData", "csvCancelled"] => {
+                let cancelled = parts[3] == "csvCancelled";
+                for row in csv_rows(body) {
+                    let (Some(item), Some(stack), Some(qty), Some(time)) = (
+                        row.first().filter(|v| item_id(v).is_some()),
+                        row.get(1).and_then(|v| num(v)),
+                        row.get(2).and_then(|v| num(v)),
+                        row.get(4).and_then(|v| num(v)),
+                    ) else {
+                        continue;
+                    };
+                    out.push((
+                        row.get(3).copied().unwrap_or("").to_string(),
+                        Entry::TsmReturn {
+                            cancelled,
+                            item: item.to_string(),
+                            stack,
+                            qty,
+                            time,
+                        },
+                    ));
+                }
+            }
             _ => {}
         }
     }
@@ -274,9 +300,29 @@ fn rec_of(entry: &Entry, today: NaiveDate) -> Option<Rec> {
         via,
         item,
         qty,
+        stack: 0,
         copper,
     };
     Some(match entry {
+        Entry::TsmReturn {
+            cancelled,
+            item,
+            stack,
+            qty,
+            time,
+        } => {
+            let mut r = rec(
+                time * 1000,
+                Kind::Returned,
+                SOURCE_TSM,
+                if *cancelled { "x" } else { "e" }.into(),
+                Some(item_id(item)?),
+                *qty,
+                0,
+            );
+            r.stack = *stack;
+            r
+        }
         Entry::TsmGold { minute, copper } => rec(
             minute * 60_000,
             Kind::Gold,
@@ -705,7 +751,7 @@ pub fn build(archive: &Archive, evs: &[Event], today: NaiveDate) -> Built {
                 Kind::Sale => dropped.sales += 1,
                 Kind::Buy => dropped.buys += 1,
                 Kind::Other => dropped.other += 1,
-                Kind::Gold => {}
+                Kind::Gold | Kind::Returned => {}
             }
             continue;
         }
@@ -737,7 +783,7 @@ fn view_of(kept: &[Rec], dropped: Dropped, native: &Native) -> View {
     let mut days: BTreeMap<i64, Day> = BTreeMap::new();
     let mut items: BTreeMap<i64, ItemPrice> = BTreeMap::new();
     let mut trades: Vec<&Rec> = Vec::new();
-    for r in kept {
+    for r in kept.iter().filter(|r| r.kind != Kind::Returned) {
         if !sources.iter().any(|s| s == r.source) {
             sources.push(r.source.to_string());
         }
@@ -780,7 +826,7 @@ fn view_of(kept: &[Rec], dropped: Dropped, native: &Native) -> View {
                 }
                 trades.push(r);
             }
-            Kind::Other => {}
+            Kind::Other | Kind::Returned => {}
         }
     }
     sources.sort();
@@ -818,7 +864,7 @@ fn view_of(kept: &[Rec], dropped: Dropped, native: &Native) -> View {
 
 /// The payload text: `scarletimports<TAB>1<TAB>Name-Surname`, then `<epoch ms><TAB><code><TAB><fields>`:
 /// `YG source balance`, `YS source via item quantity copper`, `YB` the same for purchases,
-/// `YM source kind signedCopper`.
+/// `YM source kind signedCopper`, `YU source e|x item quantity stackSize`.
 pub fn scl_text(name: &str, kept: &[Rec]) -> String {
     let mut out = format!("scarletimports\t1\t{name}\n");
     for r in kept {
@@ -835,6 +881,15 @@ pub fn scl_text(name: &str, kept: &[Rec]) -> String {
                 r.copper
             ),
             Kind::Other => format!("{}\tYM\t{}\t{}\t{}", r.ms, r.source, r.via, r.copper),
+            Kind::Returned => format!(
+                "{}\tYU\t{}\t{}\t{}\t{}\t{}",
+                r.ms,
+                r.source,
+                r.via,
+                r.item.unwrap_or(0),
+                r.qty,
+                r.stack
+            ),
         };
         out.push_str(&line);
         out.push('\n');

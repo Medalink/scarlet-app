@@ -3060,7 +3060,7 @@ dependencies = [
 [[package]]
 name = "scarlet-part"
 version = "0.1.0"
-source = "git+https://github.com/Medalink/scarlet-web?rev=1817669487e272ba409bafc8632234df37453df9#1817669487e272ba409bafc8632234df37453df9"
+source = "git+https://github.com/Medalink/scarlet-web?rev=c474e5caab93db0e2a621030557c225a40059658#c474e5caab93db0e2a621030557c225a40059658"
 dependencies = [
  "hmac",
  "lexopt",

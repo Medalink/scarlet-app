@@ -612,14 +612,18 @@ fn feed_mastercraft(file: &Path, exported: &[String], out: &Path) -> bool {
     let Some(db) = read_table(file, mastercraft::TABLE) else {
         return false;
     };
-    let Some(total) = mastercraft::life(&db, modified) else {
+    let mut totals = mastercraft::life(&db, modified)
+        .into_iter()
+        .collect::<Vec<_>>();
+    totals.extend(mastercraft::gathers(&db, modified));
+    if totals.is_empty() {
         return false;
-    };
+    }
     let dirs: Vec<PathBuf> = exported.iter().map(|name| out.join(name)).collect();
-    match counts::feed_account(&dirs, vec![total]) {
+    match counts::feed_account(&dirs, totals) {
         Ok(0) => false,
         Ok(n) => {
-            println!("{n} Mastercraft fishing totals archived");
+            println!("{n} Mastercraft account totals archived");
             true
         }
         Err(e) => {

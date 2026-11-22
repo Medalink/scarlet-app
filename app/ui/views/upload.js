@@ -20,9 +20,9 @@ const HOLDS = {
   collections: "Legacy Challenges and points, mounts, pets, reputation, statistics.",
   client: "Client checks, addon list, UI errors, screenshots, loading screens.",
   addons: "Lines other addons write through Scarlet.",
-  imports: "Earlier sales, purchases and gold history imported from other addons.",
+  imports: "Earlier sales, purchases, returned auctions and gold history imported from other addons.",
   fishing: "Catches, records and tournament data from The Fishing Log.",
-  counts: "Session totals The Fishing Log and ForeverFishing counted, added to your totals on the website without counting twice. Mastercraft's fishing total is sent as a check and never added.",
+  counts: "Session totals The Fishing Log and ForeverFishing counted, added to your totals on the website without counting twice. Mastercraft's fishing, herb and ore totals are sent as a check and never added.",
 };
 
 const when = (t) => new Date(t * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
