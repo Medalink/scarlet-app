@@ -19,6 +19,7 @@ const freePort = () =>
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const ATTACH_MS = 15000;
+const ANSWER_MS = 2000;
 const CLOSE_MS = 10000;
 
 const ownEnvironment = (home, port) => {
@@ -74,7 +75,7 @@ export async function launch({ exe, home }) {
     let page = null;
     const giveUp = performance.now() + ATTACH_MS;
     while (!page && exitCode === null && performance.now() < giveUp) {
-      page = await fetch(`http://127.0.0.1:${port}/json`)
+      page = await fetch(`http://127.0.0.1:${port}/json`, { signal: AbortSignal.timeout(ANSWER_MS) })
         .then((answer) => answer.json())
         .then((targets) => targets.find((t) => t.type === "page") ?? null, () => null);
       if (!page) await pause(25);
@@ -82,8 +83,15 @@ export async function launch({ exe, home }) {
     if (!page) throw startFailed(`the app showed no page to attach to within ${ATTACH_MS / 1000} s (launcher exit code ${exitCode})`);
     socket = new WebSocket(page.webSocketDebuggerUrl);
     await new Promise((resolve, reject) => {
-      socket.onopen = resolve;
-      socket.onerror = () => reject(startFailed("the DevTools socket did not open"));
+      const late = setTimeout(() => reject(startFailed(`the DevTools socket did not open within ${ANSWER_MS / 1000} s`)), ANSWER_MS);
+      socket.onopen = () => {
+        clearTimeout(late);
+        resolve();
+      };
+      socket.onerror = () => {
+        clearTimeout(late);
+        reject(startFailed("the DevTools socket did not open"));
+      };
     });
   } catch (error) {
     killLauncher();

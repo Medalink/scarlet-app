@@ -261,7 +261,7 @@ const CHECKS = [
       await selectCharacter(app, "");
       await open(app, "overview", new RegExp(`^(?=.*Level target)(?=.*${SHOWN.testa})(?=.*${SHOWN.probe})`));
       await selectCharacter(app, PROBE);
-      await open(app, "overview", /Probe Lane Level 3 Gnome Mage/, /Level target/);
+      await open(app, "overview", /Probe Lane Level 3 Gnome Mage/, new RegExp(`Level target|${SHOWN.testa}`));
     },
   },
   {
