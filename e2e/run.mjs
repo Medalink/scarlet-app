@@ -344,7 +344,7 @@ const CHECKS = [
     async run(ctx) {
       const app = running(ctx);
       await selectCharacter(app, PROBE);
-      const shows = /^(?=.*Testa Fixture)(?=.*level 6)(?=.*A Threat Within)(?=.*1,605 Experience)(?=.* 2 Kills)(?!.*Probe Lane)/;
+      const shows = /^(?=.*Level 5 to 6 in Elwynn Forest)(?=.*Testa Fixture)(?=.*Experience 1,605)(?=.*Kills 2)(?=.*Experience every 5 minutes)(?=.*Killed most)(?=.*Levels, deaths and feats)(?!.*Probe Lane)/;
       await app.evaluate(`location.hash = "sessions/1795000000000-1795000130000"`);
       await app.until(`${patternExpression(shows)}.test(${BODY})`, `the run summary shows ${shows}`);
     },

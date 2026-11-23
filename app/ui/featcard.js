@@ -103,6 +103,17 @@ export function tierChip(tier, text) {
   return c;
 }
 
+const unitValue = (cat, n) => (cat.unit === "mi" ? n / 1760 : n);
+
+/** A count in the catalog's unit: yards of a mile feat become miles. */
+export const amount = (cat, n) => {
+  const v = unitValue(cat, n);
+  return cat.unit === "mi" && v < 10 ? v.toFixed(1) : num(v);
+};
+
+/** "9,912 kills", from the catalog's own words for one and many. */
+export const countText = (cat, value) => `${amount(cat, value)} ${unitValue(cat, value) === 1 ? cat.one : cat.many}`;
+
 /** A website card with the catalog's glyph, family and collection filled in where the answer has none. */
 export function withCatalog(feat) {
   const c = BY_KEY.get(feat.key);

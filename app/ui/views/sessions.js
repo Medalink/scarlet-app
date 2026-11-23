@@ -2,8 +2,8 @@
 // Click a row to open its range in the timeline; a run summary opens for the
 // session's route, and covers every character played in the run.
 
-import { invoke, el, state, num, dur, moneyHtml, dateTime, esc, displayName, clock } from "../lib.js";
-import { renderStats } from "./stats.js";
+import { invoke, el, state, num, dur, moneyHtml, dateTime, esc, displayName } from "../lib.js";
+import { renderRecaps } from "./recap.js";
 
 export async function render(body, sub) {
   if (/^\d+-\d+$/.test(sub ?? "")) return renderRun(body, sub);
@@ -62,45 +62,10 @@ export async function render(body, sub) {
 async function renderRun(body, sub) {
   const [from, to] = sub.split("-").map(Number);
   const run = await invoke("run_summary", { from, to });
-  body.innerHTML = "";
-  document.querySelector("#pagetitle").textContent = "WoW run";
-  if (!run.sessions.length) {
+  if (!run.recaps.length) {
+    body.innerHTML = "";
     body.appendChild(el("div", "empty", "Nothing was recorded while WoW ran."));
     return;
   }
-
-  const head = el("p", "run-head");
-  const sameDay = new Date(run.from).toDateString() === new Date(run.to).toDateString();
-  const end = sameDay ? clock(run.to).slice(0, 5) : dateTime(run.to);
-  head.innerHTML = `${dateTime(run.from)} – ${end} · ${dur(run.played)} played · ${run.chars
-    .map((c) => esc(displayName(c)))
-    .join(", ")}`;
-  body.appendChild(head);
-
-  if (run.highlights.length) {
-    body.appendChild(el("h3", "section-title", "Levels, quests, achievements and deaths"));
-    const list = el("div", "run-highlights");
-    list.innerHTML = run.highlights
-      .map(
-        (h) => `<div class="run-row">
-          <span class="tl-time">${clock(h.ms)}</span>
-          <span class="run-char">${esc(displayName(h.char_name))}</span>
-          <span class="tl-word">${esc(h.word)}</span>
-          <span class="tl-text">${esc(h.text)}</span>
-        </div>`
-      )
-      .join("");
-    body.appendChild(list);
-  }
-
-  const zones = [];
-  for (const s of run.sessions) {
-    for (const z of s.zones) {
-      if (!zones.includes(z)) zones.push(z);
-    }
-  }
-  body.appendChild(el("h3", "section-title", "Zones visited"));
-  body.appendChild(el("div", "run-zones", zones.map(esc).join(" · ") || "—"));
-
-  renderStats(body, run.stats);
+  await renderRecaps(body, run);
 }

@@ -18,6 +18,7 @@ const { values } = parseArgs({
     views: { type: "string" },
     char: { type: "string" },
     upload: { type: "boolean" },
+    run: { type: "string" },
     exe: { type: "string" },
   },
 });
@@ -44,7 +45,7 @@ if (values.fixture) {
   const source = JSON.parse(fs.readFileSync(path.join(values.home, "settings.json"), "utf8"));
   const copy = path.join(temp, "out");
   fs.cpSync(source.data, copy, { recursive: true });
-  settings = { ...source, data: copy, watch: false, keep_addon: false, open_with_wow: false, setup_done: true, upload: { ...source.upload, enabled: Boolean(values.upload) } };
+  settings = { wow: "", more_wow: [], last_view: "sessions", ...source, data: copy, watch: false, keep_addon: false, open_with_wow: false, setup_done: true, upload: { ...source.upload, enabled: Boolean(values.upload) } };
 }
 fs.writeFileSync(path.join(home, "settings.json"), JSON.stringify(settings));
 
@@ -56,7 +57,7 @@ try {
   await app.until(`document.querySelectorAll("#nav .item").length > 0 && document.querySelector("#pagetitle").textContent !== ""`, "the page booted", 20000);
   const rows = await app.evaluate(`(async () => (await import("/bridge.js")).invoke("sessions", { ch: null }))()`);
   const last = rows[rows.length - 1];
-  const run = last ? `sessions/${last.start}-${last.end}` : "sessions";
+  const run = values.run ? `sessions/${values.run}` : last ? `sessions/${last.start}-${last.end}` : "sessions";
   const names = (values.views ?? "system,sessions,run,feats,character,character/class,character/talents,stats,characters,data").split(",");
   if (values.char) await app.evaluate(`(() => { const s = document.querySelector("#char"); s.value = ${JSON.stringify(values.char)}; s.dispatchEvent(new Event("change")); })()`);
   await app.evaluate(`(() => { const s = document.createElement("style"); s.textContent = "html,body,#shell,main,#body{height:auto!important;overflow:visible!important}body{display:block!important}#shell{display:flex}"; document.head.append(s); })()`);

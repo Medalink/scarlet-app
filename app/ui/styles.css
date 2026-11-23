@@ -1093,3 +1093,5 @@ a.sc-session:hover { border-color: var(--line2); }
 .states > .st { color: var(--fg); font-weight: 600; }
 .addr { display: block; margin-top: 7px; padding: 5px 8px; background: rgba(255, 45, 85, 0.16); border: 1px solid var(--line2); color: var(--fg); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .none { color: var(--muted); }
+
+.recap > .sc-seg { margin-bottom: 18px; }
