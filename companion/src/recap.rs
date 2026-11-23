@@ -589,6 +589,53 @@ impl<'a> Scan<'a> {
         self.leg_open = false;
     }
 
+    fn seed_zone(&mut self, r: &Rec) {
+        let name = field(r.fields, 4);
+        if name.is_empty() {
+            return;
+        }
+        self.zone = Some(name.to_string());
+        self.in_instance = matches!(field(r.fields, 2), "party" | "raid");
+        self.instance = self.in_instance.then(|| field(r.fields, 1).to_string());
+    }
+
+    fn seed_from_enclosing_session(&mut self, t0: i64) {
+        let Some(&(start, _)) = self
+            .f
+            .sessions
+            .iter()
+            .filter(|s| s.0 < t0 && t0 <= s.1)
+            .max_by_key(|s| s.0)
+        else {
+            return;
+        };
+        let mut level = 0;
+        for r in self.f.events.between(start, t0 - 1) {
+            match r.code {
+                "S" => {
+                    self.zone = None;
+                    self.zone_seen = false;
+                    self.instance = None;
+                    self.in_instance = false;
+                    if self.class.is_empty() {
+                        self.class = field(r.fields, 1).to_string();
+                    }
+                    level = number(r.fields, 3) as u32;
+                }
+                "ES" => self.zone = None,
+                "Z" => {
+                    self.zone_seen |= !field(r.fields, 4).is_empty();
+                    self.seed_zone(&r);
+                }
+                "L" => level = number(r.fields, 0) as u32,
+                _ => {}
+            }
+        }
+        self.level = [level, level];
+        self.zone_from = t0;
+        self.session_from = t0;
+    }
+
     fn feed(&mut self, r: &Rec) {
         self.last = r.ms;
         if r.code == "P" {
@@ -800,6 +847,7 @@ fn finish_scan(s: &mut Scan, spans: &[(i64, i64)]) -> Scanned {
 fn scan<'a>(f: &'a Facts<'a>, spans: &[(i64, i64)], full: bool) -> (Scan<'a>, Scanned) {
     let t0 = spans.iter().map(|s| s.0).min().unwrap_or(0);
     let mut s = Scan::new(f, full, t0);
+    s.seed_from_enclosing_session(t0);
     for r in spans_events(f, spans) {
         s.feed(&r);
     }

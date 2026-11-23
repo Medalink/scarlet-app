@@ -61,16 +61,13 @@ impl Events for Source<'_> {
     }
 }
 
-fn with_facts<T>(st: &Store, ch: u32, all: bool, paths: bool, f: impl FnOnce(&Facts) -> T) -> T {
-    let sessions: Vec<(i64, i64)> = if all {
-        st.sessions
-            .iter()
-            .filter(|s| s.ch == ch)
-            .map(|s| (s.start, s.end))
-            .collect()
-    } else {
-        Vec::new()
-    };
+fn with_facts<T>(st: &Store, ch: u32, paths: bool, f: impl FnOnce(&Facts) -> T) -> T {
+    let sessions: Vec<(i64, i64)> = st
+        .sessions
+        .iter()
+        .filter(|s| s.ch == ch)
+        .map(|s| (s.start, s.end))
+        .collect();
     let character = st.chars.get(ch as usize).map_or("", String::as_str);
     let source = Source { st, ch, paths };
     f(&Facts {
@@ -83,18 +80,18 @@ fn with_facts<T>(st: &Store, ch: u32, all: bool, paths: bool, f: impl FnOnce(&Fa
 
 /// The recap of character `ch` over `spans` (ms), merged into one; the time played counts an overlap once.
 pub fn build_spans(st: &Store, ch: u32, spans: &[(i64, i64)]) -> Option<SessionRecap> {
-    let mut recap = with_facts(st, ch, true, true, |f| scarlet::recap::build(f, spans))?;
+    let mut recap = with_facts(st, ch, true, |f| scarlet::recap::build(f, spans))?;
     scarlet::featscore::fill(&mut recap, &tallies(st, ch));
     Some(recap)
 }
 
 /// The recap a card of the sessions list draws, of character `ch` over `spans` (ms).
 pub fn lite_spans(st: &Store, ch: u32, spans: &[(i64, i64)]) -> Option<SessionRecap> {
-    with_facts(st, ch, false, false, |f| scarlet::recap::lite(f, spans))
+    with_facts(st, ch, false, |f| scarlet::recap::lite(f, spans))
 }
 
 pub fn title_of(st: &Store, ch: u32, span: (i64, i64)) -> Title {
-    with_facts(st, ch, false, false, |f| scarlet::recap::title_of(f, span))
+    with_facts(st, ch, false, |f| scarlet::recap::title_of(f, span))
 }
 
 /// The sessions of one character as tallies, for counting its feats.
@@ -102,7 +99,7 @@ pub fn tallies(st: &Store, ch: u32) -> Arc<Vec<Tally>> {
     if let Some(done) = st.tallies().get(&ch) {
         return done.clone();
     }
-    let made = Arc::new(with_facts(st, ch, true, false, scarlet::recap::tallies));
+    let made = Arc::new(with_facts(st, ch, false, scarlet::recap::tallies));
     st.tallies().insert(ch, made.clone());
     made
 }
