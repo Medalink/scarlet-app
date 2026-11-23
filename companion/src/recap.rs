@@ -209,6 +209,19 @@ pub struct SessionRecap {
     top: Top,
 }
 
+impl SessionRecap {
+    pub fn add_feat_moment(&mut self, at: i64, feat: &str, tier: u8, text: String) {
+        self.moments.push(Moment {
+            at,
+            kind: "feat",
+            text,
+            feat: Some(feat.to_string()),
+            tier: Some(tier),
+        });
+        self.moments.sort_by_key(|m| m.at);
+    }
+}
+
 struct Raw {
     name: String,
     from: i64,

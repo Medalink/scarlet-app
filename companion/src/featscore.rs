@@ -355,7 +355,7 @@ pub fn fill(recap: &mut SessionRecap, tallies: &[Tally]) {
     }
     let (was, now) = (score(&before), score(&upto));
     let at = last - first;
-    let earned = now
+    let earned: Vec<FeatChange> = now
         .counted
         .iter()
         .filter_map(|c| {
@@ -386,7 +386,45 @@ pub fn fill(recap: &mut SessionRecap, tallies: &[Tally]) {
             })
         })
         .collect();
+    for change in &earned {
+        if let Some(feat) = FEATS.iter().find(|f| f.key == change.key) {
+            recap.add_feat_moment(
+                change.at,
+                feat.key,
+                change.tier,
+                moment_text(feat, change.tier),
+            );
+        }
+    }
     recap.feats = Feats { earned, near };
+}
+
+fn grouped(n: f64) -> String {
+    let whole = (n.abs().round() as i64).to_string();
+    let mut out = String::new();
+    for (i, c) in whole.chars().enumerate() {
+        if i > 0 && (whole.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
+fn moment_text(feat: &CatalogFeat, tier: u8) -> String {
+    let at = feat.thresholds[tier as usize - 1];
+    let n = if feat.unit == Some("mi") {
+        at / 1760.0
+    } else {
+        at
+    };
+    let text = grouped(n);
+    let noun = if n == 1.0 { feat.one } else { feat.many };
+    format!(
+        "{}, {}: {text} {noun}",
+        feat.name,
+        crate::feats_catalog::TIERS[tier as usize - 1]
+    )
 }
 
 /// What a character's counts come to, kept beside its overview so Feats.lua can be written without its events.

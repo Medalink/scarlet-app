@@ -212,9 +212,8 @@ function wall(model) {
         draw: { seal: (f) => cardSeal(f, 48), pips },
         picked: filter.picked,
         onPick: (f) => ((filter.picked = f.key), draw()),
+        all: feats,
       });
-      const earned = feats.filter((f) => f.tier > 0).length;
-      row.querySelector(".sc-coll-n").firstChild.textContent = `${earned} of ${feats.length}`;
       rows.append(row);
     }
     if (!rows.firstChild) rows.append(elText("p", "sc-empty", "No feats match."));

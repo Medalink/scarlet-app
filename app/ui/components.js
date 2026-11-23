@@ -3,6 +3,7 @@
 
 import { el, elText, num, dur, displayName } from "./lib.js";
 import { GLYPHS, METAL, PLATES, svg } from "./glyphs.js";
+import { BY_KEY } from "./feats-catalog.js";
 
 export const distanceHtml = (yd) => (yd < 880 ? `${num(yd)}<small>yd</small>` : `${(yd / 1760).toFixed(1)}<small>mi</small>`);
 
@@ -235,7 +236,7 @@ export function strip(r, { compact = false } = {}) {
       root.append(g);
     } else if (m.kind === "feat") {
       const g = svg("g", { transform: `translate(${ex - 8} ${ey}) scale(0.25)` });
-      g.append(svg("path", { d: PLATES[m.family || "combat"], fill: METAL[m.tier || 2] }));
+      g.append(svg("path", { d: PLATES[BY_KEY.get(m.feat)?.family || "combat"], fill: METAL[m.tier || 2] }));
       root.append(g);
     } else {
       root.append(svg("rect", { x: ex - 1.5, y: ey + 6.5, width: 3, height: 3, fill: "#8a8a93" }));
@@ -343,14 +344,14 @@ export function routeCard(route, { levels = [], height = 356 } = {}) {
  * A collection row: the name, `6 of 11`, its pips (the lowest tier among its feats), then every feat as a seal at 48
  * with its name. `draw` gives `seal(feat)` and `pips(tier)`; `onPick(feat)` runs on a click.
  */
-export function collectionRow(name, feats, { draw, onPick = null, picked = null }) {
+export function collectionRow(name, feats, { draw, onPick = null, picked = null, all = feats }) {
   const row = el("section", "sc-coll");
-  const earned = feats.filter((f) => f.tier > 0).length;
-  const low = feats.length ? Math.min(...feats.map((f) => f.tier)) : 0;
+  const earned = all.filter((f) => f.tier > 0).length;
+  const low = all.length ? Math.min(...all.map((f) => f.tier)) : 0;
   const head = el("div");
   head.append(elText("h3", "sc-coll-h", name));
   const n = el("p", "sc-coll-n");
-  n.append(`${earned} of ${feats.length}`, draw.pips(low));
+  n.append(`${earned} of ${all.length}`, draw.pips(low));
   head.append(n);
   const wall = el("ul", "sc-wall");
   for (const f of feats) {

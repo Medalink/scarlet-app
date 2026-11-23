@@ -52,7 +52,7 @@ const demoRecap = () => {
     moments: [
       { at: 49 * 60, kind: "death", text: "Died to a Wastewander Assassin" },
       { at: 126 * 60, kind: "death", text: "Died to a Dunemaul Brute" },
-      { at: 119 * 60, kind: "feat", text: "Rampage, Silver: 300 kills in one session", family: "combat", tier: 2 },
+      { at: 119 * 60, kind: "feat", text: "Rampage, Silver: 300 kills in one session", feat: "rampage", tier: 2 },
     ],
     route: null,
     feats: { earned: [{ key: "rampage", from: 1, tier: 2, at: 119 * 60, value: 312, name: "Rampage", family: "combat" }], near: [] },
