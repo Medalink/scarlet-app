@@ -277,7 +277,9 @@ export function strip(r, { compact = false } = {}) {
 
 /**
  * The recorded path on a hairline grid: scarlet, newest brightest, flights dashed violet, a start ring, an end diamond
- * and a diamond at each level. `route.sheet` has x, y pairs from 0 to 1000 and the indexes where each leg starts.
+ * and a diamond at each level. `route.sheet` is the shape the addon reads: x, y pairs with the long side at 1000 and y
+ * up, `aspect` (width over height), `breaks` (the 1-based point where each leg after the first starts) and `air` (true
+ * at a point reached by a flight).
  */
 export function routeCard(route, { levels = [], height = 356 } = {}) {
   const W = 640;
@@ -294,35 +296,38 @@ export function routeCard(route, { levels = [], height = 356 } = {}) {
   const boxH = boxW / aspect;
   const ox = (W - boxW) / 2;
   const oy = (H - boxH) / 2;
+  const unit = boxW / (aspect >= 1 ? 1000 : 1000 * aspect);
   const pts = [];
-  for (let i = 0; i + 1 < sheet.points.length; i += 2) pts.push([ox + (sheet.points[i] / 1000) * boxW, oy + (sheet.points[i + 1] / 1000) * boxH]);
-  const breaks = (sheet.breaks ?? []).filter((b) => b > 0 && b < pts.length);
-  const legs = [];
-  let from = 0;
-  for (const b of [...breaks, pts.length]) {
-    legs.push(pts.slice(from, b));
-    from = b;
+  for (let i = 0; i + 1 < sheet.points.length; i += 2) pts.push([ox + sheet.points[i] * unit, oy + boxH - sheet.points[i + 1] * unit]);
+  const starts = new Set((sheet.breaks ?? []).map((b) => b - 1));
+  const air = sheet.air ?? [];
+  const runs = [];
+  for (let i = 1; i < pts.length; i++) {
+    if (starts.has(i)) continue;
+    const flown = Boolean(air[i]);
+    const run = runs[runs.length - 1];
+    if (run && run.flown === flown && run.end === i - 1) {
+      run.pts.push(pts[i]);
+      run.end = i;
+    } else {
+      runs.push({ flown, pts: [pts[i - 1], pts[i]], end: i });
+    }
   }
-  const flights = new Set(sheet.flights ?? []);
-  let seen = 0;
-  legs.forEach((leg, li) => {
-    const chunks = Math.max(1, Math.min(6, Math.ceil(leg.length / 25)));
-    const per = Math.ceil(leg.length / chunks);
-    for (let c = 0; c < chunks; c++) {
-      const seg = leg.slice(Math.max(0, c * per - 1), (c + 1) * per);
-      if (seg.length < 2) continue;
-      const age = (seen + Math.min(leg.length, (c + 1) * per)) / pts.length;
-      const flown = flights.has(li);
+  const step = Math.max(2, Math.ceil(pts.length / 6));
+  for (const run of runs) {
+    const size = run.flown ? run.pts.length : step;
+    for (let at = 0; at < run.pts.length - 1; at += size - 1) {
+      const seg = run.pts.slice(at, at + size);
+      const age = (run.end - run.pts.length + 1 + at + seg.length - 1) / Math.max(1, pts.length - 1);
       root.append(
         svg("polyline", {
           points: seg.map((p) => p.map((n) => n.toFixed(1)).join(",")).join(" "), fill: "none",
-          stroke: flown ? "#9a7df2" : "#ff2d55", "stroke-width": flown ? 1.6 : 2, "stroke-dasharray": flown ? "5 5" : null,
+          stroke: run.flown ? "#9a7df2" : "#ff2d55", "stroke-width": run.flown ? 1.6 : 2, "stroke-dasharray": run.flown ? "5 5" : null,
           "stroke-linejoin": "round", "stroke-linecap": "round", opacity: Math.min(1, 0.38 + age * 0.62),
         }),
       );
     }
-    seen += leg.length;
-  });
+  }
   const first = pts[0];
   const last = pts[pts.length - 1];
   root.append(svg("circle", { cx: first[0], cy: first[1], r: 4.5, fill: "#141416", stroke: "#f0f1f3", "stroke-width": 1.8 }));

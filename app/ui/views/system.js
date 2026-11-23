@@ -61,7 +61,6 @@ const demoRecap = () => {
 
 const demoRoute = () => {
   const points = [];
-  const breaks = [0];
   let x = 220;
   let y = 330;
   let a = 0.4;
@@ -71,7 +70,7 @@ const demoRoute = () => {
     y = Math.max(60, Math.min(940, y + Math.sin(a) * 14));
     points.push(Math.round(x), Math.round(y));
   }
-  return { sheet: { aspect: 1.6, points, breaks, flights: [] } };
+  return { sheet: { aspect: 1, points, breaks: [], air: [] } };
 };
 
 const sealCell = (name, tier, progress, label, cls) => {

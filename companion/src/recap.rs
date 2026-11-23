@@ -39,6 +39,8 @@ const SHEET: f64 = 1000.0;
 const SHEET_POINTS: usize = 400;
 const LEG_POINTS: usize = 600;
 const MAP_ASPECT: f64 = 1.5;
+const MIN_SHEET_ASPECT: f64 = 0.4;
+const MAX_SHEET_ASPECT: f64 = 2.5;
 const MILE_YD: f64 = 1760.0;
 const GATHER_TITLE: i64 = 20;
 const QUEST_TITLE: i64 = 5;
@@ -104,7 +106,7 @@ pub struct Sheet {
     aspect: f64,
     points: Vec<i64>,
     breaks: Vec<usize>,
-    flights: Vec<usize>,
+    air: Vec<bool>,
 }
 
 #[derive(Serialize)]
@@ -875,47 +877,64 @@ fn route(legs_in: &[RawLeg]) -> Option<Route> {
     let on_map: Vec<&&RawLeg> = lines.iter().filter(|p| p.map == map).collect();
     let total: usize = on_map.iter().map(|p| p.pts.len()).sum();
     let stride = total.div_ceil(SHEET_POINTS).max(1);
-    let mut kept: Vec<Vec<(f64, f64)>> = Vec::new();
-    let mut flights = Vec::new();
-    for (i, p) in on_map.iter().enumerate() {
-        let pts = &p.pts;
-        let cap = (pts.len() / stride).max(2);
-        kept.push(thin(pts, cap));
-        if p.dash {
-            flights.push(i);
-        }
-    }
-    let all: Vec<(f64, f64)> = kept.iter().flatten().copied().collect();
+    let kept: Vec<(bool, Vec<(f64, f64)>)> = on_map
+        .iter()
+        .map(|p| {
+            let cap = (p.pts.len() / stride).max(2);
+            let flat = thin(&p.pts, cap)
+                .into_iter()
+                .map(|(x, y)| (x * MAP_ASPECT, y))
+                .collect();
+            (p.dash, flat)
+        })
+        .collect();
+    let all: Vec<(f64, f64)> = kept
+        .iter()
+        .flat_map(|(_, leg)| leg.iter().copied())
+        .collect();
     if all.len() < 2 {
         return None;
     }
-    let range = |pick: fn(&(f64, f64)) -> f64| {
+    let extent = |pick: fn(&(f64, f64)) -> f64| {
         let lo = all.iter().map(pick).fold(f64::MAX, f64::min);
         let hi = all.iter().map(pick).fold(f64::MIN, f64::max);
-        (lo, (hi - lo).max(1.0))
+        (lo, hi, (hi - lo).max(1.0))
     };
-    let (x0, w) = range(|p| p.0);
-    let (y0, h) = range(|p| p.1);
-    let mut breaks = Vec::new();
+    let (mut left, _, mut w) = extent(|p| p.0);
+    let (_, mut top, mut h) = extent(|p| p.1);
+    if w > h * MAX_SHEET_ASPECT {
+        let grown = w / MAX_SHEET_ASPECT;
+        top += (grown - h) / 2.0;
+        h = grown;
+    } else if w < h * MIN_SHEET_ASPECT {
+        let grown = h * MIN_SHEET_ASPECT;
+        left -= (grown - w) / 2.0;
+        w = grown;
+    }
+    let scale = SHEET / w.max(h);
     let mut points = Vec::new();
-    let mut count = 0usize;
-    for (i, leg) in kept.iter().enumerate() {
+    let mut breaks = Vec::new();
+    let mut air: Vec<bool> = Vec::new();
+    for (i, (dash, leg)) in kept.iter().enumerate() {
         if i > 0 {
-            breaks.push(count);
+            breaks.push(air.len() + 1);
         }
-        for (x, y) in leg {
-            points.push(((x - x0) / w * SHEET).round() as i64);
-            points.push(((y - y0) / h * SHEET).round() as i64);
-            count += 1;
+        for (k, (x, y)) in leg.iter().enumerate() {
+            points.push(((x - left) * scale).round() as i64);
+            points.push(((top - y) * scale).round() as i64);
+            air.push(*dash && k > 0);
         }
+    }
+    while air.last() == Some(&false) {
+        air.pop();
     }
     Some(Route {
         legs: Some(legs),
         sheet: Sheet {
-            aspect: (w * MAP_ASPECT / h).clamp(0.4, 2.5),
+            aspect: w / h,
             points,
             breaks,
-            flights,
+            air,
         },
     })
 }

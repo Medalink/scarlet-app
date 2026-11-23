@@ -86,7 +86,7 @@ function routePanel(recap) {
   const span = Math.max(1, recap.end - recap.start);
   const levels = recap.levels.map((l) => ({ frac: Math.min(1, l.at / span) }));
   box.append(routeCard(recap.route, { levels }));
-  const flown = recap.route.sheet.flights?.length;
+  const flown = recap.route.sheet.air?.includes(true);
   box.append(legend([["Walked, newest brightest", "var(--s-1)"], ...(flown ? [["Teleported", "var(--m-flight)"]] : [])]));
   return box;
 }
