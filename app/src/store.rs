@@ -53,6 +53,8 @@ pub struct Store {
     pub data_dir: PathBuf,
     pub chars: Vec<String>,
     pub events: Vec<Row>,
+    /// The `P` positions (map, x, y) of every character in time order, kept apart from `events` for the recap's route.
+    pub paths: Vec<Row>,
     pub lifetimes: Vec<Lifetime>,
     /// Formatted timeline rows, built lazily on first Timeline access.
     lines: OnceLock<Vec<TLine>>,
@@ -104,6 +106,7 @@ impl Store {
     pub fn load(dir: &Path) -> Store {
         let mut chars: Vec<String> = Vec::new();
         let mut rows: Vec<Row> = Vec::new();
+        let mut paths: Vec<Row> = Vec::new();
         let mut names: HashMap<String, String> = HashMap::new();
         let mut zones: BTreeMap<u32, String> = BTreeMap::new();
         let mut code_counts: BTreeMap<String, u64> = BTreeMap::new();
@@ -194,6 +197,13 @@ impl Store {
                                 }),
                             }
                         }
+                        e.fields.truncate(3);
+                        paths.push(Row {
+                            ms: e.ms,
+                            ch,
+                            code: std::mem::take(&mut e.code),
+                            fields: std::mem::take(&mut e.fields),
+                        });
                         continue;
                     }
                     // TE fromMap fromX fromY toMap toX toY: a teleport inside one map is a dashed jump.
@@ -273,6 +283,7 @@ impl Store {
         }
 
         rows.sort_by_key(|r| r.ms);
+        paths.sort_by_key(|r| r.ms);
         polylines.sort_by_key(|p| p.session);
 
         // Merge consecutive P points into one polyline per (map, session).
@@ -313,6 +324,7 @@ impl Store {
             data_dir: dir.to_path_buf(),
             chars,
             events: rows,
+            paths,
             lifetimes,
             lines: OnceLock::new(),
             line_count,
@@ -359,6 +371,7 @@ impl Store {
             data_dir: dir.to_path_buf(),
             chars: vec![],
             events: vec![],
+            paths: vec![],
             lifetimes: vec![],
             lines: OnceLock::new(),
             line_count: 0,
