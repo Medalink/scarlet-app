@@ -331,6 +331,7 @@ const CHECKS = [
       expectEqual("sessions in app_state", store.sessions, 3);
       const foot = await app.evaluate(`document.querySelector("#foot").textContent`);
       expectMatch("the foot of the nav", foot, new RegExp(`${CHARACTERS.length} ${CHARACTERS.length === 1 ? "character" : "characters"}`));
+      expectMatch("the foot says uploading is off", foot, /Uploading is off/);
     },
   },
   ...VIEWS.map(({ key, hash = key, shows, never }) => ({

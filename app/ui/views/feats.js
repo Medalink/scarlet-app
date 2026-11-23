@@ -6,6 +6,7 @@ import { BY_KEY, CATALOG } from "../feats-catalog.js";
 import { TIER_NAMES } from "../glyphs.js";
 import { seal, pips, tierChip, cardList, cardSeal, countText, amount } from "../featcard.js";
 import { playToasts, stopToasts } from "../feat-toast.js";
+import { linkPrompt } from "../link.js";
 
 const TIERS = [1, 2, 3, 4, 5];
 const COLLECTIONS = [...new Set(CATALOG.feats.map((f) => f.collection))];
@@ -299,6 +300,8 @@ async function load(box) {
     for (const m of got.models.filter((x) => !wanted || x.name === wanted)) m.news = localNews(m);
   }
   drawCharacters(box, got.models);
+  const row = await linkPrompt("feats");
+  if (row && box.isConnected) box.append(row);
 }
 
 export async function render(body) {

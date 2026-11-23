@@ -2,6 +2,7 @@
 
 import { invoke, el, elText, state, sessionCard, wireTips } from "../lib.js";
 import { renderRecaps } from "./recap.js";
+import { linkPrompt } from "../link.js";
 
 const PAGE = 40;
 
@@ -41,4 +42,6 @@ async function renderRun(body, sub) {
     return;
   }
   await renderRecaps(body, run);
+  const row = await linkPrompt("recap");
+  if (row && body.isConnected) body.append(row);
 }

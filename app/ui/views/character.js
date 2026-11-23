@@ -6,6 +6,7 @@ import * as overview from "./overview.js";
 import * as classview from "./classview.js";
 import * as talents from "./talents.js";
 import { closestFor } from "./feats.js";
+import { linkPrompt } from "../link.js";
 
 const SECTIONS = [
   ["overview", "Overview"],
@@ -62,6 +63,11 @@ export async function render(body, sub) {
   body.append(tabs, page);
   if (key === "overview") return drawOverview(page);
   const name = await who();
-  if (key === "class") return classview.render(page, name);
+  if (key === "class") {
+    await classview.render(page, name);
+    const row = await linkPrompt("class");
+    if (row && page.isConnected) page.append(row);
+    return;
+  }
   return talents.render(page, name);
 }

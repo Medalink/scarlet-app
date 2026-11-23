@@ -18,6 +18,7 @@ import * as compress from "./views/compress.js";
 import * as settings from "./views/settings.js";
 import * as system from "./views/system.js";
 import { openSetup } from "./setup.js";
+import { webState, footLine } from "./link.js";
 
 const VIEWS = {
   character: ["Character", character],
@@ -100,6 +101,9 @@ function buildNav() {
   }
   const foot = el("div", "foot");
   foot.id = "foot";
+  foot.onclick = (e) => {
+    if (e.target.closest(".weblink")) location.hash = "settings/website";
+  };
   nav.appendChild(foot);
 }
 
@@ -112,7 +116,15 @@ function updateFoot() {
   const ev = `${num(st.events)} ${st.events === 1 ? "event" : "events"}`;
   const ch = `${st.chars.length} ${st.chars.length === 1 ? "character" : "characters"}`;
   const running = wowClients > 0 ? `<br><span class="foot-live" aria-hidden="true"></span>${wowClients} WoW ${wowClients === 1 ? "client" : "clients"} running` : "";
-  $("#foot").innerHTML = `${ev}<br>${ch}${running}`;
+  const web = webLine ? `<button type="button" class="weblink" title="Settings, Website"><span class="sc-dot${webLine.linked ? "" : " off"}"></span> ${webLine.text}</button>` : "";
+  $("#foot").innerHTML = `${web}${ev}<br>${ch}${running}`;
+}
+
+let webLine = null;
+
+async function refreshWebLine() {
+  webLine = footLine(await webState());
+  updateFoot();
 }
 
 window.__nav = (key) => {
@@ -145,6 +157,7 @@ function setView() {
       i.querySelector(".nav-label").textContent = labelOf(i.dataset.key);
     });
     $("#pagetitle").textContent = labelOf(current);
+    refreshWebLine();
     await activeMod.render($("#body"), VIEWS[key] ? sub : undefined);
     if (mine === navSeq) invoke("save_view", { view: VIEWS[key] ? route : current });
   });

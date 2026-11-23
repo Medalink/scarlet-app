@@ -1104,3 +1104,5 @@ a.sc-session:hover { border-color: var(--line2); }
 .char-extra { margin: 24px 0; }
 .char-extra .sc-h { margin: 20px 0 8px; }
 .char-extra .sc-h:first-child { margin-top: 0; }
+.weblink { display: block; width: 100%; margin: 0 0 8px; padding: 0; background: none; border: 0; color: var(--muted); font: inherit; text-align: left; cursor: pointer; }
+.weblink:hover { color: var(--fg); }

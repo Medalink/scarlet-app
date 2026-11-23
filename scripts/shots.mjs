@@ -40,7 +40,7 @@ if (values.fixture) {
   const cli = path.join(REPO, "companion", "target", "debug", "scarlet.exe");
   const run = spawnSync(cli, ["export", "--wow", wow, "--out", out], { encoding: "utf8", windowsHide: true });
   if (run.status !== 0) throw new Error(`export failed: ${run.stderr}`);
-  settings = { wow, data: out, watch: false, last_view: "sessions", keep_addon: false, open_with_wow: false, setup_done: true, upload: { enabled: false, server: "http://127.0.0.1:8471" } };
+  settings = { wow, data: out, watch: false, last_view: "sessions", keep_addon: false, open_with_wow: false, setup_done: true, upload: { enabled: Boolean(values.upload), server: "http://127.0.0.1:8471" } };
 } else {
   const source = JSON.parse(fs.readFileSync(path.join(values.home, "settings.json"), "utf8"));
   const copy = path.join(temp, "out");
@@ -64,7 +64,7 @@ try {
   for (const name of names) {
     const hash = name === "run" ? run : name;
     await app.evaluate(`location.hash = ${JSON.stringify(hash)}`);
-    await sleep(1500);
+    await sleep(values.upload ? 5000 : 1500);
     const file = path.join(values.out, `${name.replace(/\//g, "-")}.png`);
     await app.screenshot(file, { full: true });
     console.log(`${name}: ${file}`);
