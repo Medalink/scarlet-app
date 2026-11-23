@@ -1,4 +1,4 @@
-// The line glyphs, the eight family plates and the tier metals every seal is drawn from (FEATS.md).
+// The line glyphs and the tier metals every crest is drawn from (CRESTS.md).
 
 const NS = "http://www.w3.org/2000/svg";
 
@@ -60,21 +60,4 @@ export const GLYPHS = {
   "m-tree": '<path d="M12 4.6 6.4 12h3L6.8 16.4h10.4L14.6 12h3z"/><path d="M12 16.4v3"/>',
   };
 
-export const METAL = [null, "#c58a63", "#c3c7cf", "#d9b25f", "#ff2d55", "#ff2d55"];
-export const NEXT = ["#c58a63", "#c3c7cf", "#d9b25f", "#ff2d55", "#d9b25f", "#d9b25f"];
-export const TIER_NAMES = ["Not earned", "Copper", "Silver", "Gold", "Scarlet", "Legend"];
-
-const poly = (pts) => "M" + pts.map((p) => p.map((n) => +n.toFixed(2)).join(" ")).join("L") + "Z";
-const ringPts = (n, r, start, inner) => { const out = []; for (let i = 0; i < n; i++) { const a = ((start + (360 / n) * i) * Math.PI) / 180; out.push([32 + Math.sin(a) * r, 32 - Math.cos(a) * r]); if (inner) { const b = ((start + (360 / n) * (i + 0.5)) * Math.PI) / 180; out.push([32 + Math.sin(b) * inner, 32 - Math.cos(b) * inner]); } } return out; };
-export const PLATES = {
-  journey: "M32 10a22 22 0 1 0 0 44a22 22 0 1 0 0-44Z",
-  combat: "M12 11.5H52V31C52 42.5 43.5 50 32 54.5C20.5 50 12 42.5 12 31Z",
-  quests: "M13.5 10.5H50.5V54L32 45.5L13.5 54Z",
-  dungeons: "M12 53.5V30.5A20 20 0 0 1 52 30.5V53.5Z",
-  world: poly(ringPts(4, 24, 0)),
-  trade: poly(ringPts(6, 23.5, 30)),
-  class: poly(ringPts(8, 23.5, 0, 18)),
-  role: poly(ringPts(5, 24, 180)),
-};
-export const PLATE_SHIFT = { combat: -2, quests: -4, dungeons: 2.5, role: -1.5 };
-export const FAMILY_OF = { level: "journey", hours: "journey", clock: "journey", crown: "journey", characters: "journey", emote: "journey", fire: "journey", kills: "combat", deaths: "combat", shield: "combat", quests: "quests", dungeons: "dungeons", zones: "world", distance: "world", jumps: "world", swim: "world", pin: "world", creature: "world", wing: "world", gold: "trade", skills: "trade", fish: "trade", gather: "trade", item: "trade", spell: "class", pet: "class", talents: "class", heal: "role" };
+export { METAL, TIER_NAMES } from "./tiers.js";

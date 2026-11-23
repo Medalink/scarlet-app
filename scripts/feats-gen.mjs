@@ -7,22 +7,40 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
-const input = process.argv[2];
+const args = process.argv.slice(2);
+const at = args.indexOf("--crests");
+const crestsFile = at < 0 ? null : args.splice(at, 2)[1];
+const input = args[0];
 if (!input) {
-  console.error("usage: node scripts/feats-gen.mjs <feats.json>");
+  console.error("usage: node scripts/feats-gen.mjs <feats.json> [--crests <crests.json>]");
   process.exit(2);
 }
 const REPO = path.resolve(import.meta.dirname, "..");
 const source = JSON.parse(fs.readFileSync(input, "utf8"));
+const crests = crestsFile ? JSON.parse(fs.readFileSync(crestsFile, "utf8")).feats : {};
 
 const FEAT_FIELDS = ["key", "name", "family", "collection", "scope", "class", "tree", "role", "glyph", "icon", "one", "many", "unit", "thresholds", "economy", "measure", "spells", "live"];
+const CREST_FIELDS = ["crest", "account", "account_thresholds"];
+const crestOf = (f) => {
+  const own = Object.fromEntries(CREST_FIELDS.filter((k) => f[k] !== undefined).map((k) => [k, f[k]]));
+  const found = CREST_FIELDS.every((k) => k in own) ? own : { ...(crests[f.key] ?? {}), ...own };
+  const missing = CREST_FIELDS.filter((k) => found[k] === undefined);
+  if (missing.length) {
+    console.error(`${f.key} has no ${missing.join(", ")}: add them to the catalog or pass --crests <crests.json>`);
+    process.exit(1);
+  }
+  return found;
+};
 const catalog = {
   version: source.version,
   tiers: source.tiers,
   families: source.families,
   role_classes: source.role_classes,
   spec_roles: source.spec_roles,
-  feats: source.feats.map((f) => Object.fromEntries(FEAT_FIELDS.filter((k) => f[k] !== undefined).map((k) => [k, f[k]]))),
+  feats: source.feats.map((f) => ({
+    ...Object.fromEntries(FEAT_FIELDS.filter((k) => f[k] !== undefined).map((k) => [k, f[k]])),
+    ...crestOf(f),
+  })),
 };
 
 const js = `${[
@@ -52,7 +70,7 @@ const feats = catalog.feats.map((f) => {
   const live = f.live
     ? `Some(Live { kind: ${str(f.live.kind)}, keys: ${list(f.live.keys)}, per: ${optNum(f.live.per)}, once_at: ${optNum(f.live.once_at)}, gate: ${opt(f.live.gate)} })`
     : "None";
-  return `    CatalogFeat { key: ${str(f.key)}, name: ${str(f.name)}, family: ${str(f.family)}, collection: ${str(f.collection)}, scope: ${str(f.scope)}, class: ${opt(f.class)}, tree: ${opt(f.tree)}, role: ${opt(f.role)}, glyph: ${str(f.glyph)}, one: ${str(f.one)}, many: ${str(f.many)}, unit: ${opt(f.unit)}, thresholds: [${f.thresholds.map(num).join(", ")}], economy: ${Boolean(f.economy)}, measure: ${opt(f.measure)}, spells: ${list(f.spells)}, live: ${live} },`;
+  return `    CatalogFeat { key: ${str(f.key)}, name: ${str(f.name)}, family: ${str(f.family)}, collection: ${str(f.collection)}, scope: ${str(f.scope)}, class: ${opt(f.class)}, tree: ${opt(f.tree)}, role: ${opt(f.role)}, glyph: ${str(f.glyph)}, one: ${str(f.one)}, many: ${str(f.many)}, unit: ${opt(f.unit)}, thresholds: [${f.thresholds.map(num).join(", ")}], crest: ${str(f.crest)}, account: ${str(f.account)}, account_thresholds: ${f.account_thresholds ? `Some([${f.account_thresholds.map(num).join(", ")}])` : "None"}, economy: ${Boolean(f.economy)}, measure: ${opt(f.measure)}, spells: ${list(f.spells)}, live: ${live} },`;
 });
 
 const specRoles = Object.entries(catalog.spec_roles).map(
@@ -86,6 +104,9 @@ pub struct CatalogFeat {
     pub many: &'static str,
     pub unit: Option<&'static str>,
     pub thresholds: [f64; 5],
+    pub crest: &'static str,
+    pub account: &'static str,
+    pub account_thresholds: Option<[f64; 5]>,
     pub economy: bool,
     pub measure: Option<&'static str>,
     pub spells: &'static [&'static str],

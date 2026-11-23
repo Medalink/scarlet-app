@@ -4,7 +4,7 @@
 import { invoke, el, elText, state, num, displayName, tile, tiles, tickRing, collectionRow, linkRow } from "../lib.js";
 import { BY_KEY, CATALOG } from "../feats-catalog.js";
 import { TIER_NAMES } from "../glyphs.js";
-import { seal, pips, tierChip, cardList, cardSeal, countText, amount, withCatalog } from "../featcard.js";
+import { crest, pips, tierChip, cardList, cardCrest, countText, amount, withCatalog } from "../featcard.js";
 import { playToasts, stopToasts } from "../feat-toast.js";
 import { linkPrompt } from "../link.js";
 
@@ -24,6 +24,7 @@ function localCard(f) {
     glyph: cat.glyph,
     family: cat.family,
     collection: cat.collection,
+    crest: cat.crest,
     counted: countText(cat, f.value),
     to_next: f.left == null ? "Legend" : `${amount(cat, f.left)} to ${TIER_NAMES[f.tier + 1]}`,
     progress: f.progress,
@@ -77,30 +78,72 @@ function fromSite(entry) {
   };
 }
 
-function localNews(model) {
-  const storeKey = `scarlet.featSeen.${model.name}`;
+function accountFeat(cat, f) {
+  const toNext = f.next == null ? (cat.account === "max" ? null : "Legend") : `${amount(cat, Math.max(0, f.next - f.value))} to ${TIER_NAMES[f.tier + 1]}`;
+  return {
+    key: cat.key,
+    name: cat.name,
+    tier: f.tier,
+    tier_name: TIER_NAMES[f.tier] || "",
+    glyph: cat.glyph,
+    family: cat.family,
+    collection: cat.collection,
+    crest: "account",
+    thresholds: cat.account_thresholds,
+    counted: f.counted ?? countText(cat, f.value) + (cat.account === "sum" ? " on the account" : ""),
+    to_next: [f.to_next ?? toNext, f.holder ? `Held by ${f.holder}` : null].filter(Boolean).join(" · ") || null,
+    progress: f.progress,
+    value: f.value,
+    next: f.next,
+    prev: f.prev,
+  };
+}
+
+function fromLocalAccount(a) {
+  const feats = a.feats.map((f) => accountFeat(BY_KEY.get(f.key), f));
+  return { name: "Account", crest: "account", held: a.held, total: a.total, tiers: a.tiers, score: null, feats, local: true };
+}
+
+function fromSiteAccount(a) {
+  const feats = a.cards.filter((c) => BY_KEY.get(c.key)).map((c) => accountFeat(BY_KEY.get(c.key), c));
+  const byKey = new Map(feats.map((f) => [f.key, f]));
+  const news = (a.new ?? []).filter((n) => byKey.has(n.key)).map((n) => accountNews(byKey.get(n.key), n.from ?? 0));
+  return { name: "Account", crest: "account", held: a.held, total: a.total, tiers: TIERS.map((t) => a.tiers?.[t] ?? 0), score: null, feats, news, local: false };
+}
+
+function accountNews(f, from) {
+  return {
+    key: f.key,
+    name: f.name,
+    icon: f.glyph,
+    crest: "account",
+    account: true,
+    from,
+    from_name: TIER_NAMES[from] || "",
+    tier: f.tier,
+    tier_name: f.tier_name,
+    counted: f.counted,
+    progress: f.progress ?? 0,
+  };
+}
+
+function localNews(storeKey, feats, account = false) {
   let seen = null;
   try {
     seen = JSON.parse(localStorage.getItem(storeKey));
   } catch {}
-  const now = Object.fromEntries(model.feats.map((f) => [f.key, f.tier]));
+  const now = Object.fromEntries(feats.map((f) => [f.key, f.tier]));
   try {
     localStorage.setItem(storeKey, JSON.stringify(now));
   } catch {}
   if (!seen) return [];
-  return model.feats
+  return feats
     .filter((f) => f.tier > (seen[f.key] ?? 0))
     .map((f) => ({
-      key: f.key,
-      name: f.name,
-      icon: f.glyph,
-      family: f.family,
-      from: seen[f.key] ?? 0,
-      from_name: TIER_NAMES[seen[f.key] ?? 0] || "",
-      tier: f.tier,
-      tier_name: f.tier_name,
-      counted: f.counted,
-      progress: f.progress,
+      ...accountNews(f, seen[f.key] ?? 0),
+      crest: f.crest,
+      account,
+      progress: f.progress ?? 0,
     }));
 }
 
@@ -112,7 +155,7 @@ function head(model) {
   text.append(elText("h2", "sc-h3", `${displayName(model.name)} holds ${num(model.held)} ${model.held === 1 ? "feat" : "feats"}`));
   ring.append(tickRing(model.total ? model.held / model.total : 0, { size: 112, inner }), text);
   const counts = tiles(
-    [...TIERS].reverse().map((t) => tile(TIER_NAMES[t], num(model.tiers[t - 1]), "", { size: "md", extra: seal("kills", t, { size: 28 }) })),
+    [...TIERS].reverse().map((t) => tile(TIER_NAMES[t], num(model.tiers[t - 1]), "", { size: "md", extra: crest("kills", t, { size: 28, scope: model.crest ?? "character" }) })),
     5,
   );
   box.append(ring, counts);
@@ -131,7 +174,7 @@ function ladder(feat) {
   const list = el("div", "feat-ladder");
   if (!cat) return list;
   for (const t of [...TIERS].reverse()) {
-    const need = cat.thresholds[t - 1];
+    const need = (feat.thresholds ?? cat.thresholds)[t - 1];
     const row = el("div", `rung t${t}${feat.tier >= t ? " got" : ""}`);
     const fill = feat.value == null ? (feat.tier >= t ? 1 : 0) : Math.min(1, feat.value / need);
     const bar = el("i");
@@ -149,7 +192,7 @@ function detail(feat) {
     return box;
   }
   const top = el("div", "lead-feat");
-  top.append(cardSeal(feat, 64));
+  top.append(cardCrest(feat, 104));
   const text = el("div");
   const name = el("p", "sc-feat-n");
   name.append(feat.name);
@@ -208,7 +251,7 @@ function wall(model) {
       const shown = feats.filter(wanted);
       if (!shown.length) continue;
       const row = collectionRow(c, shown, {
-        draw: { seal: (f) => cardSeal(f, 48), pips },
+        draw: { crest: (f) => cardCrest(f, 48), pips },
         picked: filter.picked,
         onPick: (f) => ((filter.picked = f.key), draw()),
         all: feats,
@@ -221,6 +264,24 @@ function wall(model) {
   search.oninput = () => ((filter.text = search.value.trim().toLowerCase()), draw());
   draw();
   return section;
+}
+
+function accountBlock(model) {
+  const block = el("section", "feats-block feats-account");
+  block.append(head(model));
+  const layout = el("div", "feats-layout");
+  const rows = el("div", "feats-rows");
+  const side = el("div", "feats-side");
+  layout.append(rows, side);
+  let picked = (model.feats.find((f) => f.tier > 0) ?? model.feats[0])?.key ?? null;
+  const draw = () => {
+    const onPick = (f) => ((picked = f.key), draw());
+    rows.replaceChildren(collectionRow("Account", model.feats, { draw: { crest: (f) => cardCrest(f, 48) }, picked, onPick }));
+    side.replaceChildren(detail(model.feats.find((f) => f.key === picked)));
+  };
+  draw();
+  block.append(layout);
+  return block;
 }
 
 function characterBlock(model, single) {
@@ -254,33 +315,37 @@ function characterBlock(model, single) {
   return { block, reveal };
 }
 
-function drawCharacters(box, models) {
+function drawCharacters(box, models, account) {
   const wanted = state.ch;
   const entries = wanted ? models.filter((c) => c.name === wanted) : models;
-  if (!entries.length) {
+  if (!entries.length && !account) {
     box.append(elText("p", "empty", wanted ? "No feats counted for this character yet." : "No feats counted yet."));
     return;
   }
   const single = Boolean(wanted);
+  const accountView = account ? accountBlock(account) : null;
+  if (accountView) box.append(accountView);
   const views = entries.map((entry) => characterBlock(entry, single));
   for (const { block } of views) box.append(block);
-  if (!single && expandNext) views[0].reveal();
+  if (!single && expandNext && views.length) views[0].reveal();
   expandNext = false;
 
-  const at = entries.findIndex((entry) => entry.news?.length);
-  if (at < 0) return;
+  const at = Math.max(0, entries.findIndex((entry) => entry.news?.length));
   const entry = entries[at];
+  const news = [...(entry?.news ?? []), ...(account?.news ?? [])];
+  if (!news.length) return;
   playToasts(
-    entry.name,
-    entry.news,
+    entry?.name ?? account.name,
+    news,
     () => {
+      if (!entry?.news?.length) return accountView.scrollIntoView({ block: "start" });
       if (single) return views[at].reveal();
       expandNext = true;
       const select = document.querySelector("#char");
       select.value = entry.name;
       select.dispatchEvent(new Event("change"));
     },
-    { local: entry.local },
+    { local: (entry ?? account).local },
   );
 }
 
@@ -293,7 +358,8 @@ async function fetchModels(ch) {
   }
   if (answer.state === "error") return { error: answer.message };
   const local = answer.state === "local";
-  return { local, models: answer.characters.map(local ? fromLocal : fromSite) };
+  const account = local ? answer.account && fromLocalAccount(answer.account) : answer.account && fromSiteAccount(answer.account);
+  return { local, models: answer.characters.map(local ? fromLocal : fromSite), account: account || null };
 }
 
 export async function closestFor(name, n = 3) {
@@ -311,9 +377,10 @@ async function load(box) {
   }
   if (got.local) {
     const wanted = state.ch;
-    for (const m of got.models.filter((x) => !wanted || x.name === wanted)) m.news = localNews(m);
+    for (const m of got.models.filter((x) => !wanted || x.name === wanted)) m.news = localNews(`scarlet.featSeen.${m.name}`, m.feats);
+    if (got.account) got.account.news = localNews("scarlet.featSeen.account", got.account.feats, true);
   }
-  drawCharacters(box, got.models);
+  drawCharacters(box, got.models, got.account);
   const row = await linkPrompt("feats");
   if (row && box.isConnected) box.append(row);
 }

@@ -24,8 +24,9 @@ const OTHER_CHARACTER_ONLY = new Set(["character", "sessions", "log", "map", "lo
 
 const BODY = `document.querySelector("#body").innerText.replace(/\\s+/g, " ")`;
 
-const FEATS_LOCAL = /^(?=.*Testa Fixture holds [1-9]\d* feats?)(?=.*Closest to the next tier)(?=.*Every feat Testa can hold)(?=.*\d+ more feats are counted on the website Website settings)/;
-const FEATS_LOCAL_ALL = /^(?=.*Probe Lane holds [1-9]\d* feats?)(?=.*Testa Fixture holds [1-9]\d* feats?)(?=.*\d+ more feats are counted on the website)/;
+const ACCOUNT_ROW = /(?=.*Account holds \d+ feats?)(?=.*Account \d+ of \d+)/.source;
+const FEATS_LOCAL = new RegExp(String.raw`^${ACCOUNT_ROW}(?=.*Testa Fixture holds [1-9]\d* feats?)(?=.*Closest to the next tier)(?=.*Every feat Testa can hold)(?=.*\d+ more feats are counted on the website Website settings)`);
+const FEATS_LOCAL_ALL = new RegExp(String.raw`^${ACCOUNT_ROW}(?=.*Probe Lane holds [1-9]\d* feats?)(?=.*Testa Fixture holds [1-9]\d* feats?)(?=.*\d+ more feats are counted on the website)`);
 
 const VIEWS = [
   {
@@ -373,10 +374,10 @@ const CHECKS = [
     async run(ctx) {
       const app = running(ctx);
       await app.evaluate(`location.hash = "system"`);
-      await app.until(`/Feat seal: the family is the shape/.test(${BODY}) && /Link entry points/.test(${BODY})`, "the component sheet shows its sections");
-      const drawn = await app.evaluate(`({ seals: document.querySelectorAll("#body .sc-seal svg").length, charts: document.querySelectorAll("#body svg.sc-svg").length, cmp: document.querySelectorAll("#body .sc-cmp").length, rings: document.querySelectorAll("#body .sc-ring svg").length, active: document.querySelector("#nav .item.active")?.dataset.key ?? null })`);
+      await app.until(`/Feat crest: the shield is the scope/.test(${BODY}) && /Link entry points/.test(${BODY})`, "the component sheet shows its sections");
+      const drawn = await app.evaluate(`({ crests: document.querySelectorAll("#body .sc-crest svg").length, charts: document.querySelectorAll("#body svg.sc-svg").length, cmp: document.querySelectorAll("#body .sc-cmp").length, rings: document.querySelectorAll("#body .sc-ring svg").length, active: document.querySelector("#nav .item.active")?.dataset.key ?? null })`);
       expectEqual("the component sheet has no nav entry", drawn.active, null);
-      if (drawn.seals < 20 || drawn.charts < 3 || drawn.cmp < 3 || drawn.rings < 1) throw mismatch("components on the sheet", "20 seals, 3 charts, 3 compare strips, a ring", JSON.stringify(drawn));
+      if (drawn.crests < 19 || drawn.charts < 3 || drawn.cmp < 3 || drawn.rings < 1) throw mismatch("components on the sheet", "19 crests, 3 charts, 3 compare strips, a ring", JSON.stringify(drawn));
     },
   },
   {

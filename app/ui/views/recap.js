@@ -4,7 +4,7 @@
 import { invoke, el, elText, num, dur, moneyHtml, displayName, distanceHtml, distanceText, tile, tiles, stack, bars, compare, strip, routeCard, wireTips } from "../lib.js";
 import { BY_KEY } from "../feats-catalog.js";
 import { GLYPHS, TIER_NAMES, svg } from "../glyphs.js";
-import { seal, tierChip, countText, amount } from "../featcard.js";
+import { crest, tierChip, countText, amount } from "../featcard.js";
 import { webState } from "../link.js";
 
 const YARDS_PER_MILE = 1760;
@@ -132,7 +132,7 @@ function stripPanel(recap) {
   const top = el("div", "recap-head");
   top.append(
     heading(`Experience every ${mins === 1 ? "minute" : `${mins} minutes`}`),
-    legend([["XP", "var(--s-1)"], ["In combat", "var(--deep)"], ["Level reached", "var(--fg)"], ["Feat earned", "var(--t-gold)"]]),
+    legend([["XP", "var(--s-1)"], ["In combat", "var(--deep)"], ["Level reached", "var(--fg)"], ["Feat earned", "var(--tier-3)"]]),
   );
   top.lastChild.style.marginLeft = "auto";
   return panel(top, strip(recap));
@@ -146,7 +146,7 @@ function featsPanel(recap) {
     const cat = BY_KEY.get(f.key);
     if (!cat) continue;
     const row = el("div", "lead-feat");
-    row.append(seal(cat.glyph, f.tier, { size: 104, progress: 0, family: cat.family, label: `${cat.name}, ${TIER_NAMES[f.tier]}` }));
+    row.append(crest(cat.glyph, f.tier, { size: 104, scope: cat.crest, label: `${cat.name}, ${TIER_NAMES[f.tier]}` }));
     const text = el("div");
     const name = el("p", "sc-feat-n");
     name.append(cat.name, tierChip(f.tier, TIER_NAMES[f.tier]));
@@ -162,7 +162,8 @@ function featsPanel(recap) {
       const cat = BY_KEY.get(f.key);
       if (!cat) continue;
       const row = el("div", "lead-feat");
-      row.append(seal(cat.glyph, f.tier, { size: 48, progress: f.value / f.next, family: cat.family, label: cat.name }));
+      const from = f.tier ? cat.thresholds[f.tier - 1] : 0;
+      row.append(crest(cat.glyph, f.tier, { size: 48, progress: (f.value - from) / (f.next - from), scope: cat.crest, label: cat.name }));
       const text = el("div");
       const name = el("p", "sc-feat-n");
       name.append(cat.name);
@@ -289,7 +290,7 @@ function momentIcon(m) {
   const host = el("span");
   if (m.kind === "feat") {
     const cat = BY_KEY.get(m.feat);
-    host.append(seal(cat?.glyph ?? "kills", m.tier ?? 1, { size: 18, family: cat?.family }));
+    host.append(crest(cat?.glyph ?? "kills", m.tier ?? 1, { size: 18, scope: cat?.crest }));
     return host;
   }
   const root = svg("svg", { viewBox: "0 0 24 24", width: 16, height: 16, fill: "none", stroke: "#f0f1f3", "stroke-width": 1.9, "stroke-linecap": "round", "stroke-linejoin": "round" });

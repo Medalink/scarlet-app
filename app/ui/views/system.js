@@ -1,7 +1,7 @@
 // #system: every component of DESIGN.md drawn from invented data. Reachable by its hash only.
 
 import { el, elText, tile, tiles, tickRing, spark, stack, bars, compare, strip, routeCard, sessionCard, collectionRow, linkRow, wireTips } from "../lib.js";
-import { seal, pips, card, tierChip } from "../featcard.js";
+import { crest, pips, card, tierChip } from "../featcard.js";
 import { TIER_NAMES } from "../glyphs.js";
 
 const SWATCHES = [
@@ -73,9 +73,9 @@ const demoRoute = () => {
   return { sheet: { aspect: 1, points, breaks: [], air: [] } };
 };
 
-const sealCell = (name, tier, progress, label, cls) => {
+const crestCell = (scope, name, tier, progress, label) => {
   const c = el("div", "cell");
-  c.append(seal(name, tier, { size: 104, progress }));
+  c.append(crest(name, tier, { size: 104, progress, scope }));
   const t = el("p", "sc-h3");
   t.style.marginTop = "12px";
   if (tier) t.append(tierChip(tier, TIER_NAMES[tier]));
@@ -110,33 +110,37 @@ export async function render(body) {
     section("Chart series, in the order they are drawn", swatches(SERIES_NAMES, 5), two, caption("Four hues and one grey. Each stack keeps its order, a 2 px gap and a key with values.")),
   );
 
-  const tiers = el("div", "sc-grid");
-  tiers.style.gridTemplateColumns = "repeat(6, minmax(0, 1fr))";
-  tiers.append(
-    sealCell("kills", 0, 0.3, "The dial fills in copper"), sealCell("kills", 1, 0.9, "1 pip · fills in silver"), sealCell("kills", 2, 0.5, "2 pips · fills in gold"),
-    sealCell("kills", 3, 0.7, "3 pips · fills in scarlet"), sealCell("kills", 4, 0.4, "4 pips · fills in gold"), sealCell("kills", 5, 1, "5 gold pips · all lit"),
-  );
-  const families = el("div", "sys-row");
-  for (const [glyph, label] of [["hours", "Journey"], ["kills", "Combat"], ["quests", "Quests"], ["dungeons", "Dungeons"], ["zones", "World"], ["fish", "Trade"], ["m-bolt", "Class"], ["heal", "Role"]]) {
+  const grid = (cells) => {
+    const g = el("div", "sc-grid");
+    g.style.gridTemplateColumns = "repeat(6, minmax(0, 1fr))";
+    g.append(...cells);
+    return g;
+  };
+  const NEXT_PIECE = ["The shield fills in copper", "The crown fills in silver", "The banner fills in gold", "The wings fill in scarlet", "The rays fill in gold", "Nothing left to fill"];
+  const PROGRESS = [0.3, 0.9, 0.5, 0.7, 0.4, 0];
+  const tiers = grid(NEXT_PIECE.map((label, tier) => crestCell("character", "kills", tier, PROGRESS[tier], label)));
+  const scopes = el("div", "sys-row");
+  for (const [scope, glyph, label] of [["character", "kills", "Character"], ["class", "m-bolt", "Class"], ["account", "hours", "Account"]]) {
     const c = el("div");
-    c.append(seal(glyph, 2, { size: 64, progress: 0.5 }), elText("p", "sc-label", label));
-    families.append(c);
+    c.append(crest(glyph, 2, { size: 64, progress: 0.5, scope }), elText("p", "sc-label", label));
+    scopes.append(c);
   }
   for (const [size, label] of [[28, "28 · row"], [18, "18 · inline"]]) {
     const c = el("div");
-    c.append(seal("level", 3, { size }), elText("p", "sc-label", label));
-    families.append(c);
+    c.append(crest("level", 3, { size }), elText("p", "sc-label", label));
+    scopes.append(c);
   }
-  root.append(section("Feat seal: the family is the shape, the tier is the metal", tiers, families));
+  root.append(section("Feat crest: the shield is the scope, the pieces are the tier", tiers, scopes));
 
   const cards = el("ul", "feats");
   cards.append(
-    card({ name: "Soloist", tier: 0, glyph: "dungeons", family: "dungeons", progress: 0.3, counted: "No dungeon run alone yet", to_next: "1 to Copper", share: 6 }),
-    card({ name: "Slayer", tier: 2, tier_name: "Silver", glyph: "kills", family: "combat", progress: 0.99, counted: "9,912 kills", to_next: "88 to Gold", share: 64 }),
-    card({ name: "Rampage", tier: 2, tier_name: "Silver", glyph: "kills", family: "combat", progress: 0.04, counted: "312 kills in one session", to_next: "288 to Gold" }),
-    card({ name: "Flawless", tier: 5, tier_name: "Legend", glyph: "shield", family: "dungeons", progress: 1, counted: "100 dungeon runs with no deaths in the party", to_next: "Legend since 4 November", share: 0.4 }),
+    card({ name: "Soloist", tier: 0, glyph: "dungeons", crest: "character", progress: 0.3, counted: "No dungeon run alone yet", to_next: "1 to Copper", share: 6 }),
+    card({ name: "Slayer", tier: 2, tier_name: "Silver", glyph: "kills", crest: "character", progress: 0.99, counted: "9,912 kills", to_next: "88 to Gold", share: 64 }),
+    card({ name: "Rampage", tier: 2, tier_name: "Silver", glyph: "kills", crest: "character", progress: 0.04, counted: "312 kills in one session", to_next: "288 to Gold" }),
+    card({ name: "Flawless", tier: 5, tier_name: "Legend", glyph: "shield", crest: "character", progress: 1, counted: "100 dungeon runs with no deaths in the party", to_next: "Legend since 4 November", share: 0.4 }),
+    card({ name: "Veteran", tier: 3, tier_name: "Gold", glyph: "hours", crest: "account", progress: 0.4, counted: "1,840 hours on the account", to_next: "120 to Scarlet" }),
   );
-  root.append(section("Feat card", cards, caption("The card has no bar: the dial on the seal is the progress.")));
+  root.append(section("Feat card", cards, caption("The card has no bar: the next piece filling in on the crest is the progress.")));
 
   const week = tiles([
     tile("Kills", "9,912", "63 an hour"),
@@ -189,7 +193,7 @@ export async function render(body) {
       { key: "veteran", name: "Veteran", tier: 2, glyph: "hours", family: "journey", progress: 0.4 },
       { key: "steadfast", name: "Steadfast", tier: 0, glyph: "clock", family: "journey", progress: 0.2 },
     ],
-    { draw: { seal: (f) => seal(f.glyph, f.tier, { size: 48, progress: f.progress, family: f.family }), pips } },
+    { draw: { crest: (f) => crest(f.glyph, f.tier, { size: 48, progress: f.progress }), pips } },
   );
   root.append(section("Collection row", wall));
 

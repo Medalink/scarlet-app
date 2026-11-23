@@ -2,21 +2,21 @@
 // A feat is reported as seen when its toast shows, never before; with `local` there is nothing to report to.
 
 import { invoke, el } from "./lib.js";
-import { seal, tierChip, dial } from "./featcard.js";
+import { BY_KEY } from "./feats-catalog.js";
+import { crest, tierChip } from "./featcard.js";
 
 const MAX_TOASTS = 5;
 const STAY_MS = 4800;
 const GAP_MS = 300;
 const LEAVE_MS = 400;
-const TIER_SWAP_MS = 280;
-const DIAL_FULL_MS = 900;
-const DIAL_SETTLE_MS = 1200;
+const ACCOUNT = "\u0000account";
 
 const shown = new Map();
 let stopCurrent = null;
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const seenKey = (character, key) => `${character}\n${key}`;
+const seenKey = (owner, key) => `${owner}\n${key}`;
+const ownerOf = (character, n) => (n.account ? ACCOUNT : character);
 
 /** Ends the toasts now on screen and the ones waiting; what already showed stays seen. */
 export function stopToasts() {
@@ -24,23 +24,29 @@ export function stopToasts() {
   stopCurrent = null;
 }
 
-const reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
-
-const markSeen = (character, entries, local) => {
-  for (const [key, tier] of entries) shown.set(seenKey(character, key), tier);
-  if (!local) invoke("feats_seen", { character, shown: Object.fromEntries(entries) }).catch(() => {});
+const markSeen = (items, character, local) => {
+  const groups = new Map();
+  for (const n of items) {
+    const owner = ownerOf(character, n);
+    shown.set(seenKey(owner, n.key), n.tier);
+    groups.set(owner, { ...groups.get(owner), [n.key]: n.tier });
+  }
+  if (local) return;
+  for (const [owner, tiers] of groups) {
+    const args = owner === ACCOUNT ? { character: "", account: true, shown: tiers } : { character: owner, shown: tiers };
+    invoke("feats_seen", args).catch(() => {});
+  }
 };
 
 function featToast(n) {
   const upgraded = n.from > 0;
-  const progress = n.progress ?? 0;
-  const plate = (tier) => seal(n.icon, tier, { size: 64, progress: 0, family: n.family });
-  const lead = el("span", "toast-seal");
-  const mark = plate(upgraded ? n.from : n.tier);
+  const scope = n.account ? "account" : (n.crest ?? BY_KEY.get(n.key)?.crest ?? "character");
+  const lead = el("span", "toast-crest");
+  const mark = crest(n.icon, n.tier, { size: 64, progress: n.progress ?? 0, scope, state: "earned", label: `${n.name}, ${n.tier_name}` });
   lead.append(el("span", "toast-glow"), mark);
-  if (upgraded) mark.querySelectorAll(".pip").forEach((p, i) => i < n.from && p.classList.add("was"));
+  const subject = n.account ? "Account feat" : "Feat";
   const label = el("p", "toast-l");
-  label.textContent = upgraded ? `Upgraded from ${n.from_name}` : "Feat earned";
+  label.textContent = upgraded ? `${subject} upgraded from ${n.from_name}` : `${subject} earned`;
   const name = el("p", "toast-n");
   name.append(document.createTextNode(n.name), tierChip(n.tier, n.tier_name));
   const text = el("div", "toast-text");
@@ -50,27 +56,11 @@ function featToast(n) {
     count.textContent = n.counted;
     text.append(count);
   }
-  const swap = () => {
-    if (reduced()) {
-      mark.replaceChildren(plate(n.tier).firstChild);
-      mark.className = `sc-seal t${n.tier}`;
-      dial(mark, n.tier, progress);
-      return;
-    }
-    if (upgraded) {
-      setTimeout(() => {
-        mark.replaceChildren(plate(n.tier).firstChild);
-        mark.className = `sc-seal t${n.tier}`;
-      }, TIER_SWAP_MS);
-    }
-    setTimeout(() => dial(mark, n.tier, 1), DIAL_FULL_MS);
-    setTimeout(() => dial(mark, n.tier, progress), DIAL_SETTLE_MS);
-  };
-  return { lead, text, tier: n.tier, swap };
+  return { lead, text, tier: n.tier };
 }
 
 function moreToast(rest, viewAll) {
-  const lead = el("span", "sc-seal t2");
+  const lead = el("span", "toast-more");
   lead.textContent = `+${rest.length}`;
   const name = el("p", "toast-n");
   name.textContent = `${rest.length} more ${rest.length === 1 ? "feat" : "feats"}`;
@@ -79,16 +69,17 @@ function moreToast(rest, viewAll) {
   button.onclick = viewAll;
   const text = el("div");
   text.append(name, button);
-  return { lead, text, tier: 2, swap: null, button };
+  return { lead, text, tier: 2, button };
 }
 
 /**
- * Plays the toasts for `news` (the website's `new` list of one character) and calls `viewAll` when the player picks
- * "View all" on the last one. A feat shown in this run of the app is not shown again, whatever the website says.
+ * Plays the toasts for `news` (the website's `new` list of one character, with the account's entries flagged
+ * `account`) and calls `viewAll` when the player picks "View all" on the last one. A feat shown in this run of the
+ * app is not shown again, whatever the website says.
  */
 export function playToasts(character, news, viewAll, { local = false } = {}) {
   stopToasts();
-  const fresh = news.filter((n) => (shown.get(seenKey(character, n.key)) ?? -1) < n.tier);
+  const fresh = news.filter((n) => (shown.get(seenKey(ownerOf(character, n), n.key)) ?? -1) < n.tier);
   if (!fresh.length) return;
   const queue = fresh.slice(0, MAX_TOASTS).map((n) => ({ feat: n }));
   const rest = fresh.slice(MAX_TOASTS);
@@ -168,14 +159,9 @@ export function playToasts(character, news, viewAll, { local = false } = {}) {
       requestAnimationFrame(() => {
         if (!alive || gone) return;
         toast.append(parts.lead, parts.text, close);
-        parts.swap?.();
       });
       begin();
-      markSeen(
-        character,
-        item.feat ? [[item.feat.key, item.feat.tier]] : item.rest.map((n) => [n.key, n.tier]),
-        local,
-      );
+      markSeen(item.feat ? [item.feat] : item.rest, character, local);
     });
 
   (async () => {

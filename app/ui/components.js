@@ -2,7 +2,8 @@
 // lib.js re-exports everything here.
 
 import { el, elText, num, dur, displayName } from "./lib.js";
-import { GLYPHS, METAL, PLATES, svg } from "./glyphs.js";
+import { GLYPHS, svg } from "./glyphs.js";
+import { drawCrest } from "./crests.js";
 import { BY_KEY } from "./feats-catalog.js";
 
 const HALF_MILE_YD = 880;
@@ -239,9 +240,14 @@ export function strip(r, { compact = false } = {}) {
       g.innerHTML = GLYPHS.deaths;
       root.append(g);
     } else if (m.kind === "feat") {
-      const g = svg("g", { transform: `translate(${ex - 8} ${ey}) scale(0.25)` });
-      g.append(svg("path", { d: PLATES[BY_KEY.get(m.feat)?.family || "combat"], fill: METAL[m.tier || 2] }));
-      root.append(g);
+      const cat = BY_KEY.get(m.feat);
+      const host = document.createElement("span");
+      Object.assign(host.dataset, { crest: cat?.glyph ?? "kills", scope: cat?.crest ?? "character", tier: m.tier || 2, size: 18, progress: 0, label: "" });
+      drawCrest(host);
+      const mark = host.firstChild;
+      mark.setAttribute("x", String(ex - 9));
+      mark.setAttribute("y", String(ey - 1));
+      root.append(mark);
     } else {
       root.append(svg("rect", { x: ex - 1.5, y: ey + 6.5, width: 3, height: 3, fill: "#8a8a93" }));
     }
@@ -345,8 +351,8 @@ export function routeCard(route, { levels = [], height = 356 } = {}) {
 }
 
 /**
- * A collection row: the name, `6 of 11`, its pips (the lowest tier among its feats), then every feat as a seal at 48
- * with its name. `draw` gives `seal(feat)` and `pips(tier)`; `onPick(feat)` runs on a click.
+ * A collection row: the name, `6 of 11`, its pips (the lowest tier among its feats, when `draw` gives `pips(tier)`),
+ * then every feat as a crest at 48 with its name. `draw.crest(feat)` draws one; `onPick(feat)` runs on a click.
  */
 export function collectionRow(name, feats, { draw, onPick = null, picked = null, all = feats }) {
   const row = el("section", "sc-coll");
@@ -355,7 +361,8 @@ export function collectionRow(name, feats, { draw, onPick = null, picked = null,
   const head = el("div");
   head.append(elText("h3", "sc-coll-h", name));
   const n = el("p", "sc-coll-n");
-  n.append(`${earned} of ${all.length}`, draw.pips(low));
+  n.append(`${earned} of ${all.length}`);
+  if (draw.pips) n.append(draw.pips(low));
   head.append(n);
   const wall = el("ul", "sc-wall");
   for (const f of feats) {
@@ -363,7 +370,7 @@ export function collectionRow(name, feats, { draw, onPick = null, picked = null,
     const btn = el("button", "sc-wall-b");
     btn.type = "button";
     btn.title = `${f.name}${f.counted ? `: ${f.counted}` : ""}`;
-    btn.append(draw.seal(f), elText("span", "", f.name));
+    btn.append(draw.crest(f), elText("span", "", f.name));
     if (onPick) btn.onclick = () => onPick(f);
     li.append(btn);
     wall.append(li);
