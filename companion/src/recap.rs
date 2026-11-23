@@ -702,7 +702,7 @@ pub fn title_of(f: &Facts, span: (i64, i64)) -> Title {
 
 fn bucket_layout(total_ms: i64) -> (i64, usize) {
     let mut secs = BUCKET_SECS;
-    let count = |secs: i64| ((total_ms / 1000 + secs - 1) / secs).max(1);
+    let count = |secs: i64| ((total_ms + secs * 1000 - 1) / (secs * 1000)).max(1);
     while count(secs) > MAX_BUCKETS {
         secs *= 2;
     }
@@ -724,7 +724,11 @@ fn buckets(s: &Scan, end: i64) -> Buckets {
         let mut at = from;
         while at < to {
             let i = ((at / width) as usize).min(n - 1);
-            let edge = ((i as i64 + 1) * width).min(to);
+            let edge = if i == n - 1 {
+                to
+            } else {
+                ((i as i64 + 1) * width).min(to)
+            };
             combat[i] += (edge - at) as f64 / 1000.0;
             at = edge.max(at + 1);
         }
