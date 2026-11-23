@@ -65,7 +65,7 @@ function head(recap, near, onAll) {
   log.type = "button";
   log.onclick = () => {
     window.__tlSession = { index: null, from: recap.start * 1000 - 1000, to: recap.end * 1000 + 1000 };
-    window.__nav("timeline");
+    window.__nav("log");
   };
   actions.append(log);
   const all = elText("button", "sc-btn quiet small", "All sessions");

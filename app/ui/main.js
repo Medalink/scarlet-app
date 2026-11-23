@@ -9,39 +9,36 @@ import * as heatmap from "./views/heatmap.js";
 import * as timeline from "./views/timeline.js";
 import * as sessions from "./views/sessions.js";
 import * as map from "./views/map.js";
-import * as charts from "./views/charts.js";
 import * as loot from "./views/loot.js";
 import * as character from "./views/character.js";
 import * as items from "./views/items.js";
-import * as addons from "./views/addons.js";
-import * as compress from "./views/compress.js";
+import * as data from "./views/data.js";
 import * as settings from "./views/settings.js";
 import * as system from "./views/system.js";
 import { openSetup } from "./setup.js";
 import { webState, footLine } from "./link.js";
 
 const VIEWS = {
-  character: ["Character", character],
-  characters: ["Characters", roster],
-  feats: ["Feats", feats],
-  stats: ["Stats", stats],
-  heatmap: ["Activity", heatmap],
-  timeline: ["Timeline", timeline],
   sessions: ["Sessions", sessions],
+  feats: ["Feats", feats],
+  character: ["Character", character],
+  stats: ["Stats", stats],
   map: ["Map", map],
-  charts: ["Charts", charts],
   loot: ["Loot", loot],
+  characters: ["Characters", roster],
   items: ["Items", items],
-  addons: ["Addons", addons],
-  compress: ["Compress", compress],
+  activity: ["Activity", heatmap],
+  log: ["Log", timeline],
+  data: ["Data", data],
   settings: ["Settings", settings],
   system: ["Components", system],
 };
 
 const NAV_GROUPS = [
-  ["Character", ["character", "characters", "feats", "stats"]],
-  ["History", ["heatmap", "timeline", "sessions", "map", "charts", "loot", "items"]],
-  ["System", ["addons", "compress", "settings"]],
+  ["Play", ["sessions", "feats"]],
+  ["Character", ["character", "stats", "map", "loot"]],
+  ["Account", ["characters", "items", "activity", "log"]],
+  ["System", ["data", "settings"]],
 ];
 
 const NAV_ICONS = {
@@ -49,19 +46,17 @@ const NAV_ICONS = {
   characters: '<circle cx="9" cy="8.4" r="3"/><circle cx="17" cy="9.4" r="2.4"/><path d="M3.4 19c.6-3.4 2.9-5.2 5.6-5.2s5 1.8 5.6 5.2M15.4 14.2c2.6-.2 4.5 1.3 5.2 4.2"/>',
   feats: '<path d="m12 3 7.2 3v5.6c0 4.3-3 7.6-7.2 9.4-4.2-1.8-7.2-5.1-7.2-9.4V6z"/>',
   stats: '<path d="M4 19.5h16M7 16v-5m5 5V6m5 10v-8"/>',
-  heatmap: '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M9 9.5v10M15 9.5v10"/>',
-  timeline: '<path d="M5 7h14M5 12h10M5 17h14"/>',
+  activity: '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M9 9.5v10M15 9.5v10"/>',
+  log: '<path d="M5 7h14M5 12h10M5 17h14"/>',
   sessions: '<circle cx="12" cy="12" r="8.6"/><path d="M12 7v5.2l3.4 2"/>',
   map: '<circle cx="12" cy="12" r="8.6"/><path d="m15.6 8.4-2.1 5.1-5.1 2.1 2.1-5.1z"/>',
-  charts: '<path d="M4 18.5 9 12l4 3.5 7-9"/>',
   loot: '<path d="M8 8.6h8l2.2 9.1a2 2 0 0 1-2 2.5H7.8a2 2 0 0 1-2-2.5z"/><path d="M9 8.6 7.9 4.8h8.2L15 8.6"/>',
   items: '<path d="M4.5 7.5 12 3.5l7.5 4v9L12 20.5l-7.5-4z"/><path d="M12 11.5v9M4.5 7.5 12 11.5l7.5-4"/>',
-  addons: '<path d="M14.2 3.8 20.2 9.8l-2.6 2.6-6-6zM12.7 8.7 4 17.4l2.6 2.6 8.7-8.7"/>',
-  compress: '<path d="M12 4v11m0 0-3.5-3.5M12 15l3.5-3.5M4.5 19.5h15"/>',
+  data: '<path d="M12 4v11m0 0-3.5-3.5M12 15l3.5-3.5M4.5 19.5h15"/>',
   settings: '<circle cx="12" cy="12" r="3"/><path d="M12 3.5v2.2m0 12.6v2.2M3.5 12h2.2m12.6 0h2.2m-14-6 1.6 1.6m9.8 9.8 1.6 1.6m0-13-1.6 1.6m-9.8 9.8-1.6 1.6"/>',
 };
 
-let current = "character";
+let current = "sessions";
 let activeMod = null;
 
 // A route is a view key with an optional page after a slash: "settings/updates".
@@ -71,6 +66,11 @@ const REDIRECTS = {
   overview: () => (state.ch ? "character" : "characters"),
   classpage: () => "character/class",
   talents: () => "character/talents",
+  charts: () => "stats",
+  timeline: () => "log",
+  heatmap: () => "activity",
+  compress: () => "data",
+  addons: () => "data",
 };
 
 function resolveRoute(route) {
@@ -140,11 +140,11 @@ function setView() {
   const mine = ++navSeq;
   const run = navTail.then(async () => {
     if (mine !== navSeq) return;
-    const asked = (location.hash || "#character").slice(1);
+    const asked = (location.hash || "#sessions").slice(1);
     const route = resolveRoute(asked);
     if (route !== asked) history.replaceState(null, "", `#${route}`);
     const [key, sub] = route.split("/");
-    const next = VIEWS[key] ? key : "character";
+    const next = VIEWS[key] ? key : "sessions";
     if (activeMod?.cleanup) activeMod.cleanup();
     current = next;
     activeMod = VIEWS[current][1];

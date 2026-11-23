@@ -58,7 +58,7 @@ try {
   const rows = await app.evaluate(`(async () => (await import("/bridge.js")).invoke("sessions", { ch: null }))()`);
   const last = rows[rows.length - 1];
   const run = values.run ? `sessions/${values.run}` : last ? `sessions/${last.start}-${last.end}` : "sessions";
-  const names = (values.views ?? "system,sessions,run,feats,character,character/class,character/talents,stats,characters,data").split(",");
+  const names = (values.views ?? "system,sessions,run,feats,character,character/class,character/talents,stats,map,loot,characters,items,activity,log,data,settings").split(",");
   if (values.char) await app.evaluate(`(() => { const s = document.querySelector("#char"); s.value = ${JSON.stringify(values.char)}; s.dispatchEvent(new Event("change")); })()`);
   await app.evaluate(`(() => { const s = document.createElement("style"); s.textContent = "html,body,#shell,main,#body{height:auto!important;overflow:visible!important}body{display:block!important}#shell{display:flex}"; document.head.append(s); })()`);
   for (const name of names) {

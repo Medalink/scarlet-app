@@ -20,7 +20,7 @@ const TESTA = CHARACTERS[0].name;
 const PROBE = CHARACTERS[1].name;
 const SHOWN = { testa: TESTA.replace("-", " "), probe: PROBE.replace("-", " ") };
 const OTHER_CHARACTER = new RegExp(`${SHOWN.probe}|Kobold Vermin`);
-const OTHER_CHARACTER_ONLY = new Set(["character", "sessions", "timeline", "map", "loot", "addons"]);
+const OTHER_CHARACTER_ONLY = new Set(["character", "sessions", "log", "map", "loot", "data"]);
 
 const BODY = `document.querySelector("#body").innerText.replace(/\\s+/g, " ")`;
 
@@ -36,11 +36,10 @@ const VIEWS = [
   { key: "characters", shows: /^(?=.*Level target)(?=.*Testa Fixture)(?=.*Probe Lane)/, never: /No characters recorded yet/ },
   { key: "feats", shows: FEATS_LOCAL, never: /No feats counted|Could not|refused/ },
   { key: "stats", shows: /^(?=.*1,605 Experience .* 2 Kills)(?=.*Travel and time)(?=.*Experience over time)(?=.*Top spells cast Heroic Strike 1)(?=.*Moving and standing)(?=.*Zones by time)/, never: /No recorded time yet/ },
-  { key: "heatmap", shows: /Peak: [1-9]\d* events in an hour/, never: /Peak: 0 events|No events yet/ },
-  { key: "timeline", shows: /kill Stonetusk Boar \(113\) by you/, never: /No events|Nothing recorded/ },
+  { key: "activity", shows: /Peak: [1-9]\d* events in an hour/, never: /Peak: 0 events|No events yet/ },
+  { key: "log", shows: /kill Stonetusk Boar \(113\) by you/, never: /No events|Nothing recorded/ },
   { key: "sessions", shows: /^(?=.*2m in Westfall)(?=.*Level 5 to 6 in Elwynn Forest)(?=.*2m 10s · 2 kills · 1 quest · 1,605 XP)/, never: /No sessions yet\./ },
   { key: "map", shows: /Elwynn Forest 12 points Westfall 10 points/, never: /No path points yet/ },
-  { key: "charts", shows: /Experience over time 95 1,605 .* Top spells cast Heroic Strike 1 /, never: /Experience over time No data/ },
   { key: "loot", shows: /Drop rates .* Solo Stonetusk Boar .* Chunk of Boar Meat 100% 1\/1 .* Testa Fixture Solo 3 /, never: /No creature loot with an item list|No loot recorded yet/ },
   { key: "character", hash: "character/class", shows: /Spells cast most Heroic Strike 1/, never: /Select a character|Loading the class section/ },
   { key: "character", hash: "character/talents", shows: /Arms · 3 points, 2 available .* Improved Heroic Strike 2\/3 Deflection 2\/2 .* Picked 1→2\/3/, never: /No talent lines recorded|Select a character/ },
@@ -49,8 +48,11 @@ const VIEWS = [
     shows: /^(?=.*Linen Cloth 2589 28 1s ?50c \d{4}-\d\d-\d\d \d\d:\d\d Testa Fixture 3 in bags Warband bank \(E2EONE\) 20 Warband bank \(E2ETWO\) 5 Wool Cloth 2592 7 – Guild bank 7 .* Warband bank \(E2EONE\) Testa Fixture 1 .* 12g ?34s Warband bank \(E2ETWO\) Probe Lane 1 .* 5g ?00s Guild bank Probe Lane 1 .* 98g ?76s)(?=.*Recipes Recipe Known by Makes Needs Bolt of Linen Cloth Testa Fixture Bolt of Linen Cloth x1 Linen Cloth x2)(?!.*1s ?25c)/,
     never: /No bags or bank recorded yet|No items match|Guild bank \(|account unknown/,
   },
-  { key: "addons", shows: /GatherMate2 1 .* GatherMate2 Testa Fixture \(2447\) map 1429 at 43\.9, 67\.0/, never: /No lines from other addons/ },
-  { key: "compress", shows: /Export now .* 2 files .* Payloads .* [1-9]\d* events loaded/, never: /Data folder .* · 0 events loaded/ },
+  {
+    key: "data",
+    shows: /^(?=.*Export now .* 2 files .* Payloads .* [1-9]\d* events loaded)(?=.*Lines from other addons .* GatherMate2 1 .* GatherMate2 Testa Fixture \(2447\) map 1429 at 43\.9, 67\.0)/,
+    never: /Data folder .* · 0 events loaded|No lines from other addons/,
+  },
   { key: "settings", shows: /WoW folders .* E2EONE .* E2ETWO/, never: /No game accounts yet/ },
 ];
 
@@ -58,6 +60,11 @@ const OLD_ADDRESSES = [
   ["overview", "character"],
   ["classpage", "character/class"],
   ["talents", "character/talents"],
+  ["charts", "stats"],
+  ["timeline", "log"],
+  ["heatmap", "activity"],
+  ["compress", "data"],
+  ["addons", "data"],
 ];
 
 const mismatch = (what, want, saw) => new Error(`${what}\n  expected ${want}\n  saw      ${saw}`);
@@ -405,7 +412,7 @@ const CHECKS = [
     async run(ctx) {
       const app = running(ctx);
       await selectCharacter(app, TESTA);
-      await open(app, "timeline", /kill Stonetusk Boar/);
+      await open(app, "log", /kill Stonetusk Boar/);
       const search = async (term, shows) => {
         await app.evaluate(`(() => { const q = document.querySelector('#body input[placeholder^="Search"]'); q.value = ${JSON.stringify(term)}; q.dispatchEvent(new Event("input")); })()`);
         await app.until(`${patternExpression(shows)}.test(${BODY})`, `the timeline searched for ${term} shows ${shows}`);
@@ -423,14 +430,14 @@ const CHECKS = [
       const spots = (map, ch) => app.evaluate(`(async () => (await import("/bridge.js")).invoke("map_layers", { map: ${map}, ch: ${JSON.stringify(ch)} }))().then((l) => l.deaths.length)`);
       await open(app, "character", /Deaths .* 2 deaths\. Killed most by (Fall|Harvest Reaper), 1 time\./);
       await open(app, "stats", / 2 Deaths /);
-      await open(app, "charts", /What killed you (Fall 1 Harvest Reaper 1|Harvest Reaper 1 Fall 1) /);
+      await open(app, "stats", /What killed you (Fall 1 Harvest Reaper 1|Harvest Reaper 1 Fall 1) /);
       expectEqual("death places of Testa in Westfall", await spots(WESTFALL, TESTA), 2);
       const killers = JSON.parse(read(path.join(ctx.site.app.out, TESTA, "overview.json"))).killers;
       expectEqual("killers in Testa-Fixture/overview.json", JSON.stringify(killers.map((k) => `${k.name} ${k.n}`).sort()), JSON.stringify(["Fall 1", "Harvest Reaper 1"]));
       await selectCharacter(app, PROBE);
       await open(app, "character", /Deaths .* 1 death\. Killed most by Kobold Vermin, 1 time\./, /2 deaths/);
       await open(app, "stats", / 1 Deaths /);
-      await open(app, "charts", /What killed you Kobold Vermin 1 /, /Kobold Vermin 2/);
+      await open(app, "stats", /What killed you Kobold Vermin 1 /, /Kobold Vermin 2/);
       expectEqual("death places of Probe in Elwynn", await spots(ELWYNN, PROBE), 1);
     },
   },
@@ -560,7 +567,7 @@ const CHECKS = [
       await selectCharacter(app, "");
       const before = await headEvents(app);
       writeWow(ctx.site.app.wow, { later: true });
-      await open(app, "compress", /Export now/);
+      await open(app, "data", /Export now/);
       await app.evaluate(`[...document.querySelectorAll("#body button")].find((b) => b.textContent === "Export now").click()`);
       await app.until(`/^Exported in/.test(document.querySelector("#body .status")?.textContent ?? "")`, "the export reports success", 30000);
       await app.until(`(async () => (await import("/bridge.js")).invoke("app_state"))().then((s) => s.sessions === 4)`, "app_state reports 4 sessions after Export now", 5000);
