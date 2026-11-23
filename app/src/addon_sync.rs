@@ -137,10 +137,35 @@ fn tocs(dir: &Path) -> Vec<String> {
         .collect()
 }
 
+fn marker_file(dir: &Path, canon_dir: &Path, rel: &str) -> Option<PathBuf> {
+    if rel.contains('\\') || rel.contains(':') {
+        return None;
+    }
+    let mut path = dir.to_path_buf();
+    for part in rel.split('/') {
+        match part {
+            "" | "." | ".." => return None,
+            p => path.push(p),
+        }
+    }
+    let meta = fs::symlink_metadata(&path).ok()?;
+    if !meta.is_file() || is_reparse(&meta) {
+        return None;
+    }
+    let canon = fs::canonicalize(path).ok()?;
+    canon.starts_with(canon_dir).then_some(canon)
+}
+
 fn read_marker(dir: &Path) -> Option<Marker> {
     let text = fs::read_to_string(dir.join(MARKER)).ok()?;
-    let m: Marker = serde_json::from_str(&text).ok()?;
-    (m.managed_by == MANAGER).then_some(m)
+    let mut m: Marker = serde_json::from_str(&text).ok()?;
+    if m.managed_by != MANAGER {
+        return None;
+    }
+    let canon_dir = fs::canonicalize(dir).ok()?;
+    m.files
+        .retain(|f| marker_file(dir, &canon_dir, f).is_some());
+    Some(m)
 }
 
 fn classify(dir: &Path) -> Class {
@@ -384,27 +409,24 @@ fn apply(
     for (rel, bytes) in files {
         write_file(dir, rel, bytes)?;
     }
-    if let Some(m) = old {
+    if let Some(m) = old
+        && let Ok(canon_dir) = fs::canonicalize(dir)
+    {
         for rel in &m.files {
-            if new_rel.contains(rel)
-                || rel.eq_ignore_ascii_case("Digest.lua")
-                || rel
-                    .split('/')
-                    .any(|p| p == ".." || p.is_empty() || p.contains(':'))
-            {
+            if new_rel.contains(rel) || rel.eq_ignore_ascii_case("Digest.lua") {
                 continue;
             }
-            let path = rel.split('/').fold(dir.to_path_buf(), |p, s| p.join(s));
-            if fs::symlink_metadata(&path).is_ok_and(|m| m.is_file() && !is_reparse(&m)) {
-                let _ = fs::remove_file(&path);
-                // Empty folders the old version had go too, up to the addon folder.
-                let mut parent = path.parent().map(Path::to_path_buf);
-                while let Some(p) = parent {
-                    if p == dir || fs::remove_dir(&p).is_err() {
-                        break;
-                    }
-                    parent = p.parent().map(Path::to_path_buf);
+            let Some(path) = marker_file(dir, &canon_dir, rel) else {
+                continue;
+            };
+            let _ = fs::remove_file(&path);
+            // Empty folders the old version had go too, up to the addon folder.
+            let mut parent = path.parent().map(Path::to_path_buf);
+            while let Some(p) = parent {
+                if p == canon_dir || fs::remove_dir(&p).is_err() {
+                    break;
                 }
+                parent = p.parent().map(Path::to_path_buf);
             }
         }
     }
