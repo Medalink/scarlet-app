@@ -1,7 +1,7 @@
 // #system: every component of DESIGN.md drawn from invented data. Reachable by its hash only.
 
-import { el, elText, tile, tiles, tickRing, spark, stack, bars, compare, strip, routeCard, sessionCard, collectionRow, linkRow, wireTips } from "../lib.js";
-import { crest, pips, card, tierChip } from "../featcard.js";
+import { el, elText, tile, tiles, progressRing, spark, stack, bars, compare, strip, routeCard, sessionCard, collectionRow, linkRow, wireTips } from "../lib.js";
+import { crest, card, tierChip } from "../featcard.js";
 import { TIER_NAMES } from "../glyphs.js";
 
 const SWATCHES = [
@@ -153,7 +153,7 @@ export async function render(body) {
   ring.style.alignItems = "center";
   ring.style.gap = "20px";
   const inner = el("span", "", `<b class="sc-num" style="font-size:40px">72</b><br><span class="sc-label">of 92</span>`);
-  ring.append(tickRing(0.78, { size: 112, inner }), stateCell(para("Tick ring", "sc-h3"), para("36 ticks, lit clockwise from the top.", "sc-label")));
+  ring.append(progressRing(0.78, { size: 112, inner }), stateCell(para("Progress ring", "sc-h3"), para("One arc, filled clockwise from the top.", "sc-label")));
   const numbers = el("div");
   numbers.style.cssText = "display:grid;grid-template-columns:minmax(0,1fr) 330px;gap:24px;margin-top:12px";
   numbers.append(week, ring);
@@ -193,7 +193,7 @@ export async function render(body) {
       { key: "veteran", name: "Veteran", tier: 2, glyph: "hours", family: "journey", progress: 0.4 },
       { key: "steadfast", name: "Steadfast", tier: 0, glyph: "clock", family: "journey", progress: 0.2 },
     ],
-    { draw: { crest: (f) => crest(f.glyph, f.tier, { size: 48, progress: f.progress }), pips } },
+    { draw: { crest: (f) => crest(f.glyph, f.tier, { size: 48, progress: f.progress }) } },
   );
   root.append(section("Collection row", wall));
 

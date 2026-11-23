@@ -2,7 +2,7 @@
 
 import { el, num } from "./lib.js";
 import { BY_KEY } from "./feats-catalog.js";
-import { QUALITY, TIER_NAMES, svg } from "./glyphs.js";
+import { TIER_NAMES } from "./glyphs.js";
 import { drawCrest } from "./crests.js";
 import { hydrate } from "./views/classblocks.js";
 
@@ -17,25 +17,6 @@ export function crest(name, tier, { size = 64, progress = 0, scope = "character"
   if (icon) host.dataset.icon = icon;
   drawCrest(host);
   if (icon) hydrate(host);
-  return host;
-}
-
-/** The five tier pips alone, for a collection's tier. */
-export function pips(tier) {
-  const host = el("span", "sc-pips");
-  const root = svg("svg", {
-    viewBox: "0 0 46 10", width: 46, height: 10, role: "img",
-    "aria-label": tier ? `${TIER_NAMES[tier]} collection` : "No tier yet",
-  });
-  for (let i = 0; i < 5; i++) {
-    root.append(
-      svg("rect", {
-        x: 2.5 + i * 9, y: 2, width: 6, height: 6, transform: `rotate(45 ${5.5 + i * 9} 5)`,
-        fill: i < tier ? QUALITY[tier].color : "none", stroke: i < tier ? "none" : "rgba(255,255,255,0.22)", "stroke-width": 1,
-      }),
-    );
-  }
-  host.append(root);
   return host;
 }
 

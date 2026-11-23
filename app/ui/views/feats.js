@@ -1,10 +1,10 @@
 // Feats: a character's head, the three feats closest to their next tier, and every feat it can hold by collection.
 // With uploading off the counts are the ones the recording can hold; with it on they are the website's.
 
-import { invoke, el, elText, state, num, displayName, tile, tiles, tickRing, collectionRow, linkRow } from "../lib.js";
+import { invoke, el, elText, state, num, displayName, tile, tiles, progressRing, collectionRow, linkRow } from "../lib.js";
 import { BY_KEY, CATALOG } from "../feats-catalog.js";
 import { TIER_NAMES } from "../glyphs.js";
-import { crest, pips, tierChip, cardList, cardCrest, countText, amount, withCatalog } from "../featcard.js";
+import { crest, tierChip, cardList, cardCrest, countText, amount, withCatalog } from "../featcard.js";
 import { playToasts, stopToasts } from "../feat-toast.js";
 import { linkPrompt } from "../link.js";
 
@@ -162,7 +162,7 @@ function head(model) {
   const inner = el("span", "", `<b class="sc-num" style="font-size:40px">${num(model.held)}</b><br><span class="sc-label">of ${num(model.total)}</span>`);
   const text = el("div");
   text.append(elText("h2", "sc-h3", `${displayName(model.name)} holds ${num(model.held)} ${model.held === 1 ? "feat" : "feats"}`));
-  ring.append(tickRing(model.total ? model.held / model.total : 0, { size: 112, inner }), text);
+  ring.append(progressRing(model.total ? model.held / model.total : 0, { size: 112, inner }), text);
   box.append(ring, counts);
   if (model.score != null) {
     const score = el("div", "sc-panel");
@@ -256,7 +256,7 @@ function wall(model) {
       const shown = feats.filter(wanted);
       if (!shown.length) continue;
       const row = collectionRow(c, shown, {
-        draw: { crest: (f) => cardCrest(f, 48), pips },
+        draw: { crest: (f) => cardCrest(f, 48) },
         picked: filter.picked,
         onPick: (f) => ((filter.picked = f.key), draw()),
         all: feats,

@@ -71,24 +71,20 @@ export function tiles(list, cols = 4) {
   return g;
 }
 
-/** The tick ring: `ticks` ticks lit clockwise from the top for `value` (0 to 1), the number in the middle. */
-export function tickRing(value, { ticks = 36, size = 120, color = "#ff2d55", inner = null } = {}) {
+/** The progress ring: one arc filled clockwise from the top for `value` (0 to 1), `inner` in the middle. */
+export function progressRing(value, { size = 120, color = "#ff2d55", inner = null } = {}) {
   const host = el("span", "sc-ring");
   host.style.width = host.style.height = `${size}px`;
   const root = svg("svg", { viewBox: "0 0 100 100", width: size, height: size });
-  const lit = Math.round(Math.max(0, Math.min(1, value)) * ticks);
-  const small = size < 60;
-  for (let i = 0; i < ticks; i++) {
-    const a = (i / ticks) * Math.PI * 2 - Math.PI / 2;
-    const on = i < lit;
-    const r0 = small ? 30 : 40;
-    const sw = small ? 6 : 2.6;
-    root.append(
-      svg("line", {
-        x1: 50 + Math.cos(a) * r0, y1: 50 + Math.sin(a) * r0, x2: 50 + Math.cos(a) * 48, y2: 50 + Math.sin(a) * 48,
-        stroke: on ? color : "rgba(255,255,255,0.16)", "stroke-width": on ? sw : sw * 0.7,
-      }),
-    );
+  const share = Math.round(Math.max(0, Math.min(1, value)) * 10000) / 100;
+  const sw = size < 60 ? 10 : 5;
+  const r = 50 - sw / 2;
+  root.append(svg("circle", { cx: 50, cy: 50, r, fill: "none", stroke: "rgba(255,255,255,0.10)", "stroke-width": sw }));
+  if (share > 0) {
+    root.append(svg("circle", {
+      class: "arc", cx: 50, cy: 50, r, fill: "none", stroke: color, "stroke-width": sw, "stroke-linecap": "round",
+      pathLength: 100, "stroke-dasharray": `${share} 100`, transform: "rotate(-90 50 50)",
+    }));
   }
   host.append(root);
   if (inner) {
@@ -351,18 +347,15 @@ export function routeCard(route, { levels = [], height = 356 } = {}) {
 }
 
 /**
- * A collection row: the name, `6 of 11`, its pips (the lowest tier among its feats, when `draw` gives `pips(tier)`),
- * then every feat as a crest at 48 with its name. `draw.crest(feat)` draws one; `onPick(feat)` runs on a click.
+ * A collection row: the name, `6 of 11`, then every feat as a crest at 48 with its name. `draw.crest(feat)` draws one; `onPick(feat)` runs on a click.
  */
 export function collectionRow(name, feats, { draw, onPick = null, picked = null, all = feats }) {
   const row = el("section", "sc-coll");
   const earned = all.filter((f) => f.tier > 0).length;
-  const low = all.length ? Math.min(...all.map((f) => f.tier)) : 0;
   const head = el("div");
   head.append(elText("h3", "sc-coll-h", name));
   const n = el("p", "sc-coll-n");
   n.append(`${earned} of ${all.length}`);
-  if (draw.pips) n.append(draw.pips(low));
   head.append(n);
   const wall = el("ul", "sc-wall");
   for (const f of feats) {
