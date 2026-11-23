@@ -180,6 +180,10 @@ fn main() {
             }
             window.build()?;
 
+            scarlet::upload::api::set_agent(
+                "scarlet-app",
+                &updater::version(app.handle()).to_string(),
+            );
             settings::ensure_saved();
             let s = commands::state(app.handle())
                 .settings

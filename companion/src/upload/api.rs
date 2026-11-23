@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 pub const API: &str = "/api/v1";
-const USER_AGENT: &str = "scarlet-upload";
+static AGENT: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 /// Tries for a network error or a 5xx, and for a 429.
 const TRIES: usize = 5;
 const RATE_TRIES: usize = 3;
@@ -80,13 +80,25 @@ fn now() -> u64 {
         .map_or(0, |d| d.as_secs())
 }
 
+/// Names the program in the User-Agent of every request, `<name>/<version> (<os>)`, which the
+/// server's admin pages count by build. The first call wins; call it before the first `Client`.
+/// Without a call, requests send `scarlet (<os>)`: the command line's crate version is not the
+/// release version.
+pub fn set_agent(name: &str, version: &str) {
+    let _ = AGENT.set(format!("{name}/{version} ({})", std::env::consts::OS));
+}
+
+fn agent() -> &'static str {
+    AGENT.get_or_init(|| format!("scarlet ({})", std::env::consts::OS))
+}
+
 impl Client {
     /// `site` is the website's address; the API is under `/api/v1` there.
     pub fn new(site: &str, seed: Option<&[u8; 32]>) -> Client {
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .http_status_as_error(false)
             .timeout_global(Some(Duration::from_secs(180)))
-            .user_agent(USER_AGENT)
+            .user_agent(agent())
             .build()
             .into();
         Client {
@@ -301,7 +313,7 @@ fn request_head(
 ) -> u64 {
     let host = site.split("://").nth(1).unwrap_or(site);
     let mut n = format!("{method} {path} HTTP/1.1\r\n").len() as u64;
-    n += format!("Host: {host}\r\nUser-Agent: {USER_AGENT}\r\n").len() as u64;
+    n += format!("Host: {host}\r\nUser-Agent: {}\r\n", agent()).len() as u64;
     for (k, v) in headers {
         n += (k.len() + v.len() + 4) as u64;
     }
