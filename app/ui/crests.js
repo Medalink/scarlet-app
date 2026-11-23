@@ -1,76 +1,9 @@
-// The crest drawer of design/crests/crests.js (CRESTS.md), ported as it is: `data-*` attributes in, one SVG out.
+// The crest drawer: `data-*` attributes in, one SVG out. Every shape, colour and number it draws comes from crest-kit.js.
 
+import { ATTACHES, BAND, CENTER, GEM, GLYPH_SIZE, INK, MATERIAL, NEAR_AT, PIECES, QUALITY, SCOPES, UNEARNED, VIEW_BOX } from "./crest-kit.js";
 import { GLYPHS } from "./glyphs.js";
-import { INK, MATERIAL, QUALITY } from "./tiers.js";
 
-const BOX = 96;
-const CX = 48;
-const CY = 50;
-const f = (n) => +n.toFixed(2);
-const poly = (pts) => "M" + pts.map((p) => f(p[0]) + " " + f(p[1])).join("L") + "Z";
-const flip = (pts) => pts.map(([x, y]) => [BOX - x, y]).reverse();
-const both = (shapes) => shapes.map(poly).join("") + shapes.map((s) => poly(flip(s))).join("");
-const rad = (deg) => (deg * Math.PI) / 180;
-
-const blade = (rx, ry, deg, len, width, belly = 0.5) => {
-  const dx = -Math.cos(rad(deg)), dy = -Math.sin(rad(deg)), nx = -dy, ny = dx, h = width / 2;
-  return [
-    [rx + nx * h * 0.7, ry + ny * h * 0.7],
-    [rx + dx * len * belly + nx * h, ry + dy * len * belly + ny * h],
-    [rx + dx * len, ry + dy * len],
-    [rx + dx * len * belly - nx * h, ry + dy * len * belly - ny * h],
-    [rx - nx * h * 0.7, ry - ny * h * 0.7],
-  ];
-};
-
-const WINGS = [
-  blade(30, 36, 52, 30, 9, 0.66),
-  blade(29, 42, 37, 30, 9, 0.66),
-  blade(29, 48, 22, 27.5, 9, 0.66),
-  blade(30, 54, 7, 24, 8.5, 0.66),
-  blade(32, 60, -9, 19, 8, 0.66),
-];
-const LAURELS = [26, 48, 70, 92, 114, 136].map((a, i) => {
-  const r = 33.5, x = CX - Math.sin(rad(a)) * r, y = CY + Math.cos(rad(a)) * r;
-  return blade(x + Math.cos(rad(a)) * 3, y + Math.sin(rad(a)) * 3, a - 90 + 34, 14.5 - i * 0.4, 7.6, 0.45);
-});
-const SPURS = [blade(36, 50, 0, 30, 15, 0.36), blade(36, 42, 34, 28, 12, 0.4), blade(36, 58, -34, 28, 12, 0.4)];
-const RAYS = [-54, -36, -18, 0, 18, 36, 54].map((a, i) => {
-  const len = [40, 45, 42, 45, 42, 45, 40][i], w = 6.5;
-  const dx = Math.sin(rad(a)), dy = -Math.cos(rad(a)), nx = -dy, ny = dx;
-  return [
-    [CX + dx * 16 + nx * w * 0.5, CY + dy * 16 + ny * w * 0.5],
-    [CX + dx * len, CY + dy * len],
-    [CX + dx * 16 - nx * w * 0.5, CY + dy * 16 - ny * w * 0.5],
-  ];
-});
-
-export const PIECES = {
-  "shield-character": { d: "M24 25H72V47C72 61 62 70 48 77C34 70 24 61 24 47Z", box: [24, 25, 72, 77], fill: "up" },
-  "shield-class": { d: "M33 25H63L72 34V66L63 75H33L24 66V34Z", box: [24, 25, 72, 75], fill: "up" },
-  "shield-account": { d: "M48 25a25 25 0 1 0 0 50a25 25 0 1 0 0-50Z", box: [23, 25, 73, 75], fill: "up" },
-  "ring-account": { d: "M48 20.2a29.8 29.8 0 1 0 0 59.6a29.8 29.8 0 1 0 0-59.6ZM48 22.4a27.6 27.6 0 1 1 0 55.2a27.6 27.6 0 1 1 0-55.2Z", box: [18.2, 20.2, 77.8, 79.8], fill: "up" },
-  crown: { d: "M34.5 29L32 14.5L41 21L48 11L55 21L64 14.5L61.5 29Z", box: [32, 11, 64, 29], fill: "right", back: true },
-  "great-crown": { d: "M32.5 29L28.5 15.5L35 21.5L38.5 10.5L43.5 20L48 8.5L52.5 20L57.5 10.5L61 21.5L67.5 15.5L63.5 29Z", box: [28.5, 8.5, 67.5, 29], fill: "right", back: true },
-  gem: { d: "M48 20.4L51.6 24.6L48 28.8L44.4 24.6Z", box: [44.4, 20.4, 51.6, 28.8], fill: "up" },
-  banner: { d: "M15 66H81L76.5 71.5L81 77H15L19.5 71.5Z", box: [15, 66, 81, 77], fill: "right", back: true },
-  wings: { d: both(WINGS), box: [7, 10, 89, 66], fill: "out" },
-  laurels: { d: both(LAURELS), box: [6, 16, 90, 88], fill: "up" },
-  spurs: { d: both(SPURS), box: [6, 24, 90, 76], fill: "out" },
-  rays: { d: RAYS.map(poly).join(""), box: [14, 5, 82, 28], fill: "up", back: true },
-};
-
-export const SCOPES = {
-  character: { shield: "shield-character", side: "wings", glyphY: 45.5 },
-  class: { shield: "shield-class", side: "spurs", glyphY: 47 },
-  account: { shield: "shield-account", side: "laurels", ring: "ring-account", glyphY: 47 },
-};
-const ATTACHES = [null, "shield", "crown", "banner", "side", "rays"];
-
-const BAND = [15, 69.9, 81, 73.1], GEM_AT = [48, 24.6], GEM_SETTING = 1.5;
-const NEAR_AT = 0.9, UNEARNED_FILL = 0.3, UNEARNED_RIM = 0.5, UNEARNED_GLYPH = 0.75;
-const FULL_BOX = "6 5 84 84", COMPACT_BOX = "13 8.5 70 70";
-const GLYPH = 28;
+const [CX, CY] = CENTER;
 
 const NS = "http://www.w3.org/2000/svg";
 const S = (tag, attrs = {}, kids = []) => {
@@ -93,7 +26,7 @@ export function drawCrest(el) {
   const outline = state === "next", tier = outline ? Math.min(5, held + 1) : held;
   const q = QUALITY[tier], next = QUALITY[tier + 1], color = q.color;
   const id = "cr" + ++uid;
-  const svg = S("svg", { viewBox: compact ? COMPACT_BOX : FULL_BOX, width: size, height: size, role: "img", "aria-label": el.dataset.label || "" });
+  const svg = S("svg", { viewBox: compact ? VIEW_BOX.compact : VIEW_BOX.full, width: size, height: size, role: "img", "aria-label": el.dataset.label || "" });
   const defs = S("defs");
   svg.append(defs);
   const about = (k) => `translate(${CX} ${CY}) scale(${k}) translate(${-CX} ${-CY})`;
@@ -132,9 +65,9 @@ export function drawCrest(el) {
 
   const body = [];
   if (tier === 0) {
-    if (!tiny) body.push(...ghost(sc.shield, next.color, false, UNEARNED_FILL, { ghost: 0, near: next.near }));
-    body.push(path(sc.shield, { fill: "none", stroke: color, "stroke-opacity": UNEARNED_RIM, "stroke-width": compact ? 2.8 : 2 }));
-    if (sc.ring) body.push(path(sc.ring, { fill: color, "fill-opacity": UNEARNED_RIM }));
+    if (!tiny) body.push(...ghost(sc.shield, next.color, false, UNEARNED.fill, { ghost: 0, near: next.near }));
+    body.push(path(sc.shield, { fill: "none", stroke: color, "stroke-opacity": UNEARNED.rim, "stroke-width": compact ? 2.8 : 2 }));
+    if (sc.ring) body.push(path(sc.ring, { fill: color, "fill-opacity": UNEARNED.rim }));
   } else {
     const rim = made(q.frame), solid = q.field === 1 || tiny, inset = compact ? 0.86 : 0.9;
     const inner = solid ? (compact ? 0.8 : 0.84) : compact ? 0.78 : 0.85;
@@ -150,8 +83,8 @@ export function drawCrest(el) {
 
   if (!tiny) {
     const ink = outline ? color : q.glyph;
-    const gs = (compact ? 1.12 : 1) * (GLYPH / 24), gy = sc.glyphY + (compact && tier < 3 ? 1.5 : 0);
-    const g = S("g", { class: "cr-glyph", transform: `translate(${CX - 12 * gs} ${gy - 12 * gs}) scale(${gs})`, fill: "none", stroke: ink, "stroke-width": q.field === 1 && !outline ? 2.1 : compact ? 2 : 1.8, "stroke-linecap": "round", "stroke-linejoin": "round", opacity: tier ? 1 : UNEARNED_GLYPH });
+    const gs = (compact ? 1.12 : 1) * (GLYPH_SIZE / 24), gy = sc.glyphY + (compact && tier < 3 ? 1.5 : 0);
+    const g = S("g", { class: "cr-glyph", transform: `translate(${CX - 12 * gs} ${gy - 12 * gs}) scale(${gs})`, fill: "none", stroke: ink, "stroke-width": q.field === 1 && !outline ? 2.1 : compact ? 2 : 1.8, "stroke-linecap": "round", "stroke-linejoin": "round", opacity: tier ? 1 : UNEARNED.glyph });
     if (el.dataset.icon) {
       defs.append(S("clipPath", { id: id + "icon" }, S("rect", { x: 2, y: 2, width: 20, height: 20, rx: 2.4 })));
       g.append(S("image", { "data-icon": el.dataset.icon, x: 2, y: 2, width: 20, height: 20, "clip-path": `url(#${id}icon)`, style: "filter:grayscale(1) contrast(1.1)" }));
@@ -169,7 +102,7 @@ export function drawCrest(el) {
   if (want === "banner") svg.append(group("banner ghost", ghost("banner", next.color, true)));
   if (tier >= 2) {
     const key = tier === 5 ? "great-crown" : "crown";
-    const setting = `translate(${GEM_AT[0]} ${GEM_AT[1]}) scale(${GEM_SETTING}) translate(${-GEM_AT[0]} ${-GEM_AT[1]})`;
+    const setting = `translate(${GEM.at[0]} ${GEM.at[1]}) scale(${GEM.setting}) translate(${-GEM.at[0]} ${-GEM.at[1]})`;
     svg.append(group("crown", [...backed(key, { fill: made(q.crown) }), path("gem", { fill: INK, transform: setting }), path("gem", { fill: q.gem }), flash(key)]));
   }
   if (want === "crown") svg.append(group("crown ghost", ghost("crown", next.color, true)));
