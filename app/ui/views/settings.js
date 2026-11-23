@@ -1,6 +1,6 @@
 // Settings: one page per topic, chosen by the tabs at the top and by the hash (#settings/updates).
 
-import { invoke, el, esc, displayName, openmapMissing, makeSwitch, setSwitch } from "../lib.js";
+import { invoke, el, esc, listen, displayName, openmapMissing, makeSwitch, setSwitch } from "../lib.js";
 import { openSetup } from "../setup.js";
 import { renderUpload } from "./upload.js";
 import { renderUpdates, renderAddon, watchProblems, refreshProblems } from "./updates.js";
@@ -165,7 +165,7 @@ async function drawBoxes(body, box, s, dataIn) {
   boxesRedraw = () => (box.isConnected ? drawBoxes(body, box, s, dataIn) : (boxesRedraw = null));
   if (!boxesListening) {
     boxesListening = true;
-    window.__TAURI__.event.listen("update-changed", () => boxesRedraw?.());
+    listen("update-changed", () => boxesRedraw?.());
   }
   const list = await invoke("wow_folders");
   const extra = list.filter((f) => !f.primary).map((f) => f.path);

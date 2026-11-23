@@ -1,6 +1,8 @@
 // Shared helpers: invoke wrapper, app state, formatting, small chart builders.
 
-export const invoke = window.__TAURI__.core.invoke;
+import { invoke, listen } from "./bridge.js";
+
+export { invoke, listen };
 
 export const state = {
   ch: null, // selected character or null for all
@@ -12,6 +14,12 @@ export const el = (tag, cls, html) => {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
   if (html !== undefined) e.innerHTML = html;
+  return e;
+};
+
+export const elText = (tag, cls, text) => {
+  const e = el(tag, cls);
+  if (text !== undefined) e.textContent = text;
   return e;
 };
 

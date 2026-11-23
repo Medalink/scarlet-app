@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-wow-clients"
+description = "Enables the wow_clients command without any pre-configured scope."
+commands.allow = ["wow_clients"]
+
+[[permission]]
+identifier = "deny-wow-clients"
+description = "Denies the wow_clients command without any pre-configured scope."
+commands.deny = ["wow_clients"]

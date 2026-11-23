@@ -1,6 +1,7 @@
 // The header is the window's title bar: drag it to move the window, double-click it to
 // maximize or restore, and the buttons at its right edge minimize, maximize and close.
-const win = window.__TAURI__.window.getCurrentWindow();
+import { currentWindow } from "./bridge.js";
+const win = currentWindow();
 const header = document.querySelector("header");
 
 // Controls and anything else that takes a click keep it; the rest of the header drags.

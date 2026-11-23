@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-talents"
+description = "Enables the talents command without any pre-configured scope."
+commands.allow = ["talents"]
+
+[[permission]]
+identifier = "deny-talents"
+description = "Denies the talents command without any pre-configured scope."
+commands.deny = ["talents"]

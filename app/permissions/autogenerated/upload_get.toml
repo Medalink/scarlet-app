@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-upload-get"
+description = "Enables the upload_get command without any pre-configured scope."
+commands.allow = ["upload_get"]
+
+[[permission]]
+identifier = "deny-upload-get"
+description = "Denies the upload_get command without any pre-configured scope."
+commands.deny = ["upload_get"]

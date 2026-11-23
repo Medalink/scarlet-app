@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-set-open-with-wow"
+description = "Enables the set_open_with_wow command without any pre-configured scope."
+commands.allow = ["set_open_with_wow"]
+
+[[permission]]
+identifier = "deny-set-open-with-wow"
+description = "Denies the set_open_with_wow command without any pre-configured scope."
+commands.deny = ["set_open_with_wow"]

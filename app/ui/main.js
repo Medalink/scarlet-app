@@ -1,6 +1,6 @@
 // Shell: sidebar nav, character filter, store-changed refresh, hash routing.
 
-import { invoke, el, $, num, esc, displayName, state } from "./lib.js";
+import { invoke, listen, el, $, num, esc, displayName, state } from "./lib.js";
 import * as overview from "./views/overview.js";
 import * as roster from "./views/roster.js";
 import * as feats from "./views/feats.js";
@@ -220,7 +220,7 @@ async function boot() {
     const run = await invoke("take_wow_run").catch(() => null);
     if (run) location.hash = `sessions/${run.from}-${run.to}`;
   };
-  await window.__TAURI__.event.listen("wow-run", openRun);
+  await listen("wow-run", openRun);
   await openRun();
 
   // How many clients run: two for a player who dual boxes. Cheap, so it is asked every 5 s.
@@ -234,7 +234,6 @@ async function boot() {
   askClients();
   setInterval(askClients, 5000);
 
-  const { listen } = window.__TAURI__.event;
   $("#upd").onclick = () => (rebuilt ? invoke("restart_rebuilt") : (location.hash = "settings/updates"));
   await listen("update-changed", (e) => showVersion(e.payload));
   await listen("store-changed", async () => {

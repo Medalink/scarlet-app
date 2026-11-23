@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-compress-logs"
+description = "Enables the compress_logs command without any pre-configured scope."
+commands.allow = ["compress_logs"]
+
+[[permission]]
+identifier = "deny-compress-logs"
+description = "Denies the compress_logs command without any pre-configured scope."
+commands.deny = ["compress_logs"]

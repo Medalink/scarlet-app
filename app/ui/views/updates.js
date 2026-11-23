@@ -1,7 +1,7 @@
 // Settings > Updates and Settings > Addon: the version, the Release or Beta choice, the offered update
 // with its notes and the recent releases; and the state of the Scarlet addon in the WoW folder.
 
-import { invoke, el, bytes, makeSwitch } from "../lib.js";
+import { invoke, el, listen, bytes, makeSwitch } from "../lib.js";
 
 const stamp = (ms) => new Date(ms).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 const day = (iso) => (iso ? new Date(iso).toLocaleDateString([], { dateStyle: "medium" }) : "");
@@ -20,7 +20,6 @@ const downloading = () =>
 async function listenOnce() {
   if (listening) return;
   listening = true;
-  const { listen } = window.__TAURI__.event;
   await listen("update-changed", () => redraw?.());
   await listen("addon-progress", (e) => {
     const busy = installing.get(e.payload.folder);

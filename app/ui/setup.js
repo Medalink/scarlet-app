@@ -1,7 +1,7 @@
 // First-run setup: find WoW Forever, install the Scarlet addon, link the website. Three steps
 // in order, once for a new install, and again from Settings > General.
 
-import { invoke, el, bytes } from "./lib.js";
+import { invoke, el, elText, listen, bytes } from "./lib.js";
 
 const STEPS = ["wow", "addon", "link"];
 
@@ -26,7 +26,6 @@ const progressLabel = (p) =>
 async function listenOnce() {
   if (listening) return;
   listening = true;
-  const { listen } = window.__TAURI__.event;
   await listen("update-changed", () => redraw?.());
   await listen("addon-progress", (e) => {
     const busy = installing.get(e.payload.folder);
@@ -281,7 +280,7 @@ async function stepLink({ mine, title, body, foot }) {
       }
     });
     const row = el("div", "row");
-    row.append(el("div", "code", code), copy);
+    row.append(elText("div", "code", code), copy);
     card.append(
       el("div", "lab", "Code"),
       row,

@@ -149,7 +149,7 @@ const running = (ctx) => {
   return ctx.app;
 };
 
-const appState = (app) => app.evaluate(`window.__TAURI__.core.invoke("app_state")`);
+const appState = (app) => app.evaluate(`(async () => (await import("/bridge.js")).invoke("app_state"))()`);
 
 const headEvents = (app) => app.evaluate(`Number(/([\\d,]+) events/.exec(document.querySelector("#head-stats").textContent)?.[1].replace(/,/g, "") ?? NaN)`);
 
@@ -358,7 +358,7 @@ const CHECKS = [
     async run(ctx) {
       const app = running(ctx);
       await selectCharacter(app, TESTA);
-      const spots = (map, ch) => app.evaluate(`window.__TAURI__.core.invoke("map_layers", { map: ${map}, ch: ${JSON.stringify(ch)} }).then((l) => l.deaths.length)`);
+      const spots = (map, ch) => app.evaluate(`(async () => (await import("/bridge.js")).invoke("map_layers", { map: ${map}, ch: ${JSON.stringify(ch)} }))().then((l) => l.deaths.length)`);
       await open(app, "overview", /Deaths .* 2 deaths\. Killed most by (Fall|Harvest Reaper), 1 time\./);
       await open(app, "stats", / 2 Deaths /);
       await open(app, "charts", /What killed you (Fall 1 Harvest Reaper 1|Harvest Reaper 1 Fall 1) /);
@@ -501,7 +501,7 @@ const CHECKS = [
       await open(app, "compress", /Export now/);
       await app.evaluate(`[...document.querySelectorAll("#body button")].find((b) => b.textContent === "Export now").click()`);
       await app.until(`/^Exported in/.test(document.querySelector("#body .status")?.textContent ?? "")`, "the export reports success", 30000);
-      await app.until(`window.__TAURI__.core.invoke("app_state").then((s) => s.sessions === 4)`, "app_state reports 4 sessions after Export now", 5000);
+      await app.until(`(async () => (await import("/bridge.js")).invoke("app_state"))().then((s) => s.sessions === 4)`, "app_state reports 4 sessions after Export now", 5000);
       const events = await app.until(`(() => { const n = Number(/([\\d,]+) events/.exec(document.querySelector("#head-stats").textContent)?.[1].replace(/,/g, "")); return n > ${before} ? n : 0; })()`, `the events in the header rise above ${before}`, 5000);
       expectEqual("events the header gained", events - before, LATER.lines.length);
     },

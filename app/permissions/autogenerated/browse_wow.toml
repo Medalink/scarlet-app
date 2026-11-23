@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-browse-wow"
+description = "Enables the browse_wow command without any pre-configured scope."
+commands.allow = ["browse_wow"]
+
+[[permission]]
+identifier = "deny-browse-wow"
+description = "Denies the browse_wow command without any pre-configured scope."
+commands.deny = ["browse_wow"]

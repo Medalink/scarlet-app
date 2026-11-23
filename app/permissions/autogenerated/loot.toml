@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-loot"
+description = "Enables the loot command without any pre-configured scope."
+commands.allow = ["loot"]
+
+[[permission]]
+identifier = "deny-loot"
+description = "Denies the loot command without any pre-configured scope."
+commands.deny = ["loot"]

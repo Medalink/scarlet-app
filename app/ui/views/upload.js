@@ -1,7 +1,7 @@
 // Settings > Website: the master switch, the website address, one switch per sharing group and per
 // character, the account link and the removals. Off until the player turns it on.
 
-import { invoke, el, bytes, num, displayName, makeSwitch } from "../lib.js";
+import { invoke, el, elText, bytes, num, displayName, makeSwitch } from "../lib.js";
 
 // What each group holds (docs/DESIGN.md, Sharing groups). Labels come from the app.
 const HOLDS = {
@@ -97,7 +97,7 @@ export async function renderUpload(body) {
 
     if (linkCode) {
       const card = el("div", "linkcode");
-      const code = el("div", "code", linkCode);
+      const code = elText("div", "code", linkCode);
       const copy = el("button", "btn", "Copy");
       copy.type = "button";
       copy.onclick = async () => {

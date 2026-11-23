@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-upload-set-group"
+description = "Enables the upload_set_group command without any pre-configured scope."
+commands.allow = ["upload_set_group"]
+
+[[permission]]
+identifier = "deny-upload-set-group"
+description = "Denies the upload_set_group command without any pre-configured scope."
+commands.deny = ["upload_set_group"]

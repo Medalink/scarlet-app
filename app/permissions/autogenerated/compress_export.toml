@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-compress-export"
+description = "Enables the compress_export command without any pre-configured scope."
+commands.allow = ["compress_export"]
+
+[[permission]]
+identifier = "deny-compress-export"
+description = "Denies the compress_export command without any pre-configured scope."
+commands.deny = ["compress_export"]

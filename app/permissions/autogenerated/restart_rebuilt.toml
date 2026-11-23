@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-restart-rebuilt"
+description = "Enables the restart_rebuilt command without any pre-configured scope."
+commands.allow = ["restart_rebuilt"]
+
+[[permission]]
+identifier = "deny-restart-rebuilt"
+description = "Denies the restart_rebuilt command without any pre-configured scope."
+commands.deny = ["restart_rebuilt"]

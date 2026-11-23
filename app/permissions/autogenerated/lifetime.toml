@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-lifetime"
+description = "Enables the lifetime command without any pre-configured scope."
+commands.allow = ["lifetime"]
+
+[[permission]]
+identifier = "deny-lifetime"
+description = "Denies the lifetime command without any pre-configured scope."
+commands.deny = ["lifetime"]

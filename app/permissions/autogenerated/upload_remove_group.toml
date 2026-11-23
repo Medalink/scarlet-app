@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-upload-remove-group"
+description = "Enables the upload_remove_group command without any pre-configured scope."
+commands.allow = ["upload_remove_group"]
+
+[[permission]]
+identifier = "deny-upload-remove-group"
+description = "Denies the upload_remove_group command without any pre-configured scope."
+commands.deny = ["upload_remove_group"]

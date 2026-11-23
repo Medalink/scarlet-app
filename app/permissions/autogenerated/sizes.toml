@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-sizes"
+description = "Enables the sizes command without any pre-configured scope."
+commands.allow = ["sizes"]
+
+[[permission]]
+identifier = "deny-sizes"
+description = "Denies the sizes command without any pre-configured scope."
+commands.deny = ["sizes"]
