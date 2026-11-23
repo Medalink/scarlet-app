@@ -162,6 +162,9 @@ impl Store {
                 }
             }
 
+            parsed.sort_by_key(|e| e.ms);
+            parsed.dedup_by(|a, b| a.ms == b.ms && a.code == b.code && a.fields == b.fields);
+
             // Pass 2: rows, sessions and polylines.
             let mut cur_session: u32 = u32::MAX;
             let mut open: Option<usize> = None;
