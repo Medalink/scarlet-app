@@ -151,7 +151,7 @@ pub fn has_new_all(wows: &[PathBuf], out: &Path) -> bool {
     let done = fs::metadata(out.join("state.json"))
         .and_then(|m| m.modified())
         .ok();
-    wows.iter().any(|w| data_addon_missing(w))
+    wows.iter().any(|w| data_addon_stale(w))
         || imports_stale(wows, out)
         || fishing_stale(wows, out)
         || counts_stale(wows, out)
@@ -1252,13 +1252,18 @@ fn write_digest(wow: &Path, out: &Path, accounts: &BTreeMap<String, Vec<String>>
     }
 }
 
-fn data_addon_missing(wow: &Path) -> bool {
+fn data_addon_current(addons: &Path, data: &Path) -> bool {
+    DATA_FILES.iter().all(|f| data.join(f).is_file())
+        && fs::read_to_string(data.join(format!("{DATA_ADDON}.toc"))).ok() == Some(data_toc(addons))
+}
+
+fn data_addon_stale(wow: &Path) -> bool {
     let addons = crate::gamedir::game_dir(wow)
         .join("Interface")
         .join("AddOns");
     let data = addons.join(DATA_ADDON);
     addons.join("Scarlet").is_dir()
-        && !data.join(format!("{DATA_ADDON}.toc")).is_file()
+        && !data_addon_current(&addons, &data)
         && fs::symlink_metadata(&data).map_or(true, |m| m.is_dir() && !is_link(&m))
         && !data.join(".git").exists()
 }
