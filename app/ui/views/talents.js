@@ -93,9 +93,9 @@ function respecSection(body, data) {
   );
 }
 
-export async function render(body) {
+export async function render(body, given = null) {
   const chars = state.store?.chars ?? [];
-  const ch = state.ch ?? (chars.length === 1 ? chars[0] : null);
+  const ch = given ?? state.ch ?? (chars.length === 1 ? chars[0] : null);
   if (!ch) {
     body.innerHTML = "";
     body.appendChild(el("div", "empty", "Select a character."));

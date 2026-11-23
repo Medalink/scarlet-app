@@ -62,6 +62,8 @@ fn main() {
             "upload_link",
             "feats_get",
             "feats_seen",
+            "class_page_get",
+            "class_page_open",
         ]),
     ))
     .expect("tauri-build failed");

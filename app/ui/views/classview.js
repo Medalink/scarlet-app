@@ -3,7 +3,7 @@
 // the finished page over the install's signed request and shows the view only for a character the
 // site has a page for.
 
-import { invoke, el, esc, state } from "../lib.js";
+import { invoke, el, esc, barList } from "../lib.js";
 import { cardList } from "../featcard.js";
 import { blocks, hydrate, iconTag, say } from "./classblocks.js";
 
@@ -19,15 +19,6 @@ const CLASS_COLORS = {
   druid: "#ff7c0a",
 };
 
-const KNOWN_FOR_MS = 120_000;
-let known = null;
-
-/** The character the view is for: the one picked in the header, or the only one there is. */
-export function selected() {
-  const chars = state.store?.chars ?? [];
-  return state.ch ?? (chars.length === 1 ? chars[0] : null);
-}
-
 async function fetchPage(ch) {
   try {
     const answer = await invoke("class_page_get", { character: ch });
@@ -37,26 +28,6 @@ async function fetchPage(ch) {
     return { page: null, failed: String(e?.message ?? e) };
   }
 }
-
-/**
- * The class name of the selected character's page, or null when the site has none. The site is asked once for each
- * character in two minutes; an answer that it could not be asked (uploading off) or failed is not kept.
- */
-export async function probe() {
-  const ch = selected();
-  if (!ch) {
-    known = null;
-    return null;
-  }
-  if (!known || known.ch !== ch || Date.now() - known.at > KNOWN_FOR_MS) {
-    const got = await fetchPage(ch);
-    known = got.off || got.failed ? null : { ch, at: Date.now(), ...got };
-    return got.page?.class_name ?? null;
-  }
-  return known.page?.class_name ?? null;
-}
-
-export const label = () => known?.page?.class_name ?? "Class";
 
 const spanOf = (module, count) => ({ W5: 5, W7: 7, W8: 8, W12: 12 })[module.span] ?? (count === 1 ? 12 : count === 2 ? 6 : 4);
 
@@ -132,10 +103,22 @@ function feats(page) {
   return box;
 }
 
-function draw(body, page) {
+async function spellsPanel(ch) {
+  const charts = await invoke("charts", { ch });
+  const panel = el("div", "panel chart-panel");
+  panel.innerHTML = `<h3>Spells cast most</h3>${barList(charts.spells, "#ff2d55")}`;
+  return panel;
+}
+
+async function draw(body, page, ch) {
   body.innerHTML = "";
   const view = el("div", "cv");
-  view.style.setProperty("--class", CLASS_COLORS[page.class] ?? "var(--accent)");
+  view.style.setProperty("--class", CLASS_COLORS[page?.class] ?? "var(--accent)");
+  if (!page) {
+    view.append(await spellsPanel(ch));
+    body.append(view);
+    return;
+  }
   view.append(banner(page), figures(page.figures));
   if (page.sheet.length) view.append(rows(page.sheet));
   if (page.talents.length) {
@@ -149,27 +132,24 @@ function draw(body, page) {
   if (page.party.length) view.append(section("For the party"), rows(page.party));
   if (page.comparison) view.append(comparison(page.comparison, page.comparison.of));
   if (page.feats.length) view.append(feats(page));
+  view.append(await spellsPanel(ch));
   body.append(view);
   hydrate(view);
 }
 
-export async function render(body) {
+export async function render(body, ch) {
   body.innerHTML = "";
-  body.append(el("p", "loading", "Loading the class page…"));
-  const ch = selected();
-  const got = ch ? await fetchPage(ch) : { page: null };
-  known = ch ? { ch, at: Date.now(), ...got } : null;
+  if (!ch) {
+    body.append(el("div", "empty", "Select a character."));
+    return;
+  }
+  body.append(el("p", "loading", "Loading the class section…"));
+  const got = await fetchPage(ch);
   if (!body.isConnected) return;
   if (got.failed) {
     body.innerHTML = "";
     body.append(el("p", "status err", esc(got.failed)));
     return;
   }
-  if (!got.page) {
-    location.hash = "overview";
-    return;
-  }
-  const entry = document.querySelector('#nav .item[data-key="classpage"] .nav-label');
-  if (entry) entry.textContent = label();
-  draw(body, got.page);
+  await draw(body, got.page, ch);
 }

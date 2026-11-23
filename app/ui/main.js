@@ -1,7 +1,6 @@
 // Shell: sidebar nav, character filter, store-changed refresh, hash routing.
 
 import { invoke, listen, el, $, num, esc, displayName, state } from "./lib.js";
-import * as overview from "./views/overview.js";
 import * as roster from "./views/roster.js";
 import * as feats from "./views/feats.js";
 import { stopToasts } from "./feat-toast.js";
@@ -12,8 +11,7 @@ import * as sessions from "./views/sessions.js";
 import * as map from "./views/map.js";
 import * as charts from "./views/charts.js";
 import * as loot from "./views/loot.js";
-import * as talents from "./views/talents.js";
-import * as classview from "./views/classview.js";
+import * as character from "./views/character.js";
 import * as items from "./views/items.js";
 import * as addons from "./views/addons.js";
 import * as compress from "./views/compress.js";
@@ -22,7 +20,8 @@ import * as system from "./views/system.js";
 import { openSetup } from "./setup.js";
 
 const VIEWS = {
-  overview: [() => (state.ch ? "Overview" : "Characters"), { render: (body, sub) => (state.ch ? overview : roster).render(body, sub) }],
+  character: ["Character", character],
+  characters: ["Characters", roster],
   feats: ["Feats", feats],
   stats: ["Stats", stats],
   heatmap: ["Activity", heatmap],
@@ -31,8 +30,6 @@ const VIEWS = {
   map: ["Map", map],
   charts: ["Charts", charts],
   loot: ["Loot", loot],
-  talents: ["Talents", talents],
-  classpage: [() => classview.label(), classview],
   items: ["Items", items],
   addons: ["Addons", addons],
   compress: ["Compress", compress],
@@ -41,17 +38,16 @@ const VIEWS = {
 };
 
 const NAV_GROUPS = [
-  ["Character", ["overview", "feats", "stats", "talents", "classpage"]],
+  ["Character", ["character", "characters", "feats", "stats"]],
   ["History", ["heatmap", "timeline", "sessions", "map", "charts", "loot", "items"]],
   ["System", ["addons", "compress", "settings"]],
 ];
 
 const NAV_ICONS = {
-  overview: '<circle cx="12" cy="8" r="3.6"/><path d="M4.8 20c.7-4 3.5-6.1 7.2-6.1s6.5 2.1 7.2 6.1"/>',
+  character: '<circle cx="12" cy="8" r="3.6"/><path d="M4.8 20c.7-4 3.5-6.1 7.2-6.1s6.5 2.1 7.2 6.1"/>',
+  characters: '<circle cx="9" cy="8.4" r="3"/><circle cx="17" cy="9.4" r="2.4"/><path d="M3.4 19c.6-3.4 2.9-5.2 5.6-5.2s5 1.8 5.6 5.2M15.4 14.2c2.6-.2 4.5 1.3 5.2 4.2"/>',
   feats: '<path d="m12 3 7.2 3v5.6c0 4.3-3 7.6-7.2 9.4-4.2-1.8-7.2-5.1-7.2-9.4V6z"/>',
   stats: '<path d="M4 19.5h16M7 16v-5m5 5V6m5 10v-8"/>',
-  talents: '<circle cx="12" cy="5" r="2.2"/><circle cx="6" cy="18.6" r="2.2"/><circle cx="18" cy="18.6" r="2.2"/><path d="M12 7.2v4.4m0 0-4.9 5.2M12 11.6l4.9 5.2"/>',
-  classpage: '<path d="m12 3.4 2.5 5.3 5.8.8-4.2 4.1 1 5.7-5.1-2.7-5.1 2.7 1-5.7-4.2-4.1 5.8-.8z"/>',
   heatmap: '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M9 9.5v10M15 9.5v10"/>',
   timeline: '<path d="M5 7h14M5 12h10M5 17h14"/>',
   sessions: '<circle cx="12" cy="12" r="8.6"/><path d="M12 7v5.2l3.4 2"/>',
@@ -64,11 +60,23 @@ const NAV_ICONS = {
   settings: '<circle cx="12" cy="12" r="3"/><path d="M12 3.5v2.2m0 12.6v2.2M3.5 12h2.2m12.6 0h2.2m-14-6 1.6 1.6m9.8 9.8 1.6 1.6m0-13-1.6 1.6m-9.8 9.8-1.6 1.6"/>',
 };
 
-let current = "overview";
+let current = "character";
 let activeMod = null;
 
 // A route is a view key with an optional page after a slash: "settings/updates".
 const routeKey = (route) => route.split("/")[0];
+
+const REDIRECTS = {
+  overview: () => (state.ch ? "character" : "characters"),
+  classpage: () => "character/class",
+  talents: () => "character/talents",
+};
+
+function resolveRoute(route) {
+  const [key, ...rest] = route.split("/");
+  const to = REDIRECTS[key]?.();
+  return to ? [to, ...rest].join("/") : route;
+}
 
 const labelOf = (key) => (typeof VIEWS[key][0] === "function" ? VIEWS[key][0]() : VIEWS[key][0]);
 
@@ -82,7 +90,6 @@ function buildNav() {
       const item = el("button", "item");
       item.type = "button";
       item.dataset.key = key;
-      item.hidden = key === "classpage";
       const ico = NAV_ICONS[key] ? `<svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true">${NAV_ICONS[key]}</svg>` : "";
       item.innerHTML = `${ico}<span class="nav-label">${labelOf(key)}</span>`;
       item.onclick = () => {
@@ -121,10 +128,11 @@ function setView() {
   const mine = ++navSeq;
   const run = navTail.then(async () => {
     if (mine !== navSeq) return;
-    const route = (location.hash || "#overview").slice(1);
+    const asked = (location.hash || "#character").slice(1);
+    const route = resolveRoute(asked);
+    if (route !== asked) history.replaceState(null, "", `#${route}`);
     const [key, sub] = route.split("/");
-    syncClassEntry();
-    const next = VIEWS[key] ? key : "overview";
+    const next = VIEWS[key] ? key : "character";
     if (activeMod?.cleanup) activeMod.cleanup();
     current = next;
     activeMod = VIEWS[current][1];
@@ -142,14 +150,6 @@ function setView() {
   });
   navTail = run.catch(() => {});
   return run;
-}
-
-async function syncClassEntry() {
-  const name = await classview.probe().catch(() => null);
-  const item = document.querySelector('#nav .item[data-key="classpage"]');
-  if (!item) return;
-  item.hidden = !name;
-  item.querySelector(".nav-label").textContent = labelOf("classpage");
 }
 
 async function refreshCharSelector() {
@@ -190,11 +190,11 @@ async function boot() {
   buildNav();
   const [info, , s] = await Promise.all([invoke("update_info"), loadState(), invoke("get_settings")]);
   showVersion(info);
-  if (!location.hash && s?.last_view && VIEWS[routeKey(s.last_view)]) location.hash = s.last_view;
+  const resumed = s?.last_view ? resolveRoute(s.last_view) : "";
+  if (!location.hash && VIEWS[routeKey(resumed)]) location.hash = resumed;
   if (s && !s.setup_done) openSetup();
   await refreshCharSelector();
   headStats();
-  syncClassEntry();
   $("#char").onchange = async (e) => {
     state.ch = e.target.value || null;
     await setView();
@@ -242,7 +242,6 @@ async function boot() {
     await loadState();
     headStats();
     await refreshCharSelector();
-    syncClassEntry();
     // Settings draws itself after a save; redrawing it here would wipe "Saved." and whatever
     // the player is typing when an export lands.
     if (!location.hash.startsWith("#settings")) await setView();

@@ -269,25 +269,36 @@ function drawCharacters(box, models) {
   );
 }
 
-async function load(box) {
+async function fetchModels() {
   let answer;
   try {
     answer = await invoke("feats_get");
   } catch (e) {
     answer = { state: "error", message: String(e) };
   }
+  if (answer.state === "error") return { error: answer.message };
+  const local = answer.state === "local";
+  return { local, models: answer.characters.map(local ? fromLocal : fromSite) };
+}
+
+export async function closestFor(name, n = 3) {
+  const got = await fetchModels();
+  return got.models?.find((m) => m.name === name)?.closest.slice(0, n) ?? [];
+}
+
+async function load(box) {
+  const got = await fetchModels();
   if (!box.isConnected) return;
   box.innerHTML = "";
-  if (answer.state === "error") {
-    box.append(elText("p", "status err", answer.message));
+  if (got.error) {
+    box.append(elText("p", "status err", got.error));
     return;
   }
-  const models = answer.state === "local" ? answer.characters.map(fromLocal) : answer.characters.map(fromSite);
-  if (answer.state === "local") {
+  if (got.local) {
     const wanted = state.ch;
-    for (const m of models.filter((x) => !wanted || x.name === wanted)) m.news = localNews(m);
+    for (const m of got.models.filter((x) => !wanted || x.name === wanted)) m.news = localNews(m);
   }
-  drawCharacters(box, models);
+  drawCharacters(box, got.models);
 }
 
 export async function render(body) {

@@ -20,7 +20,7 @@ const TESTA = CHARACTERS[0].name;
 const PROBE = CHARACTERS[1].name;
 const SHOWN = { testa: TESTA.replace("-", " "), probe: PROBE.replace("-", " ") };
 const OTHER_CHARACTER = new RegExp(`${SHOWN.probe}|Kobold Vermin`);
-const OTHER_CHARACTER_ONLY = new Set(["overview", "sessions", "timeline", "map", "loot", "addons"]);
+const OTHER_CHARACTER_ONLY = new Set(["character", "sessions", "timeline", "map", "loot", "addons"]);
 
 const BODY = `document.querySelector("#body").innerText.replace(/\\s+/g, " ")`;
 
@@ -29,10 +29,11 @@ const FEATS_LOCAL_ALL = /^(?=.*Probe Lane holds [1-9]\d* feats?)(?=.*Testa Fixtu
 
 const VIEWS = [
   {
-    key: "overview",
+    key: "character",
     shows: /^(?=.*Testa Fixture Level 6 Human Warrior Alliance in Westfall)(?=.*Whole life .* Quests completed 1,234 .* Titles known 3 .* Zone maps explored 3 .* Instance locks .* Blackfathom Deeps normal 1\/4 .* Lord Kazzak World boss)(?!.*Gnomeregan)/,
     never: /No characters recorded yet/,
   },
+  { key: "characters", shows: /^(?=.*Level target)(?=.*Testa Fixture)(?=.*Probe Lane)/, never: /No characters recorded yet/ },
   { key: "feats", shows: FEATS_LOCAL, never: /No feats counted|Could not|refused/ },
   { key: "stats", shows: /1,605 Experience .* 2 Kills/, never: /No recorded time yet/ },
   { key: "heatmap", shows: /Peak: [1-9]\d* events in an hour/, never: /Peak: 0 events|No events yet/ },
@@ -41,7 +42,8 @@ const VIEWS = [
   { key: "map", shows: /Elwynn Forest 12 points Westfall 10 points/, never: /No path points yet/ },
   { key: "charts", shows: /Experience over time 95 1,605 .* Top spells cast Heroic Strike 1 /, never: /Experience over time No data/ },
   { key: "loot", shows: /Drop rates .* Solo Stonetusk Boar .* Chunk of Boar Meat 100% 1\/1 .* Testa Fixture Solo 3 /, never: /No creature loot with an item list|No loot recorded yet/ },
-  { key: "talents", shows: /Arms · 3 points, 2 available .* Improved Heroic Strike 2\/3 Deflection 2\/2 .* Picked 1→2\/3/, never: /No talent lines recorded|Select a character/ },
+  { key: "character", hash: "character/class", shows: /Spells cast most Heroic Strike 1/, never: /Select a character|Loading the class section/ },
+  { key: "character", hash: "character/talents", shows: /Arms · 3 points, 2 available .* Improved Heroic Strike 2\/3 Deflection 2\/2 .* Picked 1→2\/3/, never: /No talent lines recorded|Select a character/ },
   {
     key: "items",
     shows: /^(?=.*Linen Cloth 2589 28 1s ?50c \d{4}-\d\d-\d\d \d\d:\d\d Testa Fixture 3 in bags Warband bank \(E2EONE\) 20 Warband bank \(E2ETWO\) 5 Wool Cloth 2592 7 – Guild bank 7 .* Warband bank \(E2EONE\) Testa Fixture 1 .* 12g ?34s Warband bank \(E2ETWO\) Probe Lane 1 .* 5g ?00s Guild bank Probe Lane 1 .* 98g ?76s)(?=.*Recipes Recipe Known by Makes Needs Bolt of Linen Cloth Testa Fixture Bolt of Linen Cloth x1 Linen Cloth x2)(?!.*1s ?25c)/,
@@ -50,6 +52,12 @@ const VIEWS = [
   { key: "addons", shows: /GatherMate2 1 .* GatherMate2 Testa Fixture \(2447\) map 1429 at 43\.9, 67\.0/, never: /No lines from other addons/ },
   { key: "compress", shows: /Export now .* 2 files .* Payloads .* [1-9]\d* events loaded/, never: /Data folder .* · 0 events loaded/ },
   { key: "settings", shows: /WoW folders .* E2EONE .* E2ETWO/, never: /No game accounts yet/ },
+];
+
+const OLD_ADDRESSES = [
+  ["overview", "character"],
+  ["classpage", "character/class"],
+  ["talents", "character/talents"],
 ];
 
 const mismatch = (what, want, saw) => new Error(`${what}\n  expected ${want}\n  saw      ${saw}`);
@@ -136,12 +144,12 @@ const selectCharacter = (app, name) =>
 
 const patternExpression = (pattern) => `new RegExp(${JSON.stringify(pattern.source)}, ${JSON.stringify(pattern.flags)})`;
 
-async function open(app, key, shows, gone = null) {
-  await app.evaluate(`location.hash = ${JSON.stringify(key)}`);
+async function open(app, key, shows, gone = null, hash = key) {
+  await app.evaluate(`location.hash = ${JSON.stringify(hash)}`);
   const without = gone ? ` && !${patternExpression(gone)}.test(${BODY})` : "";
   await app.until(
     `document.querySelector("#nav .item.active")?.dataset.key === ${JSON.stringify(key)} && ${patternExpression(shows)}.test(${BODY})${without}`,
-    `${key} shows ${shows}${gone ? ` and no longer ${gone}` : ""}`,
+    `${hash} shows ${shows}${gone ? ` and no longer ${gone}` : ""}`,
   );
 }
 
@@ -306,10 +314,9 @@ const CHECKS = [
     async run(ctx) {
       await startApp(ctx);
       const page = await ctx.app.evaluate(
-        `({ items: document.querySelectorAll("#nav .item").length, classEntryHidden: document.querySelector('#nav .item[data-key="classpage"]').hidden, title: document.querySelector("#pagetitle").textContent, ver: document.querySelector("#ver").textContent })`,
+        `({ items: document.querySelectorAll("#nav .item").length, title: document.querySelector("#pagetitle").textContent, ver: document.querySelector("#ver").textContent })`,
       );
-      expectEqual("items in the nav", page.items, VIEWS.length + 1);
-      expectEqual("the class entry is hidden while the site has no page", page.classEntryHidden, true);
+      expectEqual("items in the nav", page.items, new Set(VIEWS.map((v) => v.key)).size);
       expectNoMatch("the page title", page.title, /^boot:/);
       expectEqual("the version", page.ver, "dev");
     },
@@ -326,16 +333,32 @@ const CHECKS = [
       expectMatch("the foot of the nav", foot, new RegExp(`${CHARACTERS.length} ${CHARACTERS.length === 1 ? "character" : "characters"}`));
     },
   },
-  ...VIEWS.map(({ key, shows, never }) => ({
+  ...VIEWS.map(({ key, hash = key, shows, never }) => ({
     lane: "app",
-    name: `${key} shows the selected character`,
+    name: `${hash} shows the selected character`,
     async run(ctx) {
       const app = running(ctx);
       await selectCharacter(app, TESTA);
-      await open(app, key, shows, OTHER_CHARACTER_ONLY.has(key) ? OTHER_CHARACTER : null);
-      expectNoMatch(`${key} shows its empty state`, await app.evaluate(BODY), never);
+      await open(app, key, shows, OTHER_CHARACTER_ONLY.has(key) ? OTHER_CHARACTER : null, hash);
+      expectNoMatch(`${hash} shows its empty state`, await app.evaluate(BODY), never);
     },
   })),
+  {
+    lane: "app",
+    name: "old addresses land on the view that replaced them",
+    async run(ctx) {
+      const app = running(ctx);
+      await selectCharacter(app, TESTA);
+      for (const [old, now] of OLD_ADDRESSES) {
+        await app.evaluate(`location.hash = ${JSON.stringify(old)}`);
+        await app.until(`location.hash === ${JSON.stringify(`#${now}`)}`, `${old} lands on ${now}`);
+      }
+      await selectCharacter(app, "");
+      await app.evaluate(`location.hash = "overview"`);
+      await app.until(`location.hash === "#characters"`, "overview with no character picked lands on characters");
+      await selectCharacter(app, TESTA);
+    },
+  },
   {
     lane: "app",
     name: "the component sheet draws every component",
@@ -397,14 +420,14 @@ const CHECKS = [
       const app = running(ctx);
       await selectCharacter(app, TESTA);
       const spots = (map, ch) => app.evaluate(`(async () => (await import("/bridge.js")).invoke("map_layers", { map: ${map}, ch: ${JSON.stringify(ch)} }))().then((l) => l.deaths.length)`);
-      await open(app, "overview", /Deaths .* 2 deaths\. Killed most by (Fall|Harvest Reaper), 1 time\./);
+      await open(app, "character", /Deaths .* 2 deaths\. Killed most by (Fall|Harvest Reaper), 1 time\./);
       await open(app, "stats", / 2 Deaths /);
       await open(app, "charts", /What killed you (Fall 1 Harvest Reaper 1|Harvest Reaper 1 Fall 1) /);
       expectEqual("death places of Testa in Westfall", await spots(WESTFALL, TESTA), 2);
       const killers = JSON.parse(read(path.join(ctx.site.app.out, TESTA, "overview.json"))).killers;
       expectEqual("killers in Testa-Fixture/overview.json", JSON.stringify(killers.map((k) => `${k.name} ${k.n}`).sort()), JSON.stringify(["Fall 1", "Harvest Reaper 1"]));
       await selectCharacter(app, PROBE);
-      await open(app, "overview", /Deaths .* 1 death\. Killed most by Kobold Vermin, 1 time\./, /2 deaths/);
+      await open(app, "character", /Deaths .* 1 death\. Killed most by Kobold Vermin, 1 time\./, /2 deaths/);
       await open(app, "stats", / 1 Deaths /);
       await open(app, "charts", /What killed you Kobold Vermin 1 /, /Kobold Vermin 2/);
       expectEqual("death places of Probe in Elwynn", await spots(ELWYNN, PROBE), 1);
@@ -431,9 +454,9 @@ const CHECKS = [
     async run(ctx) {
       const app = running(ctx);
       await selectCharacter(app, "");
-      await open(app, "overview", new RegExp(`^(?=.*Level target)(?=.*${SHOWN.testa})(?=.*${SHOWN.probe})`));
+      await open(app, "characters", new RegExp(`^(?=.*Level target)(?=.*${SHOWN.testa})(?=.*${SHOWN.probe})`));
       await selectCharacter(app, PROBE);
-      await open(app, "overview", /Probe Lane Level 3 Gnome Mage/, new RegExp(`Level target|Whole life|${SHOWN.testa}`));
+      await open(app, "character", /Probe Lane Level 3 Gnome Mage/, new RegExp(`Level target|Whole life|${SHOWN.testa}`));
     },
   },
   {
@@ -468,7 +491,7 @@ const CHECKS = [
         await sleep(20);
       }
       expectEqual("group_by_account in settings.json", saved.group_by_account, true);
-      await open(app, "overview", new RegExp(`^(?=.*game account E2EONE)(?=.*game account E2ETWO)(?=.*${SHOWN.testa})(?=.*${SHOWN.probe})`, "i"));
+      await open(app, "characters", new RegExp(`^(?=.*game account E2EONE)(?=.*game account E2ETWO)(?=.*${SHOWN.testa})(?=.*${SHOWN.probe})`, "i"));
     },
   },
   {

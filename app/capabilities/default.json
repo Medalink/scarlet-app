@@ -70,6 +70,8 @@
     "allow-upload-linked",
     "allow-upload-link",
     "allow-feats-get",
-    "allow-feats-seen"
+    "allow-feats-seen",
+    "allow-class-page-get",
+    "allow-class-page-open"
   ]
 }

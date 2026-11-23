@@ -718,8 +718,10 @@ function draw(body, refocus = null) {
   if (refocus) body.querySelector(refocus)?.focus({ preventScroll: true });
 }
 
-export async function render(body) {
-  [current, life] = await Promise.all([invoke("overview", { ch: state.ch }), invoke("lifetime", { ch: state.ch })]);
+export const shownName = () => current?.name ?? null;
+
+export async function render(body, ch = state.ch) {
+  [current, life] = await Promise.all([invoke("overview", { ch }), invoke("lifetime", { ch })]);
   xpPinned = null;
   draw(body);
 }

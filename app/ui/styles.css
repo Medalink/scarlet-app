@@ -1101,3 +1101,6 @@ a.sc-session:hover { border-color: var(--line2); }
 @container (max-width: 900px) { .feats-layout { grid-template-columns: minmax(0, 1fr); } .feats-side { position: static; } .feats-head { grid-template-columns: minmax(0, 1fr); } }
 .feats-block .sc-link { margin-top: 28px; }
 .feats-block > .sc-btn { margin-top: 12px; }
+.char-extra { margin: 24px 0; }
+.char-extra .sc-h { margin: 20px 0 8px; }
+.char-extra .sc-h:first-child { margin-top: 0; }
