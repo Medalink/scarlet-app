@@ -24,7 +24,7 @@ const OTHER_CHARACTER_ONLY = new Set(["character", "sessions", "log", "map", "lo
 
 const BODY = `document.querySelector("#body").innerText.replace(/\\s+/g, " ")`;
 
-const ACCOUNT_ROW = /(?=.*Account holds \d+ feats?)(?=.*Account \d+ of \d+)(?=.*Scarlet.*Legendary.*Epic.*Rare.*Uncommon)/.source;
+const ACCOUNT_ROW = /(?=.*Account \d+ of \d+)(?!.*Account holds)(?=.*Scarlet.*Legendary.*Epic.*Rare.*Uncommon)/.source;
 const FEATS_LOCAL = new RegExp(String.raw`^${ACCOUNT_ROW}(?=.*Testa Fixture holds [1-9]\d* feats?)(?=.*Closest to the next tier)(?=.*Every feat Testa can hold)(?=.*\d+ more feats are counted on the website Website settings)`);
 const FEATS_LOCAL_ALL = new RegExp(String.raw`^${ACCOUNT_ROW}(?=.*Probe Lane holds [1-9]\d* feats?)(?=.*Testa Fixture holds [1-9]\d* feats?)(?=.*\d+ more feats are counted on the website)`);
 

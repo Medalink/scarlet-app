@@ -149,15 +149,20 @@ function localNews(storeKey, feats, account = false) {
 
 function head(model) {
   const box = el("div", "feats-head");
+  const counts = tiles(
+    [...TIERS].reverse().map((t) => tile(TIER_NAMES[t], num(model.tiers[t - 1]), "", { size: "md", extra: crest("kills", t, { size: 28, scope: model.crest ?? "character" }) })),
+    5,
+  );
+  if (model.crest === "account") {
+    box.style.gridTemplateColumns = "minmax(0, 1fr)";
+    box.append(counts);
+    return box;
+  }
   const ring = el("div", "sc-panel feats-ring");
   const inner = el("span", "", `<b class="sc-num" style="font-size:40px">${num(model.held)}</b><br><span class="sc-label">of ${num(model.total)}</span>`);
   const text = el("div");
   text.append(elText("h2", "sc-h3", `${displayName(model.name)} holds ${num(model.held)} ${model.held === 1 ? "feat" : "feats"}`));
   ring.append(tickRing(model.total ? model.held / model.total : 0, { size: 112, inner }), text);
-  const counts = tiles(
-    [...TIERS].reverse().map((t) => tile(TIER_NAMES[t], num(model.tiers[t - 1]), "", { size: "md", extra: crest("kills", t, { size: 28, scope: model.crest ?? "character" }) })),
-    5,
-  );
   box.append(ring, counts);
   if (model.score != null) {
     const score = el("div", "sc-panel");
