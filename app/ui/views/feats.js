@@ -4,12 +4,13 @@
 import { invoke, el, elText, state, num, displayName, tile, tiles, tickRing, collectionRow, linkRow } from "../lib.js";
 import { BY_KEY, CATALOG } from "../feats-catalog.js";
 import { TIER_NAMES } from "../glyphs.js";
-import { seal, pips, tierChip, cardList, cardSeal, countText, amount } from "../featcard.js";
+import { seal, pips, tierChip, cardList, cardSeal, countText, amount, withCatalog } from "../featcard.js";
 import { playToasts, stopToasts } from "../feat-toast.js";
 import { linkPrompt, webState } from "../link.js";
 
 const TIERS = [1, 2, 3, 4, 5];
 const COLLECTIONS = [...new Set(CATALOG.feats.map((f) => f.collection))];
+const SCORE_MAX = CATALOG.feats.filter((f) => f.scope === "general" && !f.economy).length * TIERS.length;
 
 let expandNext = false;
 let uploadingOff = true;
@@ -48,17 +49,30 @@ function fromLocal(e) {
   };
 }
 
+function siteCard(raw) {
+  const feat = withCatalog(raw);
+  const cat = BY_KEY.get(feat.key);
+  return {
+    ...feat,
+    tier_name: TIER_NAMES[feat.tier] || "",
+    counted: feat.counted ?? (cat && feat.value != null ? countText(cat, feat.value) : null),
+    to_next: feat.to_next ?? null,
+    value: feat.value ?? null,
+  };
+}
+
 function fromSite(entry) {
-  const count = (tier) => entry.tiers.find((t) => t.name === TIER_NAMES[tier])?.count ?? 0;
+  const count = (tier) => entry.tiers.find((t) => String(t.name).toLowerCase() === TIER_NAMES[tier].toLowerCase())?.count ?? 0;
   return {
     name: entry.name,
     held: entry.held,
     total: entry.total,
     tiers: TIERS.map(count),
-    score: null,
+    score: entry.score ?? null,
+    scoreMax: SCORE_MAX,
     elsewhere: 0,
-    feats: [...entry.earned, ...entry.unearned],
-    closest: entry.top,
+    feats: [...entry.earned, ...entry.unearned].map(siteCard).filter((f) => f.collection),
+    closest: (entry.top ?? []).map(siteCard),
     news: entry.new ?? [],
     local: false,
   };
@@ -142,7 +156,8 @@ function detail(feat) {
   name.append(feat.name);
   if (feat.tier) name.append(tierChip(feat.tier, feat.tier_name || TIER_NAMES[feat.tier]));
   text.append(name);
-  if (feat.counted) text.append(elText("p", "sc-feat-d", feat.counted));
+  const counted = feat.counted ?? feat.detail;
+  if (counted) text.append(elText("p", "sc-feat-d", counted));
   if (feat.to_next) text.append(elText("p", "sc-feat-to", feat.to_next));
   top.append(text);
   box.append(top, ladder(feat));
