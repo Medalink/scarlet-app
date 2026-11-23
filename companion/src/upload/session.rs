@@ -520,6 +520,17 @@ impl Session {
         Ok(())
     }
 
+    /// `POST /installs/me/feats/seen` for the account: the tier shown for each account feat key.
+    pub fn feats_seen_account(&mut self, shown: &BTreeMap<String, u8>) -> Result<()> {
+        let body = json!({ "account": true, "feats": shown }).to_string();
+        self.api(
+            "POST",
+            "/installs/me/feats/seen",
+            Some(("application/json", body.as_bytes())),
+        )?;
+        Ok(())
+    }
+
     /// `GET /upload/status`, as the server answered.
     pub fn server_status(&mut self) -> Result<Value> {
         Ok(self.api("GET", "/upload/status", None)?.json)
