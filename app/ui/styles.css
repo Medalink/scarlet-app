@@ -1045,6 +1045,9 @@ a.sc-session:hover { border-color: var(--line2); }
 .sc-session-n { margin-top: 8px; font-size: 13.5px; color: var(--text); }
 .sc-session-f { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .sc-sessions { display: grid; gap: 12px; margin-top: 16px; }
+.sc-modes { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.sc-modes + .empty { margin-top: 12px; }
+.sc-modes { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 
 .recap-grid { display: grid; gap: 16px; margin-top: 16px; }
 .recap-grid.two { grid-template-columns: 1fr 1fr; }

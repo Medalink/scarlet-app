@@ -376,9 +376,9 @@ const dayOf = (sec) => new Date(sec * 1000).toLocaleDateString([], { weekday: "l
 
 /**
  * A session card: date line, the title, the compact strip, one line of totals and a chip for each feat earned.
- * `onOpen` makes the whole card a link.
+ * `onOpen` makes the whole card a link. `live` ends the time range on "now"; `others` are more characters in the card.
  */
-export function sessionCard(r, { onOpen = null, who = true, chip = null } = {}) {
+export function sessionCard(r, { onOpen = null, who = true, chip = null, live = false, others = [] } = {}) {
   const card = el(onOpen ? "a" : "div", "sc-session");
   if (onOpen) {
     card.href = "#";
@@ -388,8 +388,8 @@ export function sessionCard(r, { onOpen = null, who = true, chip = null } = {}) 
     };
   }
   const head = el("p", "sc-session-d");
-  head.append(`${dayOf(r.start)} · ${clockOf(r.start)} to ${clockOf(r.end)}`);
-  if (who) head.append(` · ${displayName(r.character)}`);
+  head.append(`${dayOf(r.start)} · ${clockOf(r.start)} to ${live ? "now" : clockOf(r.end)}`);
+  if (who) head.append(` · ${[r.character, ...others].map(displayName).join(", ")}`);
   card.append(head, elText("h3", "sc-session-t", r.title.text));
   if (r.buckets?.xp?.length) card.append(strip(r, { compact: true }));
   const parts = [dur(r.played)];
