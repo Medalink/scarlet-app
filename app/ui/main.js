@@ -116,7 +116,7 @@ function updateFoot() {
   const ev = `${num(st.events)} ${st.events === 1 ? "event" : "events"}`;
   const ch = `${st.chars.length} ${st.chars.length === 1 ? "character" : "characters"}`;
   const running = wowClients > 0 ? `<br><span class="foot-live" aria-hidden="true"></span>${wowClients} WoW ${wowClients === 1 ? "client" : "clients"} running` : "";
-  const web = webLine ? `<button type="button" class="weblink" title="Settings, Website"><span class="sc-dot${webLine.linked ? "" : " off"}"></span> ${webLine.text}</button>` : "";
+  const web = webLine ? `<button type="button" class="weblink" title="Settings, Website"><span class="sc-dot${webLine.linked ? "" : " off"}"></span> ${esc(webLine.text)}</button>` : "";
   $("#foot").innerHTML = `${web}${ev}<br>${ch}${running}`;
 }
 
