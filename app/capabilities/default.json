@@ -20,6 +20,7 @@
     "allow-heatmap",
     "allow-timeline",
     "allow-sessions",
+    "allow-session-cards",
     "allow-map-list",
     "allow-map-data",
     "allow-map-image",

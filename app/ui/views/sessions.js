@@ -1,62 +1,35 @@
-// Sessions: S..ES runs with duration, zones, kills, xp, money and casts.
-// Click a row to open its range in the timeline; a run summary opens for the
-// session's route, and covers every character played in the run.
+// Sessions: one card for each S..ES session, newest first. A card opens the recap of its run.
 
-import { invoke, el, state, num, dur, moneyHtml, dateTime, esc, displayName } from "../lib.js";
+import { invoke, el, elText, state, sessionCard, wireTips } from "../lib.js";
 import { renderRecaps } from "./recap.js";
+
+const PAGE = 40;
 
 export async function render(body, sub) {
   if (/^\d+-\d+$/.test(sub ?? "")) return renderRun(body, sub);
-  const rows = await invoke("sessions", { ch: state.ch });
+  wireTips();
+  const cards = (await invoke("session_cards", { ch: state.ch })).filter((c) => c.recap).reverse();
   body.innerHTML = "";
-  if (!rows.length) {
+  if (!cards.length) {
     body.appendChild(el("div", "empty", "No sessions yet."));
     return;
   }
-
-  const wrap = el("div", "scroll-x");
-  const t = el("table");
-  t.innerHTML = `<thead><tr>
-    <th>Start</th><th>Character</th><th>Played</th><th>Zones</th>
-    <th class="num">Kills</th><th class="num">XP</th><th class="num">Gold</th><th class="num">Casts</th><th></th>
-  </tr></thead><tbody></tbody>`;
-  const tb = t.querySelector("tbody");
-  for (const s of rows.slice().reverse()) {
-    const tr = el("tr", "click");
-    tr.tabIndex = 0;
-    tr.innerHTML = `<td>${dateTime(s.start)}</td>
-      <td class="dim">${esc(displayName(s.char_name))}</td>
-      <td>${dur(s.duration)}</td>
-      <td class="zones">${s.zones.map(esc).join(" · ") || "—"}</td>
-      <td class="num">${num(s.kills)}</td>
-      <td class="num">${num(s.xp)}</td>
-      <td class="num ${s.money >= 0 ? "pos" : "neg"}">${moneyHtml(s.money, s.money !== 0)}</td>
-      <td class="num">${num(s.casts)}</td>`;
-    const summary = el("button", "linkbtn", "Summary");
-    summary.type = "button";
-    summary.onclick = (e) => {
-      e.stopPropagation();
-      window.__nav(`sessions/${s.start}-${s.end}`);
-    };
-    summary.onkeydown = (e) => e.stopPropagation();
-    const cell = el("td");
-    cell.appendChild(summary);
-    tr.appendChild(cell);
-    const openSession = () => {
-      window.__tlSession = { index: s.index, from: s.start - 1000, to: s.end + 1000 };
-      window.__nav("timeline");
-    };
-    tr.onclick = openSession;
-    tr.onkeydown = (e) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        openSession();
-      }
-    };
-    tb.appendChild(tr);
-  }
-  wrap.appendChild(t);
-  body.appendChild(wrap);
+  const list = el("div", "sc-sessions");
+  const more = elText("button", "sc-btn quiet small", "");
+  more.type = "button";
+  let shown = 0;
+  const draw = () => {
+    for (const c of cards.slice(shown, shown + PAGE)) {
+      list.append(sessionCard(c.recap, { who: !state.ch, onOpen: () => window.__nav(`sessions/${c.from}-${c.to}`) }));
+    }
+    shown = Math.min(cards.length, shown + PAGE);
+    more.textContent = `Show more (${cards.length - shown} left)`;
+    if (shown >= cards.length) more.remove();
+  };
+  more.onclick = draw;
+  draw();
+  body.append(list);
+  if (shown < cards.length) body.append(more);
 }
 
 async function renderRun(body, sub) {

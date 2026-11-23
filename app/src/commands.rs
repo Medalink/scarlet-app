@@ -678,6 +678,36 @@ pub fn sessions(app: AppHandle, ch: Option<String>) -> Vec<SessionRow> {
 }
 
 #[derive(Serialize)]
+pub struct SessionCard {
+    index: u32,
+    from: i64,
+    to: i64,
+    recap: Option<crate::recap::SessionRecap>,
+}
+
+/// One lite recap for each session, for the cards of the sessions list.
+#[tauri::command]
+pub async fn session_cards(app: AppHandle, ch: Option<String>) -> Vec<SessionCard> {
+    blocking(move || {
+        with_store(&app, |st| {
+            let c = ch.and_then(|n| st.char_index(&n));
+            st.sessions
+                .iter()
+                .enumerate()
+                .filter(|(_, s)| c.is_none_or(|cc| s.ch == cc))
+                .map(|(i, s)| SessionCard {
+                    index: i as u32,
+                    from: s.start,
+                    to: s.end,
+                    recap: crate::recap::lite(st, i),
+                })
+                .collect()
+        })
+    })
+    .await
+}
+
+#[derive(Serialize)]
 pub struct Poly {
     session: u32,
     pts: Vec<(f32, f32)>,

@@ -11,6 +11,7 @@ fn main() {
             "heatmap",
             "timeline",
             "sessions",
+            "session_cards",
             "map_list",
             "map_data",
             "map_image",

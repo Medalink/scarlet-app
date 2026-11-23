@@ -383,8 +383,9 @@ export function sessionCard(r, { onOpen = null, who = true, chip = null } = {}) 
   card.append(head, elText("h3", "sc-session-t", r.title.text));
   if (r.buckets?.xp?.length) card.append(strip(r, { compact: true }));
   const parts = [dur(r.played)];
-  if (r.counters?.kills) parts.push(`${num(r.counters.kills)} kills`);
-  if (r.counters?.quests) parts.push(`${num(r.counters.quests)} quests`);
+  const count = (n, one, many) => `${num(n)} ${n === 1 ? one : many}`;
+  if (r.counters?.kills) parts.push(count(r.counters.kills, "kill", "kills"));
+  if (r.counters?.quests) parts.push(count(r.counters.quests, "quest", "quests"));
   const xp = Object.values(r.xp).reduce((a, v) => a + v, 0);
   if (xp) parts.push(`${num(xp)} XP`);
   card.append(elText("p", "sc-session-n", parts.join(" · ")));

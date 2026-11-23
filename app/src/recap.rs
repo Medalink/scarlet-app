@@ -919,6 +919,16 @@ fn history(st: &Store, ch: u32, start: i64, now: &Totals) -> (Vec<&'static str>,
 
 /// The recap of one character over the store sessions `sessions` (indices into `st.sessions`), merged into one.
 pub fn build(st: &Store, sessions: &[usize]) -> Option<SessionRecap> {
+    build_with(st, sessions, true)
+}
+
+/// The same recap without its route, its comparison with earlier sessions and its top lists: what a card of the
+/// sessions list draws.
+pub fn lite(st: &Store, session: usize) -> Option<SessionRecap> {
+    build_with(st, &[session], false)
+}
+
+fn build_with(st: &Store, sessions: &[usize], full: bool) -> Option<SessionRecap> {
     let ch = st.sessions[*sessions.first()?].ch;
     let mut spans: Vec<(i64, i64)> = sessions
         .iter()
@@ -928,11 +938,15 @@ pub fn build(st: &Store, sessions: &[usize]) -> Option<SessionRecap> {
     let start = spans[0].0;
     let end = spans.iter().map(|s| s.1).max().unwrap_or(start);
     let (s, done) = scan(st, ch, &spans);
-    let (bests, own) = history(st, ch, start, &totals_of(&s.agg, done.played));
+    let (bests, own) = if full {
+        history(st, ch, start, &totals_of(&s.agg, done.played))
+    } else {
+        (Vec::new(), None)
+    };
     let counters = counters(&s);
     let buckets = buckets(&s, end);
-    let top = top(&s);
-    let route = route(st, sessions);
+    let top = if full { top(&s) } else { Top::default() };
+    let route = if full { route(st, sessions) } else { None };
     let mut moments = s.moments;
     moments.sort_by_key(|m| m.at);
     Some(SessionRecap {

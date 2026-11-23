@@ -113,6 +113,7 @@ fn main() {
             commands::heatmap,
             commands::timeline,
             commands::sessions,
+            commands::session_cards,
             commands::map_list,
             commands::map_data,
             commands::map_image,
