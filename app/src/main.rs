@@ -13,6 +13,7 @@ mod feats;
 mod items;
 mod launch;
 mod layers;
+mod legacy;
 mod lifetime;
 mod loot;
 mod mapart;
@@ -124,6 +125,7 @@ fn main() {
             commands::trends,
             loot::loot,
             talents::talents,
+            legacy::legacy,
             items::items,
             lifetime::lifetime,
             ops::compress_export,

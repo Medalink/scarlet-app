@@ -14,6 +14,7 @@ pub mod gamedir;
 pub mod import;
 pub mod importarchive;
 pub mod inventory;
+pub mod legacy;
 pub mod lifetime;
 pub mod loot;
 pub mod lua;

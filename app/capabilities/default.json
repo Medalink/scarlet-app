@@ -34,6 +34,7 @@
     "allow-trends",
     "allow-loot",
     "allow-talents",
+    "allow-legacy",
     "allow-items",
     "allow-lifetime",
     "allow-compress-export",

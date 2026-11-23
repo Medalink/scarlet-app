@@ -25,6 +25,7 @@ fn main() {
             "trends",
             "loot",
             "talents",
+            "legacy",
             "items",
             "lifetime",
             "compress_export",

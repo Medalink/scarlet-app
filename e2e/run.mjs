@@ -40,6 +40,7 @@ const VIEWS = [
   { key: "map", shows: /Elwynn Forest 12 points Westfall 10 points/, never: /No path points yet/ },
   { key: "charts", shows: /Experience over time 95 1,605 .* Top spells cast Heroic Strike 1 /, never: /Experience over time No data/ },
   { key: "loot", shows: /Drop rates .* Solo Stonetusk Boar .* Chunk of Boar Meat 100% 1\/1 .* Testa Fixture Solo 3 /, never: /No creature loot with an item list|No loot recorded yet/ },
+  { key: "legacy", shows: /Progression Gourmand · rank 1 of 3 .* Well Fed duration .* 0 1 15\.0 min — — .* 1 1 20\.0 min \+33% 33% /, never: /No Legacy lines recorded|Select a character/ },
   { key: "talents", shows: /Arms · 3 points, 2 available .* Improved Heroic Strike 2\/3 Deflection 2\/2 .* Picked 1→2\/3/, never: /No talent lines recorded|Select a character/ },
   {
     key: "items",
