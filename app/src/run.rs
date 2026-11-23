@@ -3,6 +3,7 @@
 
 use crate::commands;
 use crate::launch;
+use crate::recap::{self, SessionRecap};
 use crate::store::Store;
 use scarlet::events::{Ev, event_parts};
 use serde::{Deserialize, Serialize};
@@ -67,6 +68,7 @@ pub struct RunSession {
     end: i64,
     duration: i64,
     zones: Vec<String>,
+    title: String,
 }
 
 #[derive(Serialize)]
@@ -86,6 +88,7 @@ pub struct RunSummary {
     chars: Vec<String>,
     stats: commands::Stats,
     highlights: Vec<Highlight>,
+    recaps: Vec<SessionRecap>,
 }
 
 /// The summary of the run `[from, to]`, computed from the current store so a view
@@ -122,6 +125,7 @@ pub fn summary(st: &Store, from: i64, to: i64) -> RunSummary {
             end: s.end,
             duration: (s.end - s.start).max(0) / 1000,
             zones: s.zones.clone(),
+            title: recap::title_of(st, i).text,
         });
     }
     let played = picked
@@ -156,6 +160,17 @@ pub fn summary(st: &Store, from: i64, to: i64) -> RunSummary {
                 .any(|(c, start, _)| *c == s.ch && *start == s.start)
         },
     );
+    let recaps = chars
+        .iter()
+        .filter_map(|name| {
+            let mine: Vec<usize> = picked
+                .iter()
+                .copied()
+                .filter(|i| st.chars.get(st.sessions[*i].ch as usize) == Some(name))
+                .collect();
+            recap::build(st, &mine)
+        })
+        .collect();
     RunSummary {
         from,
         to,
@@ -164,6 +179,7 @@ pub fn summary(st: &Store, from: i64, to: i64) -> RunSummary {
         chars,
         stats,
         highlights,
+        recaps,
     }
 }
 

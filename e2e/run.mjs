@@ -351,6 +351,21 @@ const CHECKS = [
   },
   {
     lane: "app",
+    name: "the run summary carries one titled recap for each character",
+    async run(ctx) {
+      const app = running(ctx);
+      const summary = await app.evaluate(`(async () => (await import("/bridge.js")).invoke("run_summary", { from: 1795000000000, to: 1795000130000 }))()`);
+      expectEqual("recaps in the run", summary.recaps.map((r) => r.character), ["Testa-Fixture"]);
+      const recap = summary.recaps[0];
+      expectEqual("the recap title", recap.title, { rule: "level", text: "Level 5 to 6 in Elwynn Forest" });
+      expectEqual("the recap levels", recap.level, [5, 6]);
+      expectEqual("experience by source", [recap.xp.kills, recap.xp.quests], [205, 1400]);
+      expectEqual("the buckets", [recap.buckets.secs, recap.buckets.xp.length, recap.buckets.xp.reduce((a, b) => a + b, 0)], [300, 1, 1605]);
+      expectEqual("each session row has a title", summary.sessions.every((s) => typeof s.title === "string" && s.title.length > 0), true);
+    },
+  },
+  {
+    lane: "app",
     name: "the timeline reads each hit of a death recap",
     async run(ctx) {
       const app = running(ctx);

@@ -20,6 +20,7 @@ mod loot;
 mod mapart;
 mod openmap;
 mod ops;
+mod recap;
 mod roster;
 mod run;
 mod settings;
