@@ -1,7 +1,7 @@
 // The crest drawer of design/crests/crests.js (CRESTS.md), ported as it is: `data-*` attributes in, one SVG out.
 
 import { GLYPHS } from "./glyphs.js";
-import { INK, QUALITY } from "./tiers.js";
+import { INK, MATERIAL, QUALITY } from "./tiers.js";
 
 const BOX = 96;
 const CX = 48;
@@ -67,6 +67,7 @@ export const SCOPES = {
 };
 const ATTACHES = [null, "shield", "crown", "banner", "side", "rays"];
 
+const BAND = [15, 69.9, 81, 73.1], GEM_AT = [48, 24.6], GEM_SETTING = 1.5;
 const NEAR_AT = 0.9, UNEARNED_FILL = 0.3, UNEARNED_RIM = 0.5, UNEARNED_GLYPH = 0.75;
 const FULL_BOX = "6 5 84 84", COMPACT_BOX = "13 8.5 70 70";
 const GLYPH = 28;
@@ -99,6 +100,13 @@ export function drawCrest(el) {
   const group = (slot, kids) => S("g", { class: `cr-p cr-${slot}${state === "earned" && ATTACHES[tier] === slot ? " cr-new" : ""}` }, kids);
   const path = (key, attrs) => S("path", { d: PIECES[key].d, ...attrs });
   const backed = (key, attrs) => [path(key, { fill: INK, stroke: INK, "stroke-width": compact ? 4.4 : 3.6, "stroke-linejoin": "round" }), path(key, attrs)];
+  const paints = {};
+  const gradient = (key, top, bottom) => {
+    if (!paints[key]) defs.append(S("linearGradient", { id: id + key, x1: 0, y1: 0, x2: 0, y2: 1 }, [S("stop", { offset: 0, "stop-color": top }), S("stop", { offset: 1, "stop-color": bottom })]));
+    paints[key] = true;
+    return `url(#${id + key})`;
+  };
+  const made = (material) => gradient(material, MATERIAL[material].top, MATERIAL[material].bottom);
   const flash = (key) => (state === "earned" ? path(key, { fill: "#fff", class: "cr-flash", opacity: 0 }) : null);
 
   const ghost = (key, color, back, strength = 1, of = next) => {
@@ -117,10 +125,10 @@ export function drawCrest(el) {
 
   const want = tier < 5 && !tiny && !outline ? ATTACHES[tier + 1] : null;
   const hidden = compact && (want === "side" || want === "rays");
-  if (q.side && !compact) svg.append(group("side", [path(sc.side, { fill: q.side }), flash(sc.side)]));
+  if (q.side && !compact) svg.append(group("side", [path(sc.side, { fill: made(q.side) }), flash(sc.side)]));
   if (want === "side" && !hidden) svg.append(group("side ghost", ghost(sc.side, next.color)));
-  if (q.rays && !compact) svg.append(group("rays", [...backed("rays", { fill: q.rays }), flash("rays")]));
-  if (want === "rays" && !hidden) svg.append(group("rays ghost", ghost("rays", next.rays, true)));
+  if (q.rays && !compact) svg.append(group("rays", [...backed("rays", { fill: made(q.rays) }), flash("rays")]));
+  if (want === "rays" && !hidden) svg.append(group("rays ghost", ghost("rays", MATERIAL[next.rays].flat, true)));
 
   const body = [];
   if (tier === 0) {
@@ -128,19 +136,20 @@ export function drawCrest(el) {
     body.push(path(sc.shield, { fill: "none", stroke: color, "stroke-opacity": UNEARNED_RIM, "stroke-width": compact ? 2.8 : 2 }));
     if (sc.ring) body.push(path(sc.ring, { fill: color, "fill-opacity": UNEARNED_RIM }));
   } else {
-    const rim = q.rim;
+    const rim = made(q.frame), solid = q.field === 1 || tiny, inset = compact ? 0.86 : 0.9;
+    const inner = solid ? (compact ? 0.8 : 0.84) : compact ? 0.78 : 0.85;
     if (!compact) body.push(path(sc.shield, { fill: INK, transform: about(sc.ring ? 1.3 : 1.09) }));
     if (sc.ring) body.push(path(sc.ring, { fill: rim }));
     body.push(path(sc.shield, { fill: rim }));
-    body.push(path(sc.shield, { fill: INK, transform: about(compact ? 0.86 : 0.9) }));
-    const solid = q.field === 1 || tiny;
-    if (!outline) body.push(path(sc.shield, { fill: color, "fill-opacity": tiny ? q.plain : q.field, transform: about(solid ? (compact ? 0.8 : 0.84) : compact ? 0.86 : 0.9) }));
+    body.push(path(sc.shield, { fill: solid ? INK : color, transform: about(inset) }));
+    if (!solid) body.push(path(sc.shield, { fill: INK, transform: about(inner) }));
+    if (!outline) body.push(path(sc.shield, { fill: gradient("enamel", color, q.deep), "fill-opacity": tiny ? q.plain : q.field, transform: about(inner) }));
     body.push(flash(sc.shield));
   }
   svg.append(group("shield", body));
 
   if (!tiny) {
-    const ink = outline ? q.rim : q.glyph;
+    const ink = outline ? color : q.glyph;
     const gs = (compact ? 1.12 : 1) * (GLYPH / 24), gy = sc.glyphY + (compact && tier < 3 ? 1.5 : 0);
     const g = S("g", { class: "cr-glyph", transform: `translate(${CX - 12 * gs} ${gy - 12 * gs}) scale(${gs})`, fill: "none", stroke: ink, "stroke-width": q.field === 1 && !outline ? 2.1 : compact ? 2 : 1.8, "stroke-linecap": "round", "stroke-linejoin": "round", opacity: tier ? 1 : UNEARNED_GLYPH });
     if (el.dataset.icon) {
@@ -153,11 +162,15 @@ export function drawCrest(el) {
     svg.append(g);
   }
 
-  if (tier >= 3) svg.append(group("banner", [...backed("banner", { fill: color }), flash("banner")]));
+  if (tier >= 3) {
+    defs.append(S("clipPath", { id: id + "band" }, S("rect", { x: BAND[0], y: BAND[1], width: BAND[2] - BAND[0], height: BAND[3] - BAND[1] })));
+    svg.append(group("banner", [...backed("banner", { fill: made(q.banner) }), path("banner", { fill: color, "clip-path": `url(#${id}band)` }), flash("banner")]));
+  }
   if (want === "banner") svg.append(group("banner ghost", ghost("banner", next.color, true)));
   if (tier >= 2) {
     const key = tier === 5 ? "great-crown" : "crown";
-    svg.append(group("crown", [...backed(key, { fill: color }), tier === 5 ? path("gem", { fill: q.gem, stroke: INK, "stroke-width": 1.2 }) : null, flash(key)]));
+    const setting = `translate(${GEM_AT[0]} ${GEM_AT[1]}) scale(${GEM_SETTING}) translate(${-GEM_AT[0]} ${-GEM_AT[1]})`;
+    svg.append(group("crown", [...backed(key, { fill: made(q.crown) }), path("gem", { fill: INK, transform: setting }), path("gem", { fill: q.gem }), flash(key)]));
   }
   if (want === "crown") svg.append(group("crown ghost", ghost("crown", next.color, true)));
   el.classList.add("sc-crest", "t" + held, "s-" + scope);
