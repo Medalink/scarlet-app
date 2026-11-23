@@ -1,0 +1,80 @@
+// A full-page screenshot of each view, from the real exe on a hidden desktop, for comparing with the design's renders.
+//   node scripts/shots.mjs --out <dir> [--fixture | --home <dir>] [--views a,b,c] [--char Name-Surname] [--upload]
+// --fixture builds the e2e fixture and exports it; --home copies a Scarlet home (settings.json and its data folder) to
+// a temp folder under E:\Temp first, so the original is never written. Uploading is switched off unless --upload.
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
+import { parseArgs } from "node:util";
+import { launch } from "../e2e/cdp.mjs";
+import { writeWow } from "../e2e/scenario.mjs";
+
+const REPO = path.resolve(import.meta.dirname, "..");
+const { values } = parseArgs({
+  options: {
+    out: { type: "string" },
+    fixture: { type: "boolean" },
+    home: { type: "string" },
+    views: { type: "string" },
+    char: { type: "string" },
+    upload: { type: "boolean" },
+    exe: { type: "string" },
+  },
+});
+if (!values.out || (!values.fixture && !values.home)) {
+  console.error("usage: node scripts/shots.mjs --out <dir> (--fixture | --home <dir>) [--views a,b] [--char Name-Surname] [--upload]");
+  process.exit(2);
+}
+
+const temp = fs.mkdtempSync(path.join(process.env.SCARLET_SHOTS_TEMP ?? "E:\\Temp", "scarlet-shots-"));
+const home = path.join(temp, "home");
+fs.mkdirSync(home, { recursive: true });
+fs.mkdirSync(values.out, { recursive: true });
+
+let settings;
+if (values.fixture) {
+  const wow = path.join(temp, "wow");
+  const out = path.join(temp, "out");
+  writeWow(wow);
+  const cli = path.join(REPO, "companion", "target", "debug", "scarlet.exe");
+  const run = spawnSync(cli, ["export", "--wow", wow, "--out", out], { encoding: "utf8", windowsHide: true });
+  if (run.status !== 0) throw new Error(`export failed: ${run.stderr}`);
+  settings = { wow, data: out, watch: false, last_view: "sessions", keep_addon: false, open_with_wow: false, setup_done: true, upload: { enabled: false, server: "http://127.0.0.1:8471" } };
+} else {
+  const source = JSON.parse(fs.readFileSync(path.join(values.home, "settings.json"), "utf8"));
+  const copy = path.join(temp, "out");
+  fs.cpSync(source.data, copy, { recursive: true });
+  settings = { ...source, data: copy, watch: false, keep_addon: false, open_with_wow: false, setup_done: true, upload: { ...source.upload, enabled: Boolean(values.upload) } };
+}
+fs.writeFileSync(path.join(home, "settings.json"), JSON.stringify(settings));
+
+const exe = values.exe ?? path.join(REPO, "app", "target", "debug", "scarlet-app.exe");
+const app = await launch({ exe, home });
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+let code = 0;
+try {
+  await app.until(`document.querySelectorAll("#nav .item").length > 0 && document.querySelector("#pagetitle").textContent !== ""`, "the page booted", 20000);
+  const rows = await app.evaluate(`(async () => (await import("/bridge.js")).invoke("sessions", { ch: null }))()`);
+  const last = rows[rows.length - 1];
+  const run = last ? `sessions/${last.start}-${last.end}` : "sessions";
+  const names = (values.views ?? "system,sessions,run,feats,character,character/class,character/talents,stats,characters,data").split(",");
+  if (values.char) await app.evaluate(`(() => { const s = document.querySelector("#char"); s.value = ${JSON.stringify(values.char)}; s.dispatchEvent(new Event("change")); })()`);
+  await app.evaluate(`(() => { const s = document.createElement("style"); s.textContent = "html,body,#shell,main,#body{height:auto!important;overflow:visible!important}body{display:block!important}#shell{display:flex}"; document.head.append(s); })()`);
+  for (const name of names) {
+    const hash = name === "run" ? run : name;
+    await app.evaluate(`location.hash = ${JSON.stringify(hash)}`);
+    await sleep(1500);
+    const file = path.join(values.out, `${name.replace(/\//g, "-")}.png`);
+    await app.screenshot(file, { full: true });
+    console.log(`${name}: ${file}`);
+  }
+  if (app.problems.length) {
+    console.log(`problems: ${app.problems.join(" | ")}`);
+    code = 1;
+  }
+} finally {
+  const exit = await app.close();
+  if (exit === 3) code = 3;
+  fs.rmSync(temp, { recursive: true, force: true, maxRetries: 20, retryDelay: 100 });
+}
+process.exit(code);

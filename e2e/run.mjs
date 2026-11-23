@@ -328,6 +328,18 @@ const CHECKS = [
   })),
   {
     lane: "app",
+    name: "the component sheet draws every component",
+    async run(ctx) {
+      const app = running(ctx);
+      await app.evaluate(`location.hash = "system"`);
+      await app.until(`/Feat seal: the family is the shape/.test(${BODY}) && /Link entry points/.test(${BODY})`, "the component sheet shows its sections");
+      const drawn = await app.evaluate(`({ seals: document.querySelectorAll("#body .sc-seal svg").length, charts: document.querySelectorAll("#body svg.sc-svg").length, cmp: document.querySelectorAll("#body .sc-cmp").length, rings: document.querySelectorAll("#body .sc-ring svg").length, active: document.querySelector("#nav .item.active")?.dataset.key ?? null })`);
+      expectEqual("the component sheet has no nav entry", drawn.active, null);
+      if (drawn.seals < 20 || drawn.charts < 3 || drawn.cmp < 3 || drawn.rings < 1) throw mismatch("components on the sheet", "20 seals, 3 charts, 3 compare strips, a ring", JSON.stringify(drawn));
+    },
+  },
+  {
+    lane: "app",
     name: "the run summary shows the run around a session",
     async run(ctx) {
       const app = running(ctx);

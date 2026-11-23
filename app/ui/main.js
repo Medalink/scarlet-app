@@ -18,6 +18,7 @@ import * as items from "./views/items.js";
 import * as addons from "./views/addons.js";
 import * as compress from "./views/compress.js";
 import * as settings from "./views/settings.js";
+import * as system from "./views/system.js";
 import { openSetup } from "./setup.js";
 
 const VIEWS = {
@@ -36,6 +37,7 @@ const VIEWS = {
   addons: ["Addons", addons],
   compress: ["Compress", compress],
   settings: ["Settings", settings],
+  system: ["Components", system],
 };
 
 const NAV_GROUPS = [

@@ -29,7 +29,7 @@ const ownEnvironment = (home, port) => {
 
 /**
  * Starts `exe` on a desktop of its own with `home` as its SCARLET_HOME and returns the page's handle:
- * `evaluate(expression)`, `until(expression, what, ms)`, `screenshot(file)`, `problems`, `close()`, `pid` and
+ * `evaluate(expression)`, `until(expression, what, ms)`, `screenshot(file, { full })`, `problems`, `close()`, `pid` and
  * `exitCode()` (the launcher's, null while it runs; 3 means a window of the app was found on the desktop in use).
  * `close()` clicks the window's close button and returns the launcher's exit code, or null when the app had not
  * ended after 10 s and the launcher was killed. The launcher ends the app when this process is gone. An error thrown
@@ -156,8 +156,14 @@ export async function launch({ exe, home }) {
     }
   };
 
-  const screenshot = async (file) => {
-    const { result, error } = await send("Page.captureScreenshot", { format: "png" });
+  const screenshot = async (file, { full = false } = {}) => {
+    let params = { format: "png" };
+    if (full) {
+      const { result: metrics } = await send("Page.getLayoutMetrics");
+      const { width, height } = metrics.cssContentSize ?? metrics.contentSize;
+      params = { format: "png", captureBeyondViewport: true, clip: { x: 0, y: 0, width, height: Math.min(height, 16000), scale: 1 } };
+    }
+    const { result, error } = await send("Page.captureScreenshot", params);
     if (!result?.data) throw new Error(`screenshot failed: ${JSON.stringify(error)}`);
     fs.writeFileSync(file, Buffer.from(result.data, "base64"));
   };

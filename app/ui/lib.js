@@ -123,7 +123,7 @@ export const PALETTE = [
 ];
 
 // Chart series: kills, dungeon kills, quests, exploring, other.
-export const SERIES = ["#ff2d55", "#9a7df2", "#b98b2d", "#2f9ec4", "#6e6e7a"];
+export const SERIES = ["#ff2d55", "#9a7df2", "#98721c", "#2f9ec4", "#54545d"];
 
 export function esc(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
@@ -267,3 +267,5 @@ export function stackedBar(splits) {
     .map(([label, s], i) => `<span><i style="background:${SERIES[i % SERIES.length]}"></i>${esc(label)} ${dur(s)}</span>`)
     .join("")}</div>`;
 }
+
+export * from "./components.js";
