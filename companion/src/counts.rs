@@ -17,10 +17,13 @@ pub const FOREVER_FISHING: &str = "ff";
 pub const MASTERCRAFT: &str = "mc";
 pub const RXP: &str = "rxp";
 pub const FDJ: &str = "fdj";
+pub const NF: &str = "nf";
 pub const SESSION: &str = "session";
+pub const EVENT: &str = "event";
 pub const LEVEL: &str = "level";
 pub const LIFE: &str = "life";
 pub const KILL: &str = "kill";
+pub const BOSS: &str = "boss";
 pub const RUN: &str = "run";
 pub const XP: &str = "xp";
 pub const CHARACTER: &str = "c";
@@ -339,6 +342,7 @@ fn scarlet_amounts(rec: &Record) -> Vec<(&'static str, i64)> {
         (RXP, LEVEL, KILL) => mapped(rec, "count", "kills"),
         (RXP, LEVEL, XP) => mapped(rec, "xp", "xp"),
         (FDJ, SESSION, RUN) => mapped(rec, "runs", "runs"),
+        (NF, EVENT, BOSS) => mapped(rec, "bosses", "bosses"),
         _ => Vec::new(),
     }
 }

@@ -18,6 +18,7 @@ pub mod lifetime;
 pub mod loot;
 pub mod lua;
 pub mod mastercraft;
+pub mod naowhforever;
 pub mod overview;
 pub mod rxp;
 pub mod tables;

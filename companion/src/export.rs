@@ -13,6 +13,7 @@ use crate::importarchive::Archive;
 use crate::inventory::{self, Inventory};
 use crate::lua::{self, Lua};
 use crate::mastercraft;
+use crate::naowhforever;
 use crate::overview::{self, Overview};
 use crate::rxp;
 use crate::tables;
@@ -521,7 +522,7 @@ fn refresh_fishing(wows: &[PathBuf], out: &Path, state: &mut State) -> bool {
     wrote
 }
 
-const COUNTS_STAMP: &str = "counts2";
+const COUNTS_STAMP: &str = "counts3";
 
 struct CountSources {
     files: Vec<PathBuf>,
@@ -533,7 +534,7 @@ fn count_sources(wows: &[PathBuf], out: &Path) -> Vec<CountSources> {
     let mut found = Vec::new();
     for wow in wows {
         for account in crate::gamedir::account_dirs(&crate::gamedir::game_dir(wow)) {
-            let files: Vec<PathBuf> = [foreverfishing::FILE, mastercraft::FILE]
+            let files: Vec<PathBuf> = [foreverfishing::FILE, mastercraft::FILE, naowhforever::FILE]
                 .iter()
                 .map(|f| account.join("SavedVariables").join(f))
                 .filter(|p| p.is_file())
@@ -651,6 +652,24 @@ fn feed_mastercraft(file: &Path, exported: &[String], out: &Path) -> bool {
     }
 }
 
+fn feed_naowhforever(file: &Path, exported: &[String], out: &Path) -> bool {
+    let Some(db) = read_table(file, naowhforever::TABLE) else {
+        return false;
+    };
+    let mut wrote = false;
+    for (name, records) in naowhforever::read(&db, exported) {
+        match counts::feed(&out.join(&name), records) {
+            Ok(0) => {}
+            Ok(n) => {
+                println!("{name}: {n} NaowhForever boss kills archived");
+                wrote = true;
+            }
+            Err(e) => eprintln!("scarlet: {name}: counts: {e}"),
+        }
+    }
+    wrote
+}
+
 fn feed_character(
     file: &Path,
     name: &str,
@@ -692,6 +711,7 @@ fn refresh_counts(wows: &[PathBuf], out: &Path, state: &mut State) -> bool {
                     wrote |= feed_forever_fishing(file, &src.exported, out);
                 }
                 Some(mastercraft::FILE) => wrote |= feed_mastercraft(file, &src.exported, out),
+                Some(naowhforever::FILE) => wrote |= feed_naowhforever(file, &src.exported, out),
                 _ => {}
             }
         }
