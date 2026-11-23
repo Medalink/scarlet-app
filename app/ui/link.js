@@ -28,6 +28,8 @@ export const forgetLink = () => {
   asked = null;
 };
 
+window.addEventListener("scarlet:web", forgetLink);
+
 export function footLine({ state, host }) {
   const text = state === "linked" ? `Linked to ${host}` : state === "unlinked" ? "Not linked" : "Uploading is off";
   return { text, linked: state === "linked" };

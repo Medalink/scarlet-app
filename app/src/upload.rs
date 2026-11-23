@@ -306,8 +306,16 @@ fn run_once(app: &AppHandle) -> bool {
     reports.iter().any(|r| r.retry)
 }
 
+fn set_linked(linked: bool) -> bool {
+    LINKED.swap(linked, Ordering::AcqRel) != linked
+}
+
 fn send_feats_seen(sess: &mut Session, s: &Settings) {
-    if !sess.me().is_ok_and(|m| m.linked) {
+    let Ok(linked) = sess.me().map(|m| m.linked) else {
+        return;
+    };
+    set_linked(linked);
+    if !linked {
         return;
     }
     for (character, shown) in scarlet::export::feats_seen_unsent(&s.folders(), &s.data) {
@@ -490,7 +498,7 @@ pub async fn upload_linked() -> Result<bool, String> {
                 Some(mut sess) => sess.me().map(|m| m.linked).map_err(|e| e.to_string())?,
                 None => false,
             };
-        if LINKED.swap(linked, Ordering::AcqRel) != linked {
+        if set_linked(linked) {
             publish_web(&s);
         }
         Ok(linked)
@@ -512,7 +520,7 @@ pub async fn upload_link() -> Result<LinkView, String> {
             .map_err(|e| e.to_string())?
             .ok_or("This install is not set up for uploading yet.")?;
         if sess.me().map_err(|e| e.to_string())?.linked {
-            if !LINKED.swap(true, Ordering::AcqRel) {
+            if set_linked(true) {
                 publish_web(&s);
             }
             return Ok(LinkView { linked: true });

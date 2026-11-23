@@ -3,7 +3,19 @@
 // package the withGlobalTauri bundle used to expose; the crate is pinned to 2.x in Cargo.toml.
 const bridge = window.__TAURI_INTERNALS__;
 
-export const invoke = (cmd, args) => bridge.invoke(cmd, args ?? {});
+const WEB_COMMANDS = new Set(["upload_set_enabled", "upload_set_server", "upload_link", "upload_delete_all"]);
+let linkedBefore;
+
+export async function invoke(cmd, args) {
+  const answer = await bridge.invoke(cmd, args ?? {});
+  let changed = WEB_COMMANDS.has(cmd);
+  if (cmd === "upload_linked") {
+    changed = linkedBefore !== undefined && answer !== linkedBefore;
+    linkedBefore = answer;
+  }
+  if (changed) window.dispatchEvent(new Event("scarlet:web"));
+  return answer;
+}
 
 export async function listen(event, handler, target = { kind: "Any" }) {
   const id = await bridge.invoke("plugin:event|listen", {

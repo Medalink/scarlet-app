@@ -127,6 +127,8 @@ async function refreshWebLine() {
   updateFoot();
 }
 
+window.addEventListener("scarlet:web", refreshWebLine);
+
 window.__nav = (key) => {
   location.hash = key;
 };
