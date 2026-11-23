@@ -109,7 +109,7 @@ export async function renderUpload(body) {
       };
       const row = el("div", "row");
       row.append(code, copy);
-      card.append(el("div", "lab", "Code"), row, el("div", "note", "Confirm it on the page that opened in your browser."));
+      card.append(el("div", "lab", "Code"), row, el("div", "note", "Type it on the page that opened in your browser."));
       box.appendChild(card);
     }
 

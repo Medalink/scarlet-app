@@ -16,7 +16,7 @@ pub const USAGE: &str = "usage: scarlet upload <command> [--out <dir>] [--settin
   remove-group <key>           remove a group from the server and switch it off here
   restore-group <key>          let the server take a group again and switch it on here
   delete-all --yes             remove everything this install uploaded
-  link                         print a link code and the page to confirm it on
+  link                         print a link code and the page to type it on
   set [--enable|--disable] [--server <url>] [--group <key>=on|off]... [--set-character <name>=on|off]...
   forget-identity              delete this PC's install key from the credential store";
 
@@ -324,7 +324,7 @@ fn link(a: &Args) -> Result<()> {
     }
     let l = s.link()?;
     println!("code {} (valid until {})", l.code, l.expires_at);
-    println!("confirm it at {}", l.url);
+    println!("open {} and type the code there", l.url);
     s.hits().iter().for_each(print_hit);
     Ok(())
 }

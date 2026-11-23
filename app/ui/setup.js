@@ -284,7 +284,7 @@ async function stepLink({ mine, title, body, foot }) {
     card.append(
       el("div", "lab", "Code"),
       row,
-      el("div", "note", "Sign in on the page that opened in your browser and confirm this code."),
+      el("div", "note", "Sign in on the page that opened in your browser and type this code."),
     );
     const again = button("Open the page again", "btn", async () => {
       try {

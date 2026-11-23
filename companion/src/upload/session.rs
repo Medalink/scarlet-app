@@ -441,7 +441,10 @@ impl Session {
     }
 
     /// A link code, and the page to confirm it on. The address carries a redeem signature the
-    /// website checks against the install's public key, so only this PC can complete the link.
+    /// website checks against the install's public key, so only this PC can complete the link; the
+    /// code is not in it, the person types the one shown here. The signed text is built here from
+    /// a well-formed code, never taken from the server, so a server cannot have the key sign
+    /// anything else.
     pub fn link(&mut self) -> Result<LinkInfo> {
         const REDEEM_LINE: &str = "scarlet-link-redeem";
         let r = self.api("POST", "/installs/link-code", None)?;
@@ -453,19 +456,14 @@ impl Session {
                 .to_string()
         };
         let code = text("code");
-        let named = text("redeem");
-        let message = if named.is_empty() {
-            format!("{REDEEM_LINE}\n{code}")
-        } else {
-            named
-        };
-        let redeem = self.client.sign(&message)?;
+        if !is_link_code(&code) {
+            return Err(Error::local(
+                "the server sent a link code the app does not accept",
+            ));
+        }
+        let redeem = self.client.sign(&format!("{REDEEM_LINE}\n{code}"))?;
         Ok(LinkInfo {
-            url: format!(
-                "{}/link?code={code}&redeem={}",
-                self.site(),
-                query_escape(&redeem)
-            ),
+            url: format!("{}/link?redeem={}", self.site(), query_escape(&redeem)),
             code,
             expires_at: text("expires_at"),
         })
@@ -533,6 +531,16 @@ fn check_group(key: &str) -> Result<()> {
         )));
     }
     Ok(())
+}
+
+fn is_link_code(code: &str) -> bool {
+    let is_group = |g: &str| {
+        g.len() == 4
+            && g.bytes()
+                .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit())
+    };
+    code.split_once('-')
+        .is_some_and(|(a, b)| is_group(a) && is_group(b))
 }
 
 fn query_escape(value: &str) -> String {
