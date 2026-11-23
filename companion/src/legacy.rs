@@ -8,9 +8,8 @@ use crate::talents::Line;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-pub const CODES: [&str; 17] = [
-    "S", "LN", "LE", "LB", "SN", "LO", "O", "WE", "A", "RX", "RO", "SK", "SL", "KN", "CR", "C",
-    "ES",
+pub const CODES: [&str; 16] = [
+    "S", "LN", "LE", "LB", "SN", "LO", "O", "WE", "A", "RX", "RO", "SK", "SL", "KN", "C", "ES",
 ];
 
 const LUREMASTER: &str = "1225455";
@@ -20,6 +19,7 @@ const GOURMAND: &str = "1225499";
 
 const BOBBER: &str = "35591";
 const CATCH_ITEMS_MS: i64 = 1_500;
+const LURE_SKILL_MS: i64 = 5_000;
 const SKILL_UP_BEFORE_MS: i64 = 1_500;
 const SKILL_UP_AFTER_MS: i64 = 3_000;
 const LOGIN_RESTED_MS: i64 = 60_000;
@@ -37,19 +37,6 @@ const GATHER_SPELLS: [(&str, &str); 3] = [
     ("2576", "Mining"),
     ("11993", "Herbalism"),
 ];
-const CRAFTS: [&str; 10] = [
-    "Alchemy",
-    "Blacksmithing",
-    "Cooking",
-    "Enchanting",
-    "Engineering",
-    "First Aid",
-    "Inscription",
-    "Jewelcrafting",
-    "Leatherworking",
-    "Tailoring",
-];
-
 fn field<'a>(l: &Line<'a>, i: usize) -> &'a str {
     l.fields.get(i).map(String::as_str).unwrap_or("")
 }
@@ -74,8 +61,9 @@ fn tree_name(id: &str) -> &'static str {
 fn stated(text: &str) -> Option<f64> {
     let end = text.find('%')?;
     let start = text[..end]
-        .rfind(|c: char| !(c.is_ascii_digit() || c == '.'))
-        .map_or(0, |i| i + 1);
+        .char_indices()
+        .rfind(|(_, c)| !(c.is_ascii_digit() || *c == '.'))
+        .map_or(0, |(i, c)| i + c.len_utf8());
     text[start..end].parse().ok()
 }
 
@@ -152,7 +140,8 @@ struct Node {
     max_ranks: u32,
     ranks: Vec<(i64, u32)>,
     changes: Vec<RankChange>,
-    texts: BTreeMap<u32, String>,
+    entry: String,
+    entries: BTreeMap<String, (String, BTreeMap<u32, String>)>,
 }
 
 impl Node {
@@ -167,6 +156,16 @@ impl Node {
         }
         self.ranks.push((ms, rank));
         self.changes.push(RankChange { ms, from, to: rank });
+    }
+
+    fn texts(&self) -> Option<&(String, BTreeMap<u32, String>)> {
+        self.entries
+            .get(&self.entry)
+            .or_else(|| self.entries.values().next())
+    }
+
+    fn text(&self, rank: u32) -> Option<&String> {
+        self.texts().and_then(|t| t.1.get(&rank))
     }
 
     fn rank_at(&self, ms: i64, known_since: Option<i64>) -> Option<u32> {
@@ -207,6 +206,9 @@ fn ranks<'a>(lines: &[Line<'a>]) -> Ranks {
                 if !field(l, 7).is_empty() {
                     n.spell_id = field(l, 7).to_string();
                 }
+                if !field(l, 2).is_empty() {
+                    n.entry = field(l, 2).to_string();
+                }
                 if !field(l, 9).is_empty() {
                     n.name = field(l, 9).to_string();
                 }
@@ -241,11 +243,12 @@ fn ranks<'a>(lines: &[Line<'a>]) -> Ranks {
                 };
                 let n = nodes.entry(field(l, 1).to_string()).or_default();
                 n.tree_id = field(l, 0).to_string();
-                if !field(l, 3).is_empty() {
-                    n.spell_id = field(l, 3).to_string();
-                }
                 n.max_ranks = number(field(l, 5)).unwrap_or(n.max_ranks);
-                n.texts.insert(rank, field(l, 6).to_string());
+                let e = n.entries.entry(field(l, 2).to_string()).or_default();
+                if !field(l, 3).is_empty() {
+                    e.0 = field(l, 3).to_string();
+                }
+                e.1.insert(rank, field(l, 6).to_string());
             }
             _ => {}
         }
@@ -269,7 +272,38 @@ fn spell_names<'a>(lines: &[Line<'a>]) -> HashMap<&'a str, &'a str> {
         .collect()
 }
 
+fn lure_enchants<'a>(lines: &[Line<'a>]) -> HashSet<&'a str> {
+    let fishing: HashSet<&str> = lines
+        .iter()
+        .filter(|l| l.code == "KN" && field(l, 1) == "Fishing")
+        .map(|l| field(l, 0))
+        .collect();
+    let mut lures = HashSet::new();
+    let mut applied: Option<(i64, &str)> = None;
+    let mut modifier: HashMap<&str, u32> = HashMap::new();
+    for l in lines {
+        match l.code {
+            "WE" if field(l, 0) == "0" && number(field(l, 1)).is_some_and(|e| e > 0) => {
+                applied = Some((l.ms, field(l, 1)));
+            }
+            "SL" if fishing.contains(field(l, 0)) => {
+                let now = number(field(l, 3)).unwrap_or(0);
+                let was = modifier.insert(field(l, 0), now).unwrap_or(0);
+                if now > was
+                    && let Some((ms, enchant)) = applied
+                    && l.ms - ms <= LURE_SKILL_MS
+                {
+                    lures.insert(enchant);
+                }
+            }
+            _ => {}
+        }
+    }
+    lures
+}
+
 fn luremaster(lines: &[Line]) -> Samples {
+    let lures = lure_enchants(lines);
     let mut points = Vec::new();
     let mut lure_until: Option<i64> = None;
     let mut open: Option<(i64, u32)> = None;
@@ -282,7 +316,7 @@ fn luremaster(lines: &[Line]) -> Samples {
         match l.code {
             "WE" if field(l, 0) == "0" => {
                 lure_until = match number(field(l, 1)) {
-                    Some(e) if e > 0 => {
+                    Some(e) if e > 0 && lures.contains(field(l, 1)) => {
                         Some(decimal(field(l, 3)).map_or(i64::MAX, |s| l.ms + (s * 1000.0) as i64))
                     }
                     _ => None,
@@ -390,20 +424,7 @@ fn working_overtime(lines: &[Line], names: &HashMap<&str, &str>) -> Samples {
             _ => {}
         }
     }
-    let near = |ms: i64, prof: Option<&str>| {
-        let lo = ups.partition_point(|u| u.0 < ms - SKILL_UP_BEFORE_MS);
-        ups[lo..]
-            .iter()
-            .take_while(|u| u.0 <= ms + SKILL_UP_AFTER_MS)
-            .find(|u| prof.map_or(CRAFTS.contains(&u.1), |p| p == u.1))
-            .map(|u| u.1)
-    };
-    let mut recipe_prof: HashMap<&str, &str> = HashMap::new();
-    for l in lines.iter().filter(|l| l.code == "CR") {
-        if let Some(p) = near(l.ms, None) {
-            recipe_prof.insert(field(l, 4), p);
-        }
-    }
+    let mut used: HashSet<usize> = HashSet::new();
     let mut capped: HashMap<&str, bool> = HashMap::new();
     let mut points = Vec::new();
     for l in lines {
@@ -431,18 +452,23 @@ fn working_overtime(lines: &[Line], names: &HashMap<&str, &str>) -> Samples {
                     })
                 }),
             "LO" if field(l, 0) == "g" && field(l, 1) == BOBBER => Some("Fishing"),
-            "CR" => near(l.ms, None).or_else(|| recipe_prof.get(field(l, 4)).copied()),
             _ => None,
         };
         let Some(prof) = prof else { continue };
         if capped.get(prof) == Some(&true) {
             continue;
         }
-        let hit = near(l.ms, Some(prof)).is_some();
-        points.push((l.ms, if hit { 100.0 } else { 0.0 }));
+        let lo = ups.partition_point(|u| u.0 < l.ms - SKILL_UP_BEFORE_MS);
+        let hit = (lo..ups.len())
+            .take_while(|&i| ups[i].0 <= l.ms + SKILL_UP_AFTER_MS)
+            .find(|&i| ups[i].1 == prof && !used.contains(&i));
+        if let Some(i) = hit {
+            used.insert(i);
+        }
+        points.push((l.ms, if hit.is_some() { 100.0 } else { 0.0 }));
     }
     Samples {
-        what: "Profession actions below the skill cap that gave a skill-up",
+        what: "Gathering casts and fishing catches below the skill cap that gave a skill-up",
         trials: "Actions",
         unit: "%",
         kind: Kind::Increase,
@@ -487,7 +513,7 @@ fn measure(node: &Node, s: Samples, known_since: Option<i64>) -> Measure {
                 stated: if rank == 0 {
                     None
                 } else {
-                    node.texts.get(&rank).and_then(|t| stated(t))
+                    node.text(rank).and_then(|t| stated(t))
                 },
                 first_ms: r.map_or(0, |r| r.2),
                 last_ms: r.map_or(0, |r| r.3),
@@ -513,7 +539,12 @@ pub fn build<'a>(lines: impl IntoIterator<Item = Line<'a>>) -> Legacy {
     let mut talents: Vec<Talent> = nodes
         .iter()
         .map(|(id, n)| {
-            let samples = match n.spell_id.as_str() {
+            let spell_id = if n.spell_id.is_empty() {
+                n.texts().map(|t| t.0.clone()).unwrap_or_default()
+            } else {
+                n.spell_id.clone()
+            };
+            let samples = match spell_id.as_str() {
                 LUREMASTER => Some(luremaster(&lines)),
                 GOURMAND => Some(gourmand(&lines, &names)),
                 WELL_RESTED => Some(well_rested(&lines)),
@@ -521,7 +552,7 @@ pub fn build<'a>(lines: impl IntoIterator<Item = Line<'a>>) -> Legacy {
                 _ => None,
             };
             let name = names
-                .get(n.spell_id.as_str())
+                .get(spell_id.as_str())
                 .map(|s| s.to_string())
                 .filter(|s| !s.is_empty())
                 .or_else(|| (!n.name.is_empty()).then(|| n.name.clone()))
@@ -530,13 +561,14 @@ pub fn build<'a>(lines: impl IntoIterator<Item = Line<'a>>) -> Legacy {
                 tree: tree_name(&n.tree_id),
                 tree_id: n.tree_id.clone(),
                 node_id: id.clone(),
-                spell_id: n.spell_id.clone(),
+                spell_id,
                 name,
                 rank: n.rank(),
                 max_ranks: n.max_ranks,
                 texts: n
-                    .texts
-                    .iter()
+                    .texts()
+                    .into_iter()
+                    .flat_map(|t| t.1.iter())
                     .map(|(rank, text)| RankText {
                         rank: *rank,
                         text: text.clone(),
