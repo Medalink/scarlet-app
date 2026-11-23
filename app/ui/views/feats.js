@@ -91,7 +91,7 @@ function accountFeat(cat, f) {
     crest: "account",
     thresholds: cat.account_thresholds,
     counted: f.counted ?? countText(cat, f.value) + (cat.account === "sum" ? " on the account" : ""),
-    to_next: [f.to_next ?? toNext, f.holder ? `Held by ${f.holder}` : null].filter(Boolean).join(" · ") || null,
+    to_next: f.to_next !== undefined ? f.to_next : [toNext, f.holder ? `Held by ${displayName(f.holder)}` : null].filter(Boolean).join(" · ") || null,
     progress: f.progress,
     value: f.value,
     next: f.next,
