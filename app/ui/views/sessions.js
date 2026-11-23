@@ -102,15 +102,21 @@ export async function render(body, sub) {
   await draw(body);
 }
 
+const overlap = (c, from, to) => Math.min(c.to, to) - Math.max(c.from, from);
+
 async function renderRun(body, sub) {
   const [from, to] = sub.split("-").map(Number);
-  const run = await invoke("run_summary", { from, to });
+  const [all, s] = await Promise.all([invoke("session_cards", { ch: state.ch }), invoke("get_settings")]);
+  const cards = all.filter((c) => c.recap || c.live);
+  const exact = cards.find((c) => c.from === from);
+  const current = exact ?? cards.filter((c) => overlap(c, from, to) > 0).sort((a, b) => overlap(b, from, to) - overlap(a, from, to))[0] ?? null;
+  const run = exact ? await invoke("run_summary", { from: exact.from, to: exact.to, ch: state.ch, clip: true }) : await invoke("run_summary", { from, to });
   if (!run.recaps.length) {
     body.innerHTML = "";
-    body.appendChild(el("div", "empty", "Nothing was recorded while WoW ran."));
+    body.appendChild(el("div", "empty", exact?.live ? "Nothing recorded yet." : "Nothing was recorded while WoW ran."));
     return;
   }
-  await renderRecaps(body, run);
+  await renderRecaps(body, run, { cards: current ? cards : [], current, mode: s.session_mode ?? "auto" });
   const row = await linkPrompt("recap");
   if (row && body.isConnected) body.append(row);
 }

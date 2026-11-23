@@ -35,32 +35,67 @@ function legend(items) {
   return key;
 }
 
-function neighbors(recap, rows) {
-  const from = recap.start * 1000;
-  const to = recap.end * 1000;
-  const mine = rows.filter((r) => r.char_name === recap.character);
-  return {
-    earlier: [...mine].reverse().find((r) => r.end <= from) ?? null,
-    later: mine.find((r) => r.start >= to) ?? null,
-  };
+const RUN_GAP_SECS = 300;
+
+function runsIn(sessions, character) {
+  const mine = sessions.filter((x) => x.char_name === character).sort((a, b) => a.start - b.start);
+  let runs = 0;
+  let end = -Infinity;
+  for (const x of mine) {
+    if (x.start > end + RUN_GAP_SECS * 1000) runs += 1;
+    end = Math.max(end, x.end);
+  }
+  return runs;
 }
 
-function head(recap, near, onAll, onWeb) {
+function subline(recap, run, nav) {
+  const line = el("p", "recap-sub");
+  line.append(elText("b", "", displayName(recap.character)));
+  if (nav.mode === "day") {
+    const n = runsIn(run.sessions, recap.character);
+    line.append(` · ${n} ${n === 1 ? "session" : "sessions"} · ${dur(recap.played)} played`);
+  } else {
+    line.append(` · ${dayOf(recap.start)} · ${clockOf(recap.start)} to ${nav.current?.live ? "now" : clockOf(recap.end)} · ${dur(recap.played)} played`);
+  }
+  return line;
+}
+
+function pickerLabel(c, mode) {
+  const names = c.chars.map(displayName).join(", ");
+  const when = mode === "day" ? dayOf(c.from / 1000) : `${shortDay(c.from)} ${clockOf(c.from / 1000)}`;
+  return [when, c.live ? "in progress" : dur(c.played), names].join(" · ");
+}
+
+function picker(nav, from) {
+  const select = el("select");
+  select.setAttribute("aria-label", "Session");
+  for (const c of nav.cards) select.append(new Option(pickerLabel(c, nav.mode), String(c.from)));
+  select.value = String(nav.current.from);
+  select.onchange = () => {
+    const c = nav.cards.find((x) => String(x.from) === select.value);
+    if (c) window.__nav(`sessions/${c.from}-${c.to}`);
+  };
+  return select;
+}
+
+function head(recap, run, nav, onAll, onWeb) {
   const box = el("div", "recap-head");
   const text = el("div");
-  text.append(elText("h1", "sc-title", recap.title.text));
-  const line = el("p", "recap-sub");
-  line.append(elText("b", "", displayName(recap.character)), ` · ${dayOf(recap.start)} · ${clockOf(recap.start)} to ${clockOf(recap.end)} · ${dur(recap.played)} played`);
-  text.append(line);
+  text.append(elText("h1", "sc-title", nav.mode === "day" ? dayOf(recap.start) : recap.title.text), subline(recap, run, nav));
   const actions = el("div", "recap-actions");
-  const go = (row, text) => {
+  const from = nav.current?.from ?? run.from;
+  const older = nav.cards.find((c) => c.from < from);
+  const newer = [...nav.cards].reverse().find((c) => c.from > from);
+  const go = (c, text, label) => {
     const b = elText("button", "sc-btn quiet small", text);
     b.type = "button";
-    b.onclick = () => window.__nav(`sessions/${row.start}-${row.end}`);
+    b.setAttribute("aria-label", label);
+    b.onclick = () => window.__nav(`sessions/${c.from}-${c.to}`);
     return b;
   };
-  if (near.earlier) actions.append(go(near.earlier, `← ${shortDay(near.earlier.start)}`));
-  if (near.later) actions.append(go(near.later, `${shortDay(near.later.start)} →`));
+  if (older) actions.append(go(older, `← ${shortDay(older.from)}`, "Older session"));
+  if (nav.cards.length) actions.append(picker(nav, from));
+  if (newer) actions.append(go(newer, `${shortDay(newer.from)} →`, "Newer session"));
   const log = elText("button", "sc-btn quiet small", "Log");
   log.type = "button";
   log.onclick = () => {
@@ -347,8 +382,8 @@ async function onTheWebsite(recap) {
   return invoke("session_on_web", { character: recap.character, start: recap.start, end: recap.end }).catch(() => false);
 }
 
-function draw(into, recap, near, onAll, onWeb) {
-  into.replaceChildren(head(recap, near, onAll, onWeb));
+function draw(into, recap, run, nav, onAll, onWeb) {
+  into.replaceChildren(head(recap, run, nav, onAll, onWeb));
   const lead = el("div", "recap-lead");
   lead.append(routePanel(recap), tileGrid(recap));
   into.append(lead);
@@ -364,10 +399,9 @@ function draw(into, recap, near, onAll, onWeb) {
   for (const r of rows) if (r) into.append(r);
 }
 
-export async function renderRecaps(body, run) {
+export async function renderRecaps(body, run, nav) {
   wireTips();
   body.innerHTML = "";
-  const rows = await invoke("sessions", { ch: null });
   const page = el("div", "recap");
   const content = el("div");
   const onAll = () => window.__nav("sessions");
@@ -375,7 +409,7 @@ export async function renderRecaps(body, run) {
   const show = async (recap) => {
     const mine = ++latest;
     const onWeb = await onTheWebsite(recap);
-    if (mine === latest) draw(content, recap, neighbors(recap, rows), onAll, onWeb);
+    if (mine === latest) draw(content, recap, run, nav, onAll, onWeb);
   };
   if (run.recaps.length > 1) {
     const seg = el("div", "sc-seg");
