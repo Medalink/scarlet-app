@@ -161,6 +161,15 @@ impl Client {
             .map(|k| STANDARD.encode(k.verifying_key().to_bytes()))
     }
 
+    /// The base64 Ed25519 signature of `message` with the install's key.
+    pub fn sign(&self, message: &str) -> Result<String> {
+        let key = self
+            .key
+            .as_ref()
+            .ok_or_else(|| Error::local("no install key"))?;
+        Ok(STANDARD.encode(key.sign(message.as_bytes()).to_bytes()))
+    }
+
     /// Request without a body.
     pub fn call(&mut self, method: &'static str, path: &str) -> Result<Reply> {
         self.send(method, path, None, true)

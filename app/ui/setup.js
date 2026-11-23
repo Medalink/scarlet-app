@@ -291,7 +291,7 @@ async function stepLink({ mine, title, body, foot }) {
         const r = await invoke("upload_link");
         if (mine !== token) return;
         if (r.linked) showLinked();
-        else showCode(r.code);
+        else await showPending();
       } catch (e) {
         fail(e);
       }
@@ -304,6 +304,12 @@ async function stepLink({ mine, title, body, foot }) {
     status.className = "status err";
     status.textContent = "";
     status.append(`${String(e)} `, button("Try again", "linkbtn", linkNow));
+  };
+
+  const showPending = async () => {
+    const v = await invoke("upload_get");
+    if (mine !== token) return;
+    showCode(v.link_code ?? "");
   };
 
   const poll = () => {
@@ -336,7 +342,7 @@ async function stepLink({ mine, title, body, foot }) {
         return;
       }
       status.textContent = "";
-      showCode(r.code);
+      await showPending();
       poll();
     } catch (e) {
       if (mine !== token) return;

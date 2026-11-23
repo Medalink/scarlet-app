@@ -35,7 +35,6 @@ export async function renderUpload(body) {
   let v = await invoke("upload_get");
   let asking = null; // a group just switched off that the player must answer for
   let confirming = false; // "Delete everything" waits for a second click
-  let linkCode = "";
   let linkAt = 0;
   let linked = false;
   let msg = { cls: "status", text: "" };
@@ -88,14 +87,14 @@ export async function renderUpload(body) {
       act(async () => {
         const r = await invoke("upload_link");
         linked = r.linked;
-        linkCode = r.linked ? "" : r.code;
         linkAt = Date.now();
         return null;
       });
     bar.append(now, link);
     box.appendChild(bar);
 
-    if (linkCode) {
+    const linkCode = v.link_code && Date.now() - linkAt < 10 * 60 * 1000 ? v.link_code : "";
+    if (linkCode && !linked) {
       const card = el("div", "linkcode");
       const code = elText("div", "code", linkCode);
       const copy = el("button", "btn", "Copy");
@@ -259,12 +258,11 @@ export async function renderUpload(body) {
   const timer = setInterval(async () => {
     if (!box.isConnected) return clearInterval(timer);
     if (document.activeElement?.tagName === "INPUT" && box.contains(document.activeElement)) return;
-    if (linkCode && !linked && Date.now() - linkAt < 10 * 60 * 1000) {
+    if (v.link_code && !linked && Date.now() - linkAt < 10 * 60 * 1000) {
       try {
         if (await invoke("upload_linked")) {
           if (!box.isConnected) return clearInterval(timer);
           linked = true;
-          linkCode = "";
           say("Linked to your account.");
           draw();
         }

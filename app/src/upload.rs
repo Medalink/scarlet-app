@@ -72,12 +72,16 @@ pub struct UploadView {
     /// True once anything was uploaded from this PC, so a switched-off group has something to keep
     /// or remove.
     uploaded: bool,
+    /// The link code `upload_link` issued last, for the code box, until a newer one replaces it.
+    link_code: Option<String>,
     busy: bool,
     error: Option<String>,
     note: Option<String>,
     /// The last uploads, newest first.
     log: Vec<ustate::LogEntry>,
 }
+
+static LINK_CODE: Mutex<Option<String>> = Mutex::new(None);
 
 fn view() -> UploadView {
     let s = settings::load();
@@ -115,6 +119,7 @@ fn view() -> UploadView {
         groups,
         characters,
         uploaded: st.characters.values().any(|c| c.last_sync > 0),
+        link_code: LINK_CODE.lock().ok().and_then(|c| c.clone()),
         busy: BUSY.load(Ordering::Relaxed),
         error: LAST_ERROR.lock().ok().and_then(|e| e.clone()),
         note: LAST_NOTE.lock().ok().and_then(|e| e.clone()),
@@ -411,7 +416,6 @@ pub async fn upload_now(app: AppHandle) -> Result<UploadView, String> {
 
 #[derive(Serialize)]
 pub struct LinkView {
-    code: String,
     linked: bool,
 }
 
@@ -434,7 +438,9 @@ pub async fn upload_linked() -> Result<bool, String> {
     .await
 }
 
-/// A link code, and the page to confirm it on, opened in the browser.
+/// Issues a link code, signs the website's redeem line with the install key and opens the confirm
+/// page in the browser. Only the status comes back; the code itself reaches the UI through
+/// `upload_get`, so no webview reply carries it.
 #[tauri::command]
 pub async fn upload_link() -> Result<LinkView, String> {
     blocking(|| {
@@ -446,17 +452,14 @@ pub async fn upload_link() -> Result<LinkView, String> {
             .map_err(|e| e.to_string())?
             .ok_or("This install is not set up for uploading yet.")?;
         if sess.me().map_err(|e| e.to_string())?.linked {
-            return Ok(LinkView {
-                code: String::new(),
-                linked: true,
-            });
+            return Ok(LinkView { linked: true });
         }
         let link = sess.link().map_err(|e| e.to_string())?;
         open_url(&link.url)?;
-        Ok(LinkView {
-            code: link.code,
-            linked: false,
-        })
+        if let Ok(mut c) = LINK_CODE.lock() {
+            *c = Some(link.code);
+        }
+        Ok(LinkView { linked: false })
     })
     .await
 }

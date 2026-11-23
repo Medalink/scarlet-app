@@ -440,8 +440,10 @@ impl Session {
         ))
     }
 
-    /// A link code, and the page to confirm it on.
+    /// A link code, and the page to confirm it on. The address carries a redeem signature the
+    /// website checks against the install's public key, so only this PC can complete the link.
     pub fn link(&mut self) -> Result<LinkInfo> {
+        const REDEEM_LINE: &str = "scarlet-link-redeem";
         let r = self.api("POST", "/installs/link-code", None)?;
         let text = |k: &str| {
             r.json
@@ -451,8 +453,19 @@ impl Session {
                 .to_string()
         };
         let code = text("code");
+        let named = text("redeem");
+        let message = if named.is_empty() {
+            format!("{REDEEM_LINE}\n{code}")
+        } else {
+            named
+        };
+        let redeem = self.client.sign(&message)?;
         Ok(LinkInfo {
-            url: format!("{}/link?code={code}", self.site()),
+            url: format!(
+                "{}/link?code={code}&redeem={}",
+                self.site(),
+                query_escape(&redeem)
+            ),
             code,
             expires_at: text("expires_at"),
         })
@@ -520,6 +533,13 @@ fn check_group(key: &str) -> Result<()> {
         )));
     }
     Ok(())
+}
+
+fn query_escape(value: &str) -> String {
+    value
+        .replace('+', "%2B")
+        .replace('/', "%2F")
+        .replace('=', "%3D")
 }
 
 /// One zstd frame, level 19, window 8 MiB: what the protocol reads.
