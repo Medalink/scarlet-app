@@ -44,7 +44,7 @@ export function seal(name, tier, { size = 64, progress = 0, family, ghost = 0, l
       root.append(
         svg("rect", {
           x: x - 1.8, y: y - 1.8, width: 3.6, height: 3.6, transform: `rotate(45 ${x} ${y})`,
-          fill: on ? (tier === 5 ? GOLD : METAL[tier]) : "none", stroke: on ? "none" : "rgba(255,255,255,0.22)", "stroke-width": 0.8, class: "pip", style: `--i:${i}`,
+          fill: on ? (tier === 5 ? GOLD : METAL[tier]) : "none", stroke: on ? "none" : "rgba(255,255,255,0.22)", "stroke-width": 0.8, class: on ? "pip on" : "pip", style: `--i:${i}`,
         }),
       );
     }
@@ -75,6 +75,16 @@ export function seal(name, tier, { size = 64, progress = 0, family, ghost = 0, l
   root.append(body);
   host.append(root);
   return host;
+}
+
+/** Lights the dial of a seal for `progress` (0 to 1) toward the next tier, ticks left to right. */
+export function dial(host, tier, progress) {
+  const lit = tier === 5 ? 20 : Math.round(progress * 20);
+  host.querySelectorAll(".tick").forEach((tick, i) => {
+    const on = i < lit;
+    tick.setAttribute("stroke", on ? NEXT[tier] : "rgba(255,255,255,0.16)");
+    tick.setAttribute("stroke-width", on ? 2.3 : 1.4);
+  });
 }
 
 /** The five tier pips alone, for a collection's tier. */
@@ -108,7 +118,7 @@ const unitValue = (cat, n) => (cat.unit === "mi" ? n / 1760 : n);
 /** A count in the catalog's unit: yards of a mile feat become miles. */
 export const amount = (cat, n) => {
   const v = unitValue(cat, n);
-  return cat.unit === "mi" && v < 10 ? v.toFixed(1) : num(v);
+  return Number.isInteger(v) || v >= 10 ? num(v) : v.toFixed(1);
 };
 
 /** "9,912 kills", from the catalog's own words for one and many. */

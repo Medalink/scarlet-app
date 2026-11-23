@@ -24,7 +24,8 @@ const OTHER_CHARACTER_ONLY = new Set(["overview", "sessions", "timeline", "map",
 
 const BODY = `document.querySelector("#body").innerText.replace(/\\s+/g, " ")`;
 
-const FEATS_OFF = /Feats are counted on the website from what you upload\. Website settings/;
+const FEATS_LOCAL = /^(?=.*Testa Fixture holds [1-9]\d* feats?)(?=.*Closest to the next tier)(?=.*Every feat Testa can hold)(?=.*\d+ more feats are counted on the website\. Uploading is off\. Website settings)/;
+const FEATS_LOCAL_ALL = /^(?=.*Probe Lane holds [1-9]\d* feats?)(?=.*Testa Fixture holds [1-9]\d* feats?)(?=.*\d+ more feats are counted on the website)/;
 
 const VIEWS = [
   {
@@ -32,7 +33,7 @@ const VIEWS = [
     shows: /^(?=.*Testa Fixture Level 6 Human Warrior Alliance in Westfall)(?=.*Whole life .* Quests completed 1,234 .* Titles known 3 .* Zone maps explored 3 .* Instance locks .* Blackfathom Deeps normal 1\/4 .* Lord Kazzak World boss)(?!.*Gnomeregan)/,
     never: /No characters recorded yet/,
   },
-  { key: "feats", shows: FEATS_OFF, never: /No feats counted|Could not|refused/ },
+  { key: "feats", shows: FEATS_LOCAL, never: /No feats counted|Could not|refused/ },
   { key: "stats", shows: /1,605 Experience .* 2 Kills/, never: /No recorded time yet/ },
   { key: "heatmap", shows: /Peak: [1-9]\d* events in an hour/, never: /Peak: 0 events|No events yet/ },
   { key: "timeline", shows: /kill Stonetusk Boar \(113\) by you/, never: /No events|Nothing recorded/ },
@@ -405,13 +406,13 @@ const CHECKS = [
   },
   {
     lane: "app",
-    name: "feats sends nothing while uploading is off, and leads to the website settings",
+    name: "feats are counted locally and send nothing while uploading is off, and lead to the website settings",
     async run(ctx) {
       const app = running(ctx);
       await selectCharacter(app, TESTA);
-      await open(app, "feats", FEATS_OFF);
+      await open(app, "feats", FEATS_LOCAL);
       await selectCharacter(app, "");
-      await open(app, "feats", FEATS_OFF);
+      await open(app, "feats", FEATS_LOCAL_ALL);
       await sleep(300);
       expectEqual("requests the website address received", ctx.website.seen, []);
       await app.evaluate(`[...document.querySelectorAll("#body button")].find((b) => b.textContent === "Website settings").click()`);

@@ -10,7 +10,6 @@ mod classpage;
 mod commands;
 mod discover;
 mod feats;
-#[allow(dead_code)]
 mod feats_catalog;
 mod items;
 mod launch;

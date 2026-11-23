@@ -114,10 +114,28 @@ pub struct Route {
     sheet: Sheet,
 }
 
+#[derive(Serialize)]
+pub struct FeatChange {
+    pub key: String,
+    pub from: u8,
+    pub tier: u8,
+    pub at: i64,
+    pub value: f64,
+}
+
+#[derive(Serialize)]
+pub struct FeatNear {
+    pub key: String,
+    pub tier: u8,
+    pub value: f64,
+    pub next: f64,
+    pub left: f64,
+}
+
 #[derive(Default, Serialize)]
 pub struct Feats {
-    pub earned: Vec<serde_json::Value>,
-    pub near: Vec<serde_json::Value>,
+    pub earned: Vec<FeatChange>,
+    pub near: Vec<FeatNear>,
 }
 
 #[derive(Serialize)]
@@ -169,8 +187,8 @@ pub struct SessionRecap {
     v: u8,
     character: String,
     class: String,
-    start: i64,
-    end: i64,
+    pub start: i64,
+    pub end: i64,
     played: i64,
     level: [u32; 2],
     zone: String,
@@ -225,6 +243,8 @@ struct Scan<'a> {
     xp_at: Vec<(i64, i64)>,
     last_death: Option<(i64, usize)>,
     gathers: i64,
+    casts_by_spell: HashMap<String, i64>,
+    spec: String,
     bosses: i64,
     flights: i64,
     achievements: i64,
@@ -291,6 +311,8 @@ impl<'a> Scan<'a> {
             xp_at: vec![],
             last_death: None,
             gathers: 0,
+            casts_by_spell: HashMap::new(),
+            spec: String::new(),
             bosses: 0,
             flights: 0,
             achievements: 0,
@@ -393,6 +415,25 @@ impl<'a> Scan<'a> {
             "e" => self.xp.explore += amount,
             _ => self.xp.other += amount,
         }
+    }
+
+    fn spec_of(&self, f: &[String]) -> String {
+        let named = field(f, 4);
+        if !named.is_empty() {
+            return named.to_string();
+        }
+        field(f, 6)
+            .split(',')
+            .filter_map(|tab| {
+                let mut parts = tab.split(':');
+                let id = parts.next()?;
+                let spent = parts.next()?.parse::<i64>().ok()?;
+                Some((spent, id))
+            })
+            .filter(|(spent, _)| *spent > 0)
+            .max_by_key(|(spent, _)| *spent)
+            .and_then(|(_, id)| self.f.names.get(&name_key('g', id)).cloned())
+            .unwrap_or_default()
     }
 
     fn position(&mut self, f: &[String]) {
@@ -499,6 +540,12 @@ impl<'a> Scan<'a> {
             "LO" if field(f, 0) == "g" => self.gathers += 1,
             "T" if field(f, 0) == "1" => self.flights += 1,
             "AC" => self.achievements += 1,
+            "C" => {
+                if let Some(name) = self.f.names.get(&name_key('s', field(f, 0))) {
+                    *self.casts_by_spell.entry(name.clone()).or_default() += 1;
+                }
+            }
+            "TG" if self.spec.is_empty() => self.spec = self.spec_of(f),
             "EX" | "B" => {
                 if r.code == "B" {
                     self.bosses += 1;
@@ -1146,6 +1193,7 @@ pub fn for_character(character: &str, log: &Log) -> Vec<SessionRecap> {
         names: &names,
         sessions: &sessions,
     };
+    let all = tallies(&facts);
     let mut spans: Vec<(i64, i64)> = sessions
         .iter()
         .copied()
@@ -1156,7 +1204,11 @@ pub fn for_character(character: &str, log: &Log) -> Vec<SessionRecap> {
         .iter()
         .rev()
         .take(ADDON_SESSIONS)
-        .filter_map(|s| build(&facts, &[*s]).map(for_addon))
+        .filter_map(|s| build(&facts, &[*s]))
+        .map(|mut r| {
+            crate::featscore::fill(&mut r, &all);
+            for_addon(r)
+        })
         .collect()
 }
 
@@ -1189,4 +1241,37 @@ pub fn recaps_lua(chars: &[(String, Vec<serde_json::Value>)], made: i64) -> Stri
         text = render_recaps(&chars, made);
     }
     text
+}
+
+/// What one session adds up to, for counting feats: the session's counters, its casts by spell name, the talent tree
+/// with the most points at login and the highest level.
+#[derive(Clone)]
+pub struct Tally {
+    pub start: i64,
+    pub played: i64,
+    pub counters: BTreeMap<&'static str, i64>,
+    pub casts: HashMap<String, i64>,
+    pub spec: String,
+    pub class: String,
+    pub level: [u32; 2],
+}
+
+/// The tallies of every session of the character, oldest first.
+pub fn tallies(f: &Facts) -> Vec<Tally> {
+    let mut spans = f.sessions.to_vec();
+    spans.sort();
+    spans.into_iter().map(|s| tally(f, s)).collect()
+}
+
+pub fn tally(f: &Facts, span: (i64, i64)) -> Tally {
+    let (s, done) = scan(f, &[span], false);
+    Tally {
+        start: span.0 / 1000,
+        played: done.played,
+        counters: counters(&s),
+        casts: s.casts_by_spell,
+        spec: s.spec,
+        class: s.class,
+        level: s.level,
+    }
 }

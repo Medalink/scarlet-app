@@ -1,51 +1,237 @@
-// Feats: the website's count of each character's feats, and the toasts for new and upgraded ones.
+// Feats: a character's head, the three feats closest to their next tier, and every feat it can hold by collection.
+// With uploading off the counts are the ones the recording can hold; with it on they are the website's.
 
-import { invoke, el, state, displayName } from "../lib.js";
-import { cardList, summary } from "../featcard.js";
+import { invoke, el, elText, state, num, displayName, tile, tiles, tickRing, collectionRow, linkRow } from "../lib.js";
+import { BY_KEY, CATALOG } from "../feats-catalog.js";
+import { TIER_NAMES } from "../glyphs.js";
+import { seal, pips, tierChip, cardList, cardSeal, countText, amount } from "../featcard.js";
 import { playToasts, stopToasts } from "../feat-toast.js";
+
+const TIERS = [1, 2, 3, 4, 5];
+const COLLECTIONS = [...new Set(CATALOG.feats.map((f) => f.collection))];
 
 let expandNext = false;
 
-function allFeats(entry) {
-  const box = el("div", "feats-all");
-  for (const [title, cards] of [
-    ["Earned", entry.earned],
-    ["Not yet earned", entry.unearned],
-  ]) {
-    if (!cards.length) continue;
-    const h = el("h3", "section-title");
-    h.append(document.createTextNode(`${title} `));
-    const count = el("span");
-    count.textContent = String(cards.length);
-    h.append(count);
-    box.append(h, cardList(cards));
+function localCard(f) {
+  const cat = BY_KEY.get(f.key);
+  return {
+    key: f.key,
+    name: cat.name,
+    tier: f.tier,
+    tier_name: TIER_NAMES[f.tier] || "",
+    glyph: cat.glyph,
+    family: cat.family,
+    collection: cat.collection,
+    counted: countText(cat, f.value),
+    to_next: f.left == null ? "Legend" : `${amount(cat, f.left)} to ${TIER_NAMES[f.tier + 1]}`,
+    progress: f.progress,
+    value: f.value,
+  };
+}
+
+function fromLocal(e) {
+  const feats = e.feats.map(localCard);
+  const byKey = new Map(feats.map((f) => [f.key, f]));
+  return {
+    name: e.name,
+    held: e.held,
+    total: e.total,
+    tiers: e.tiers,
+    score: e.score,
+    scoreMax: e.score_max,
+    elsewhere: e.elsewhere,
+    feats,
+    closest: e.closest.map((k) => byKey.get(k)),
+    local: true,
+  };
+}
+
+function fromSite(entry) {
+  const count = (tier) => entry.tiers.find((t) => t.name === TIER_NAMES[tier])?.count ?? 0;
+  return {
+    name: entry.name,
+    held: entry.held,
+    total: entry.total,
+    tiers: TIERS.map(count),
+    score: null,
+    elsewhere: 0,
+    feats: [...entry.earned, ...entry.unearned],
+    closest: entry.top,
+    news: entry.new ?? [],
+    local: false,
+  };
+}
+
+function localNews(model) {
+  const storeKey = `scarlet.featSeen.${model.name}`;
+  let seen = null;
+  try {
+    seen = JSON.parse(localStorage.getItem(storeKey));
+  } catch {}
+  const now = Object.fromEntries(model.feats.map((f) => [f.key, f.tier]));
+  try {
+    localStorage.setItem(storeKey, JSON.stringify(now));
+  } catch {}
+  if (!seen) return [];
+  return model.feats
+    .filter((f) => f.tier > (seen[f.key] ?? 0))
+    .map((f) => ({
+      key: f.key,
+      name: f.name,
+      icon: f.glyph,
+      family: f.family,
+      from: seen[f.key] ?? 0,
+      from_name: TIER_NAMES[seen[f.key] ?? 0] || "",
+      tier: f.tier,
+      tier_name: f.tier_name,
+      counted: f.counted,
+      progress: f.progress,
+    }));
+}
+
+function head(model) {
+  const box = el("div", "feats-head");
+  const ring = el("div", "sc-panel feats-ring");
+  const inner = el("span", "", `<b class="sc-num" style="font-size:40px">${num(model.held)}</b><br><span class="sc-label">of ${num(model.total)}</span>`);
+  const text = el("div");
+  text.append(elText("h2", "sc-h3", `${displayName(model.name)} holds ${num(model.held)} ${model.held === 1 ? "feat" : "feats"}`));
+  ring.append(tickRing(model.total ? model.held / model.total : 0, { size: 112, inner }), text);
+  const counts = tiles(
+    [...TIERS].reverse().map((t) => tile(TIER_NAMES[t], num(model.tiers[t - 1]), "", { size: "md", extra: seal("kills", t, { size: 28 }) })),
+    5,
+  );
+  box.append(ring, counts);
+  if (model.score != null) {
+    const score = el("div", "sc-panel");
+    score.append(elText("p", "sc-label", "Feat score"), el("p", "sc-num sc-num-md", `${num(model.score)}<small> of ${num(model.scoreMax)}</small>`));
+    box.append(score);
+  } else {
+    box.style.gridTemplateColumns = "minmax(0, 1fr) minmax(0, 2fr)";
   }
   return box;
 }
 
-function characterBlock(entry, single) {
+function ladder(feat) {
+  const cat = BY_KEY.get(feat.key);
+  const list = el("div", "feat-ladder");
+  if (!cat) return list;
+  for (const t of [...TIERS].reverse()) {
+    const need = cat.thresholds[t - 1];
+    const row = el("div", `rung t${t}${feat.tier >= t ? " got" : ""}`);
+    const fill = feat.value == null ? (feat.tier >= t ? 1 : 0) : Math.min(1, feat.value / need);
+    const bar = el("i");
+    bar.style.setProperty("--w", `${fill * 100}%`);
+    row.append(tierChip(t, TIER_NAMES[t]), elText("span", "", countText(cat, need)), bar);
+    list.append(row);
+  }
+  return list;
+}
+
+function detail(feat) {
+  const box = el("aside", "sc-panel feat-detail");
+  if (!feat) {
+    box.append(elText("p", "sc-sub", "Pick a feat."));
+    return box;
+  }
+  const top = el("div", "lead-feat");
+  top.append(cardSeal(feat, 64));
+  const text = el("div");
+  const name = el("p", "sc-feat-n");
+  name.append(feat.name);
+  if (feat.tier) name.append(tierChip(feat.tier, feat.tier_name || TIER_NAMES[feat.tier]));
+  text.append(name);
+  if (feat.counted) text.append(elText("p", "sc-feat-d", feat.counted));
+  if (feat.to_next) text.append(elText("p", "sc-feat-to", feat.to_next));
+  top.append(text);
+  box.append(top, ladder(feat));
+  return box;
+}
+
+function wall(model) {
+  const section = el("section", "feats-wall");
+  section.append(elText("h2", "sc-h", `Every feat ${displayName(model.name).split(" ")[0]} can hold`));
+  const controls = el("div", "feats-controls");
+  const search = el("input");
+  search.placeholder = "Find a feat";
+  search.setAttribute("aria-label", "Find a feat");
+  const tierBar = el("div", "chips");
+  const collBar = el("div", "chips");
+  controls.append(search, tierBar, collBar);
+  const layout = el("div", "feats-layout");
+  const rows = el("div", "feats-rows");
+  const side = el("div", "feats-side");
+  layout.append(rows, side);
+  section.append(controls, layout);
+
+  const have = new Set(model.feats.map((f) => f.collection));
+  const collections = COLLECTIONS.filter((c) => have.has(c));
+  const filter = { tier: "all", collection: "all", text: "", picked: model.closest[0]?.key ?? null };
+  const chip = (bar, label, on, pick) => {
+    const b = elText("button", `sc-chipbtn${on ? " on" : ""}`, label);
+    b.type = "button";
+    b.onclick = pick;
+    bar.append(b);
+  };
+  const draw = () => {
+    tierBar.replaceChildren();
+    collBar.replaceChildren();
+    const tierChoices = [["all", "All tiers"], ["none", "Not earned"], ...TIERS.map((t) => [t, TIER_NAMES[t]])];
+    for (const [value, label] of tierChoices) chip(tierBar, label, filter.tier === value, () => ((filter.tier = value), draw()));
+    chip(collBar, `All ${model.feats.length}`, filter.collection === "all", () => ((filter.collection = "all"), draw()));
+    for (const c of collections) {
+      const n = model.feats.filter((f) => f.collection === c).length;
+      chip(collBar, `${c} ${n}`, filter.collection === c, () => ((filter.collection = c), draw()));
+    }
+    const wanted = (f) =>
+      (filter.tier === "all" || (filter.tier === "none" ? f.tier === 0 : f.tier === filter.tier)) &&
+      (filter.collection === "all" || f.collection === filter.collection) &&
+      f.name.toLowerCase().includes(filter.text);
+    rows.replaceChildren();
+    for (const c of collections) {
+      const feats = model.feats.filter((f) => f.collection === c);
+      const shown = feats.filter(wanted);
+      if (!shown.length) continue;
+      const row = collectionRow(c, shown, {
+        draw: { seal: (f) => cardSeal(f, 48), pips },
+        picked: filter.picked,
+        onPick: (f) => ((filter.picked = f.key), draw()),
+      });
+      const earned = feats.filter((f) => f.tier > 0).length;
+      row.querySelector(".sc-coll-n").firstChild.textContent = `${earned} of ${feats.length}`;
+      rows.append(row);
+    }
+    if (!rows.firstChild) rows.append(elText("p", "sc-empty", "No feats match."));
+    side.replaceChildren(detail(model.feats.find((f) => f.key === filter.picked)));
+  };
+  search.oninput = () => ((filter.text = search.value.trim().toLowerCase()), draw());
+  draw();
+  return section;
+}
+
+function characterBlock(model, single) {
   const block = el("section", "feats-block");
-  if (!single) {
-    const h = el("h3", "section-title");
-    h.textContent = displayName(entry.name);
-    block.append(h);
+  if (!single) block.append(elText("h3", "section-title", displayName(model.name)));
+  block.append(head(model));
+  if (model.closest.length) {
+    block.append(elText("h2", "sc-h feats-h", "Closest to the next tier"), cardList(model.closest, true));
   }
-  block.append(summary(entry));
-  if (entry.since) {
-    const note = el("p", "note");
-    note.textContent = `Counted since ${entry.since}.`;
-    block.append(note);
-  }
-  if (entry.pinned.length) block.append(cardList(entry.pinned, true));
-  block.append(cardList(entry.top, true));
   const reveal = () => {
-    if (block.querySelector(".feats-all")) return;
+    if (block.querySelector(".feats-wall")) return;
     button?.remove();
-    block.append(allFeats(entry));
+    const drawn = wall(model);
+    if (tail) tail.before(drawn);
+    else block.append(drawn);
   };
   let button = null;
-  if (single) {
-    button = el("button", "btn", "View all");
+  let tail = null;
+  if (model.local && model.elsewhere) {
+    const more = `${num(model.elsewhere)} more ${model.elsewhere === 1 ? "feat is" : "feats are"} counted on the website. Uploading is off.`;
+    tail = linkRow(more, "Website settings", () => (location.hash = "settings/website"));
+    block.append(tail);
+  }
+  if (single) reveal();
+  else {
+    button = elText("button", "sc-btn quiet small", "Every feat");
     button.type = "button";
     button.onclick = reveal;
     block.append(button);
@@ -53,40 +239,34 @@ function characterBlock(entry, single) {
   return { block, reveal };
 }
 
-function drawOff(box) {
-  const text = el("p", "note");
-  text.textContent = "Feats are counted on the website from what you upload.";
-  const go = el("button", "btn", "Website settings");
-  go.type = "button";
-  go.onclick = () => (location.hash = "settings/website");
-  box.append(text, go);
-}
-
-function drawCharacters(box, characters) {
+function drawCharacters(box, models) {
   const wanted = state.ch;
-  const entries = wanted ? characters.filter((c) => c.name === wanted) : characters;
+  const entries = wanted ? models.filter((c) => c.name === wanted) : models;
   if (!entries.length) {
-    const none = el("p", "empty");
-    none.textContent = wanted ? "No feats counted for this character yet." : "No feats counted yet.";
-    box.append(none);
+    box.append(elText("p", "empty", wanted ? "No feats counted for this character yet." : "No feats counted yet."));
     return;
   }
   const single = Boolean(wanted);
   const views = entries.map((entry) => characterBlock(entry, single));
   for (const { block } of views) box.append(block);
-  if (single && expandNext) views[0].reveal();
+  if (!single && expandNext) views[0].reveal();
   expandNext = false;
 
-  const at = entries.findIndex((entry) => entry.new?.length);
+  const at = entries.findIndex((entry) => entry.news?.length);
   if (at < 0) return;
   const entry = entries[at];
-  playToasts(entry.name, entry.new, () => {
-    if (single) return views[at].reveal();
-    expandNext = true;
-    const select = document.querySelector("#char");
-    select.value = entry.name;
-    select.dispatchEvent(new Event("change"));
-  });
+  playToasts(
+    entry.name,
+    entry.news,
+    () => {
+      if (single) return views[at].reveal();
+      expandNext = true;
+      const select = document.querySelector("#char");
+      select.value = entry.name;
+      select.dispatchEvent(new Event("change"));
+    },
+    { local: entry.local },
+  );
 }
 
 async function load(box) {
@@ -98,14 +278,16 @@ async function load(box) {
   }
   if (!box.isConnected) return;
   box.innerHTML = "";
-  if (answer.state === "off") return drawOff(box);
   if (answer.state === "error") {
-    const err = el("p", "status err");
-    err.textContent = answer.message;
-    box.append(err);
+    box.append(elText("p", "status err", answer.message));
     return;
   }
-  drawCharacters(box, answer.characters);
+  const models = answer.state === "local" ? answer.characters.map(fromLocal) : answer.characters.map(fromSite);
+  if (answer.state === "local") {
+    const wanted = state.ch;
+    for (const m of models.filter((x) => !wanted || x.name === wanted)) m.news = localNews(m);
+  }
+  drawCharacters(box, models);
 }
 
 export async function render(body) {
@@ -116,8 +298,6 @@ export async function render(body) {
   body.append(box);
   load(box).catch((e) => {
     box.innerHTML = "";
-    const err = el("p", "status err");
-    err.textContent = String(e?.message ?? e);
-    box.append(err);
+    box.append(elText("p", "status err", String(e?.message ?? e)));
   });
 }

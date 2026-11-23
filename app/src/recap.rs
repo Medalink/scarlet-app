@@ -55,7 +55,11 @@ fn with_facts<T>(st: &Store, ch: u32, all: bool, f: impl FnOnce(&Facts) -> T) ->
 pub fn build(st: &Store, sessions: &[usize]) -> Option<SessionRecap> {
     let ch = st.sessions[*sessions.first()?].ch;
     let spans: Vec<(i64, i64)> = sessions.iter().map(|i| span(st, *i)).collect();
-    with_facts(st, ch, true, |f| scarlet::recap::build(f, &spans))
+    with_facts(st, ch, true, |f| {
+        let mut recap = scarlet::recap::build(f, &spans)?;
+        scarlet::featscore::fill(&mut recap, &scarlet::recap::tallies(f));
+        Some(recap)
+    })
 }
 
 /// The recap a card of the sessions list draws.
@@ -69,4 +73,9 @@ pub fn title_of(st: &Store, session: usize) -> Title {
     with_facts(st, st.sessions[session].ch, false, |f| {
         scarlet::recap::title_of(f, span(st, session))
     })
+}
+
+/// The sessions of one character as tallies, for counting its feats.
+pub fn tallies(st: &Store, ch: u32) -> Vec<scarlet::recap::Tally> {
+    with_facts(st, ch, true, scarlet::recap::tallies)
 }

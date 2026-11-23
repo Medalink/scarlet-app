@@ -9,6 +9,8 @@ pub mod counts;
 pub mod dungeonjournal;
 pub mod events;
 pub mod export;
+pub mod feats_catalog;
+pub mod featscore;
 pub mod fishing;
 pub mod foreverfishing;
 pub mod gamedir;

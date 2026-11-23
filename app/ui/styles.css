@@ -797,48 +797,37 @@ table.talents td[colspan] { white-space: normal; }
 .t5 { --metal: var(--accent); }
 
 .toasts { position: fixed; right: 20px; bottom: 20px; z-index: 50; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; pointer-events: none; }
-.toast { --ring: var(--metal); pointer-events: auto; position: relative; display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; column-gap: 16px; align-items: center; width: 360px; max-width: calc(100vw - 40px); padding: 14px 14px 14px 16px; background: var(--card); border: 1px solid var(--line2); border-radius: 4px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45); }
-.toast.t5 { --ring: var(--gold); }
-.toast .seal { width: 56px; transition: color 120ms linear, background-color 120ms linear, border-color 120ms linear; }
-.toast .seal .ico { width: 22px; height: 22px; }
-.toast-l { font-size: 13px; color: var(--muted); }
-.toast-n { margin-top: 3px; display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 8px; font: 750 22px/1.05 var(--display); color: var(--fg); }
-.toast-n + .btn { margin-top: 8px; }
-.toast .btn { padding: 7px 12px; font-size: 13px; }
-.toast-x { align-self: start; width: 26px; height: 26px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 3px; background: none; color: var(--muted); font: 400 20px/1 var(--body); cursor: pointer; }
+.toast { --ring: var(--metal); pointer-events: auto; position: relative; display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; column-gap: 14px; align-items: center; width: 344px; height: 78px; max-width: calc(100vw - 40px); padding: 7px 10px 7px 18px; overflow: hidden; background: var(--card); border: 1px solid var(--line2); border-radius: 4px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45); animation: toast-in 200ms ease-out both; }
+.toast::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--ring); }
+.toast::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 38%; background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.16), transparent); transform: translateX(-120%) skewX(-15deg); animation: toast-sweep 600ms ease-in-out 500ms both; pointer-events: none; }
+.toast.t5 { --ring: var(--t-gold); }
+.toast .sc-seal { animation: toast-stamp 320ms cubic-bezier(0.2, 0.8, 0.25, 1) 120ms both; }
+.toast .sc-seal .tick { transition: stroke 60ms linear calc(var(--i) * 22ms); }
+.toast .pip.on:not(.was) { transform-box: fill-box; transform-origin: center; animation: toast-pip 220ms ease-out both; animation-delay: calc(300ms + var(--i) * 70ms); }
+.toast-glow { position: absolute; left: 50%; top: 50%; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--ring) 60%, transparent), transparent 65%); opacity: 0; pointer-events: none; animation: toast-glow 620ms ease-out 120ms both; }
+.toast.t5 .toast-glow { background: radial-gradient(circle, color-mix(in srgb, var(--t-gold) 70%, transparent), transparent 65%); animation: toast-glow 620ms ease-out 120ms both, toast-glow 620ms ease-out 380ms both; }
+.toast-seal { position: relative; display: grid; place-items: center; }
+.toast-text { min-width: 0; animation: toast-fade 300ms ease-out 520ms both; }
+.toast-l { font-size: 12.5px; color: var(--muted); }
+.toast-n { margin-top: 2px; display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 8px; font: 750 21px/1.05 var(--display); color: var(--fg); }
+.toast-c { margin-top: 3px; font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.toast-n + .sc-btn { margin-top: 6px; }
+.toast-x { align-self: start; width: 24px; height: 24px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 3px; background: none; color: var(--muted); font: 400 19px/1 var(--body); cursor: pointer; }
 .toast-x:hover { color: var(--fg); border-color: var(--line2); }
-
-.toast { animation: toast-rise 240ms ease-out both; }
-@keyframes toast-rise { from { opacity: 0; transform: translateY(0.8rem); } }
+.toast.out { animation: toast-out 400ms linear both; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(12px); } }
+@keyframes toast-out { to { opacity: 0; } }
+@keyframes toast-stamp { from { transform: scale(1.35); } }
+@keyframes toast-glow { from { opacity: 0.9; transform: scale(0.6); } to { opacity: 0; transform: scale(1.5); } }
+@keyframes toast-sweep { to { transform: translateX(320%) skewX(-15deg); } }
+@keyframes toast-fade { from { opacity: 0; } }
+@keyframes toast-pip { 0% { opacity: 0; transform: scale(0.2); } 70% { transform: scale(1.5); } 100% { opacity: 1; transform: scale(1); } }
 @media (prefers-reduced-motion: reduce) {
-  .toast { animation: toast-fade-in 150ms linear both; }
-  @keyframes toast-fade-in { from { opacity: 0; } }
-}
-
-.toast.out { animation: toast-leave 200ms linear both; }
-@keyframes toast-leave { to { opacity: 0; } }
-@media (prefers-reduced-motion: reduce) {
-  .toast.out { animation: toast-leave 150ms linear both; }
-}
-
-.toast .seal { animation: seal-stamp 420ms cubic-bezier(0.2, 0.8, 0.25, 1) 120ms both; }
-@keyframes seal-stamp { from { transform: scale(1.35); } }
-@media (prefers-reduced-motion: reduce) {
-  .toast .seal { animation: none; transition: none; }
-}
-
-.toast .seal::after { content: ""; position: absolute; inset: -2px; border-radius: 50%; border: 2px solid var(--ring); opacity: 0; animation: seal-ring 700ms ease-out 120ms both; }
-.toast.t5 .seal::after { animation-iteration-count: 2; }
-@keyframes seal-ring { from { opacity: 0.9; transform: scale(1); } to { opacity: 0; transform: scale(1.9); } }
-@media (prefers-reduced-motion: reduce) {
-  .toast .seal::after { animation: none; }
-}
-
-.sweep { position: absolute; inset: 0; border-radius: 50%; overflow: hidden; pointer-events: none; }
-.sweep::before { content: ""; position: absolute; top: -10%; bottom: -10%; left: 0; width: 45%; background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.6), transparent); transform: translateX(-120%) skewX(-15deg); animation: seal-sweep 600ms ease-in-out 360ms both; }
-@keyframes seal-sweep { to { transform: translateX(280%) skewX(-15deg); } }
-@media (prefers-reduced-motion: reduce) {
-  .sweep { display: none; }
+  .toast { animation: toast-fade 200ms linear both; }
+  .toast.out { animation: toast-out 200ms linear both; }
+  .toast::after, .toast-glow { display: none; }
+  .toast .sc-seal, .toast .pip.on:not(.was), .toast-text { animation: none; }
+  .toast .sc-seal .tick { transition: none; }
 }
 
 .setup { flex: 1; min-height: 0; overflow: auto; padding: 44px 24px 24px; }
@@ -1095,3 +1084,20 @@ a.sc-session:hover { border-color: var(--line2); }
 .none { color: var(--muted); }
 
 .recap > .sc-seg { margin-bottom: 18px; }
+.feats-head { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 2fr) 200px; gap: 16px; align-items: stretch; margin-top: 8px; }
+.feats-ring { display: flex; align-items: center; gap: 20px; }
+.feats-h { margin: 28px 0 0; }
+.feats-wall { margin-top: 32px; }
+.feats-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; margin-top: 12px; }
+.feats-controls .chips { display: flex; flex-wrap: wrap; gap: 6px; flex-basis: 100%; }
+.feats-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 28px; align-items: start; margin-top: 8px; }
+.feats-side { position: sticky; top: 12px; }
+.feat-detail .lead-feat .sc-feat-n { font-size: 24px; }
+.feat-ladder { display: grid; gap: 10px; margin-top: 18px; }
+.feat-ladder .rung { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 2px 12px; align-items: center; font-size: 13px; color: var(--muted); }
+.feat-ladder .rung.got { color: var(--fg); }
+.feat-ladder .rung > i { grid-column: 1 / -1; height: 3px; background: rgba(255, 255, 255, 0.1); position: relative; }
+.feat-ladder .rung > i::after { content: ""; position: absolute; inset: 0; width: var(--w); background: var(--metal, var(--accent)); }
+@container (max-width: 900px) { .feats-layout { grid-template-columns: minmax(0, 1fr); } .feats-side { position: static; } .feats-head { grid-template-columns: minmax(0, 1fr); } }
+.feats-block .sc-link { margin-top: 28px; }
+.feats-block > .sc-btn { margin-top: 12px; }

@@ -1,14 +1,16 @@
 // The toasts for feats a character earned or upgraded since the player last saw them: one at a time, bottom right.
-// A feat is reported to the website as seen when its toast shows, never before.
+// A feat is reported as seen when its toast shows, never before; with `local` there is nothing to report to.
 
 import { invoke, el } from "./lib.js";
-import { seal, tierChip } from "./featcard.js";
+import { seal, tierChip, dial } from "./featcard.js";
 
 const MAX_TOASTS = 5;
-const STAY_MS = 4200;
+const STAY_MS = 4800;
 const GAP_MS = 300;
-const LEAVE_MS = 200;
+const LEAVE_MS = 400;
 const TIER_SWAP_MS = 280;
+const DIAL_FULL_MS = 900;
+const DIAL_SETTLE_MS = 1200;
 
 const shown = new Map();
 let stopCurrent = null;
@@ -22,31 +24,57 @@ export function stopToasts() {
   stopCurrent = null;
 }
 
-const markSeen = (character, entries) => {
+const reduced = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+const markSeen = (character, entries, local) => {
   for (const [key, tier] of entries) shown.set(seenKey(character, key), tier);
-  invoke("feats_seen", { character, shown: Object.fromEntries(entries) }).catch(() => {});
+  if (!local) invoke("feats_seen", { character, shown: Object.fromEntries(entries) }).catch(() => {});
 };
 
 function featToast(n) {
   const upgraded = n.from > 0;
-  const lead = seal(n.icon, upgraded ? n.from : n.tier);
-  lead.append(el("span", "sweep"));
+  const progress = n.progress ?? 0;
+  const plate = (tier) => seal(n.icon, tier, { size: 64, progress: 0, family: n.family });
+  const lead = el("span", "toast-seal");
+  const mark = plate(upgraded ? n.from : n.tier);
+  lead.append(el("span", "toast-glow"), mark);
+  if (upgraded) mark.querySelectorAll(".pip").forEach((p, i) => i < n.from && p.classList.add("was"));
   const label = el("p", "toast-l");
   label.textContent = upgraded ? `Upgraded from ${n.from_name}` : "Feat earned";
   const name = el("p", "toast-n");
   name.append(document.createTextNode(n.name), tierChip(n.tier, n.tier_name));
-  const text = el("div");
+  const text = el("div", "toast-text");
   text.append(label, name);
-  const swap = upgraded ? () => setTimeout(() => (lead.className = `seal t${n.tier}`), TIER_SWAP_MS) : null;
+  if (n.counted) {
+    const count = el("p", "toast-c");
+    count.textContent = n.counted;
+    text.append(count);
+  }
+  const swap = () => {
+    if (reduced()) {
+      mark.replaceChildren(plate(n.tier).firstChild);
+      mark.className = `sc-seal t${n.tier}`;
+      dial(mark, n.tier, progress);
+      return;
+    }
+    if (upgraded) {
+      setTimeout(() => {
+        mark.replaceChildren(plate(n.tier).firstChild);
+        mark.className = `sc-seal t${n.tier}`;
+      }, TIER_SWAP_MS);
+    }
+    setTimeout(() => dial(mark, n.tier, 1), DIAL_FULL_MS);
+    setTimeout(() => dial(mark, n.tier, progress), DIAL_SETTLE_MS);
+  };
   return { lead, text, tier: n.tier, swap };
 }
 
 function moreToast(rest, viewAll) {
-  const lead = el("span", "seal t2");
+  const lead = el("span", "sc-seal t2");
   lead.textContent = `+${rest.length}`;
   const name = el("p", "toast-n");
   name.textContent = `${rest.length} more ${rest.length === 1 ? "feat" : "feats"}`;
-  const button = el("button", "btn", "View all");
+  const button = el("button", "sc-btn quiet small", "View all");
   button.type = "button";
   button.onclick = viewAll;
   const text = el("div");
@@ -58,7 +86,7 @@ function moreToast(rest, viewAll) {
  * Plays the toasts for `news` (the website's `new` list of one character) and calls `viewAll` when the player picks
  * "View all" on the last one. A feat shown in this run of the app is not shown again, whatever the website says.
  */
-export function playToasts(character, news, viewAll) {
+export function playToasts(character, news, viewAll, { local = false } = {}) {
   stopToasts();
   const fresh = news.filter((n) => (shown.get(seenKey(character, n.key)) ?? -1) < n.tier);
   if (!fresh.length) return;
@@ -146,6 +174,7 @@ export function playToasts(character, news, viewAll) {
       markSeen(
         character,
         item.feat ? [[item.feat.key, item.feat.tier]] : item.rest.map((n) => [n.key, n.tier]),
+        local,
       );
     });
 

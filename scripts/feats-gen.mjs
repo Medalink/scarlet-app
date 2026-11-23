@@ -1,7 +1,7 @@
 // Writes the app's copy of the feat catalog from the catalog JSON of CONTRACTS.md ("The catalog in each repo"):
 //   node scripts/feats-gen.mjs <feats.json>
 // The input is the design's feats.json or the website's `php artisan feats:export`. Both carry the same fields; `was`,
-// `facts` and `made_from` are dropped. Output: app/src/feats_catalog.rs and app/ui/feats-catalog.js. Running it twice on
+// `facts` and `made_from` are dropped. Output: companion/src/feats_catalog.rs and app/ui/feats-catalog.js. Running it twice on
 // one input changes nothing.
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -109,8 +109,8 @@ pub static FEATS: &[CatalogFeat] = &[
 ${feats.join("\n")}
 ];
 `;
-const target = path.join(REPO, "app/src/feats_catalog.rs");
+const target = path.join(REPO, "companion/src/feats_catalog.rs");
 fs.writeFileSync(target, rs);
 const fmt = spawnSync("rustfmt", ["--edition", "2024", target], { encoding: "utf8" });
 if (fmt.status !== 0) console.error(`rustfmt did not run: ${fmt.stderr || fmt.error}`);
-console.log(`catalog ${catalog.version}: ${catalog.feats.length} feats -> app/src/feats_catalog.rs, app/ui/feats-catalog.js`);
+console.log(`catalog ${catalog.version}: ${catalog.feats.length} feats -> companion/src/feats_catalog.rs, app/ui/feats-catalog.js`);
