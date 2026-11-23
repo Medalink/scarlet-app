@@ -2,7 +2,7 @@
 // The model comes from the `roster` command. Section order: totals, characters by game
 // account, gold and transfers, played together, play time by day, time per level, professions.
 
-import { invoke, esc, displayName, num, dur, moneyHtml, dateStr } from "../lib.js";
+import { invoke, state, esc, displayName, num, dur, moneyHtml, dateStr } from "../lib.js";
 import { CLASS_COLOR, className, raceName, day, hm, longDur, playTime, signed, empty, mod, mondayOf, axisTime } from "./overview.js";
 
 const DAYS = 30;
@@ -24,11 +24,10 @@ const key = () =>
   `<ul class="key">${data.chars.map((c, i) => `<li><i style="background:${tone(i)}"></i>${esc(displayName(c.name))}</li>`).join("")}</ul>`;
 
 function pick(name) {
-  const sel = document.querySelector("#char");
-  sel.value = name;
-  sel.dispatchEvent(new Event("change"));
+  document.querySelector("#char").value = name;
+  state.ch = name;
+  location.hash = "character";
 }
-
 
 function totals() {
   const monday = mondayOf(new Date()).getTime();
