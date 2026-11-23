@@ -1,4 +1,4 @@
-// Talents: the selected character's build by tab, the order points were taken in, and respecs.
+// The talents section of Character: the selected character's build by tab, the order points were taken in, and respecs.
 
 import { invoke, el, esc, num, moneyHtml, dateTime, state } from "../lib.js";
 

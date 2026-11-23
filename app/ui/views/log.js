@@ -1,10 +1,10 @@
-// Timeline: virtualized log with Rust-side search, code chips, date range
+// Log: virtualized event log with Rust-side search, code chips, date range
 // and session jump.
 
 import { invoke, el, state, clock, esc, num, highlight } from "../lib.js";
 
-const ROW = 24; // px per row
-const PAGE = 500; // rows per Rust page
+const ROW_PX = 24;
+const ROWS_PER_PAGE = 500;
 
 export async function render(body) {
   const sessionsList = await invoke("sessions", { ch: state.ch });
@@ -16,7 +16,7 @@ export async function render(body) {
   const ui = {
     sig: "",
     total: 0,
-    pages: new Map(), // sig:page -> rows
+    pages: new Map(),
     inflight: new Set(),
     sessFrom: picked ? picked.from : null,
     sessTo: picked ? picked.to : null,
@@ -114,11 +114,11 @@ export async function render(body) {
       codes: [...state.codes],
       fromMs: fromMs(),
       toMs: toMs(),
-      offset: p * PAGE,
-      limit: PAGE,
+      offset: p * ROWS_PER_PAGE,
+      limit: ROWS_PER_PAGE,
     });
     ui.inflight.delete(key);
-    if (f.sig !== ui.sig) return; // a newer filter superseded this page
+    if (f.sig !== ui.sig) return;
     ui.pages.set(key, res.rows);
     ui.total = res.total;
     draw();
@@ -132,20 +132,20 @@ export async function render(body) {
       view.innerHTML = `<div class="empty" style="padding:14px">No matching events.</div>`;
       return;
     }
-    view.style.height = Math.max(ui.total * ROW, scroll.clientHeight) + "px";
-    const first = Math.max(0, Math.floor(scroll.scrollTop / ROW) - 4);
-    const last = first + Math.ceil(scroll.clientHeight / ROW) + 8;
+    view.style.height = Math.max(ui.total * ROW_PX, scroll.clientHeight) + "px";
+    const first = Math.max(0, Math.floor(scroll.scrollTop / ROW_PX) - 4);
+    const last = first + Math.ceil(scroll.clientHeight / ROW_PX) + 8;
     let html = "";
     for (let i = first; i < Math.min(last, ui.total); i++) {
-      const p = Math.floor(i / PAGE);
+      const p = Math.floor(i / ROWS_PER_PAGE);
       const page = ui.pages.get(f.sig + ":" + p);
       if (!page) {
         fetchPage(p, f);
         continue;
       }
-      const r = page[i - p * PAGE];
+      const r = page[i - p * ROWS_PER_PAGE];
       const textHtml = r.text ? highlight(r.text, term) : "";
-      html += `<div class="tl-row" style="top:${i * ROW}px" data-code="${esc(r.code)}">
+      html += `<div class="tl-row" style="top:${i * ROW_PX}px" data-code="${esc(r.code)}">
         <span class="tl-time">${clock(r.ms)}</span>
         <span class="tl-word" title="Filter by ${esc(r.word)}">${esc(r.word)}</span>
         <span class="tl-text">${textHtml}</span>
@@ -160,7 +160,7 @@ export async function render(body) {
     ui.total = 0;
     ui.sig = String(Math.random());
     scroll.scrollTop = 0;
-    fetchPage(0, { sig: ui.sig }); // primes total; draw re-runs on arrival
+    fetchPage(0, { sig: ui.sig });
     draw();
   }
 

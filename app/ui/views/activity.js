@@ -1,4 +1,4 @@
-// Activity heatmap: events per weekday x hour, or per calendar day.
+// Activity: events per weekday x hour, or per calendar day.
 
 import { invoke, el, num, state } from "../lib.js";
 
@@ -6,7 +6,6 @@ const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 function shade(count, max) {
   if (!max || !count) return "";
-  // The site's four scarlet steps.
   const t = count / max;
   const step = t < 0.25 ? "#4b1626" : t < 0.5 ? "#861a34" : t < 0.75 ? "#cf1f45" : "#ff5d7e";
   return `background:${step}`;

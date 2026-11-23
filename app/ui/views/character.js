@@ -3,8 +3,8 @@
 import { invoke, el, elText, state, sessionCard } from "../lib.js";
 import { cardList } from "../featcard.js";
 import * as overview from "./overview.js";
-import * as classview from "./classview.js";
-import * as talents from "./talents.js";
+import * as classSection from "./class-section.js";
+import * as talentsSection from "./talents-section.js";
 import { closestFor } from "./feats.js";
 import { linkPrompt } from "../link.js";
 
@@ -64,10 +64,10 @@ export async function render(body, sub) {
   if (key === "overview") return drawOverview(page);
   const name = await who();
   if (key === "class") {
-    await classview.render(page, name);
+    await classSection.render(page, name);
     const row = await linkPrompt("class");
     if (row && page.isConnected) page.append(row);
     return;
   }
-  return talents.render(page, name);
+  return talentsSection.render(page, name);
 }

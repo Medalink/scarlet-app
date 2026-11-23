@@ -1,4 +1,4 @@
-// The class view: the website's page for the selected character's class, drawn in the app's panels.
+// The class section of Character: the website's page for the selected character's class, drawn in the app's panels.
 // The site decodes the uploaded log and owns the derivations of all nine classes, so the app reads
 // the finished page over the install's signed request and shows the view only for a character the
 // site has a page for.

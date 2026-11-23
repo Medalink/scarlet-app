@@ -5,8 +5,8 @@ import * as roster from "./views/roster.js";
 import * as feats from "./views/feats.js";
 import { stopToasts } from "./feat-toast.js";
 import * as stats from "./views/stats.js";
-import * as heatmap from "./views/heatmap.js";
-import * as timeline from "./views/timeline.js";
+import * as activity from "./views/activity.js";
+import * as log from "./views/log.js";
 import * as sessions from "./views/sessions.js";
 import * as map from "./views/map.js";
 import * as loot from "./views/loot.js";
@@ -27,8 +27,8 @@ const VIEWS = {
   loot: ["Loot", loot],
   characters: ["Characters", roster],
   items: ["Items", items],
-  activity: ["Activity", heatmap],
-  log: ["Log", timeline],
+  activity: ["Activity", activity],
+  log: ["Log", log],
   data: ["Data", data],
   settings: ["Settings", settings],
   system: ["Components", system],

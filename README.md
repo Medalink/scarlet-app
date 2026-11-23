@@ -6,7 +6,7 @@ records what your character does.
 - `companion`: the `scarlet` command. It reads Scarlet's SavedVariables, keeps every recording as compressed
   payloads under `out/<Name-Surname>/`, rebuilds CSV tables, and writes `Digest.lua` and `Items.lua` into its own `ScarletData`
   addon folder, beside `Scarlet`, so the in-game overview can show your whole history.
-- `app`: the Windows app (Tauri). It shows a character overview (with the quests, titles and zone maps of the character's whole life and its current instance locks), an activity heatmap, a timeline, sessions, the paths
+- `app`: the Windows app (Tauri). It shows a character overview (with the quests, titles and zone maps of the character's whole life and its current instance locks), an activity heatmap, the event log, sessions, the paths
   you travelled on each map, the feats the website counts for a character (with a toast for each new or upgraded one), charts, loot tables and how well the recordings compress. When the player quits WoW Forever it comes to
   the front with a summary of the whole run: the time played, the characters, the levels, quests, achievements and deaths, the zones visited and the stats. It can open itself when WoW Forever starts.
 
