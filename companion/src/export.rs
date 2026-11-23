@@ -459,6 +459,59 @@ fn read_kept(wow: &Path) -> BTreeMap<String, featscore::Kept> {
     kept
 }
 
+const SEEN_SENT: &str = "feats-seen-sent.json";
+
+fn load_seen_sent(out: &Path) -> BTreeMap<String, BTreeMap<String, u8>> {
+    fs::read_to_string(out.join(SEEN_SENT))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default()
+}
+
+/// The feat tiers the player has been shown in game since the last time they were sent to the website, one entry
+/// for each character that has any.
+pub fn feats_seen_unsent(wows: &[PathBuf], out: &Path) -> Vec<(String, BTreeMap<String, u8>)> {
+    let sent = load_seen_sent(out);
+    let mut shown: BTreeMap<String, BTreeMap<String, u8>> = BTreeMap::new();
+    for wow in wows {
+        for (name, kept) in read_kept(wow) {
+            let entry = shown.entry(name).or_default();
+            for (key, tier) in kept.seen.unwrap_or_default() {
+                let tier = tier.clamp(0, 5) as u8;
+                let at = entry.entry(key).or_insert(0);
+                *at = (*at).max(tier);
+            }
+        }
+    }
+    shown
+        .into_iter()
+        .filter_map(|(name, tiers)| {
+            let done = sent.get(&name);
+            let fresh: BTreeMap<String, u8> = tiers
+                .into_iter()
+                .filter(|(key, tier)| *tier > done.and_then(|d| d.get(key)).copied().unwrap_or(0))
+                .collect();
+            (!fresh.is_empty()).then_some((name, fresh))
+        })
+        .collect()
+}
+
+/// Records that `shown` reached the website for `character`, so the next export does not send it again.
+pub fn feats_seen_sent(out: &Path, character: &str, shown: &BTreeMap<String, u8>) {
+    let mut sent = load_seen_sent(out);
+    let entry = sent.entry(character.to_string()).or_default();
+    for (key, tier) in shown {
+        let at = entry.entry(key.clone()).or_insert(0);
+        *at = (*at).max(*tier);
+    }
+    let written = serde_json::to_string(&sent)
+        .map_err(|e| e.to_string())
+        .and_then(|text| write_atomic(&out.join(SEEN_SENT), &text).map_err(|e| e.to_string()));
+    if let Err(e) = written {
+        eprintln!("scarlet: {SEEN_SENT}: {e}");
+    }
+}
+
 fn refresh_web_sync(out: &Path) {
     let Some(mut web) = overview::web() else {
         return;

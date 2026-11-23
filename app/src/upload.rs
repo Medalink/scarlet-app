@@ -297,10 +297,27 @@ fn run_once(app: &AppHandle) -> bool {
             names.join(", ")
         )));
     }
+    if reports.iter().all(|r| !r.failed) {
+        send_feats_seen(&mut sess, &s);
+    }
     let failed = reports.iter().find(|r| r.failed);
     set_error(failed.and_then(|r| r.note.clone()));
     publish_web(&settings::load());
     reports.iter().any(|r| r.retry)
+}
+
+fn send_feats_seen(sess: &mut Session, s: &Settings) {
+    if !sess.me().is_ok_and(|m| m.linked) {
+        return;
+    }
+    for (character, shown) in scarlet::export::feats_seen_unsent(&s.folders(), &s.data) {
+        if !s.upload.character_on(&character) {
+            continue;
+        }
+        if sess.feats_seen(&character, &shown).is_ok() {
+            scarlet::export::feats_seen_sent(&s.data, &character, &shown);
+        }
+    }
 }
 
 #[tauri::command]
