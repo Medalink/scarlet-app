@@ -3,6 +3,7 @@
 //! this install has registered with the website, nothing here makes a network request.
 
 use crate::commands::blocking;
+use crate::feats_catalog;
 use crate::settings;
 use scarlet::upload::config;
 use scarlet::upload::keys;
@@ -21,6 +22,7 @@ pub enum FeatsState {
     /// The website's `characters` list, as it answered.
     Characters {
         characters: Value,
+        catalog: u32,
     },
     Error {
         message: String,
@@ -56,6 +58,7 @@ pub async fn feats_get() -> FeatsState {
         match sess.feats() {
             Ok(v) => FeatsState::Characters {
                 characters: v.get("characters").cloned().unwrap_or(Value::Array(vec![])),
+                catalog: feats_catalog::VERSION,
             },
             Err(e) => FeatsState::Error {
                 message: e.to_string(),

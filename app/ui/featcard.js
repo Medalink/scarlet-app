@@ -1,6 +1,7 @@
 // A feat's seal, tier chip and card (FEATS.md). Everything from the website is set as text.
 
 import { el, num } from "./lib.js";
+import { BY_KEY } from "./feats-catalog.js";
 import { GLYPHS, METAL, NEXT, PLATES, PLATE_SHIFT, FAMILY_OF, TIER_NAMES, svg } from "./glyphs.js";
 
 const GOLD = "#d9b25f";
@@ -102,6 +103,13 @@ export function tierChip(tier, text) {
   return c;
 }
 
+/** A website card with the catalog's glyph, family and collection filled in where the answer has none. */
+export function withCatalog(feat) {
+  const c = BY_KEY.get(feat.key);
+  if (!c) return feat;
+  return { ...feat, glyph: feat.glyph ?? c.glyph, family: feat.family ?? c.family, collection: feat.collection ?? c.collection, thresholds: feat.thresholds ?? c.thresholds };
+}
+
 const cardProgress = (feat) => feat.progress ?? (Array.isArray(feat.track) ? Number(feat.track[feat.tier] ?? 0) / 100 : 0);
 
 /** The seal of a card: its glyph, family and progress, whichever shape the feat arrives in. */
@@ -112,7 +120,8 @@ export const cardSeal = (feat, size = 64) =>
  * One feat card: seal 64, the name with its tier chip, the count in the feat's words and what the next tier takes.
  * `share` shows at the right when the website sends it.
  */
-export function card(feat, { share = true } = {}) {
+export function card(raw, { share = true } = {}) {
+  const feat = withCatalog(raw);
   const li = el("li", `sc-feat t${feat.tier}`);
   const name = el("p", "sc-feat-n");
   name.append(document.createTextNode(feat.name));
