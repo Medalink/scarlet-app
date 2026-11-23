@@ -61,7 +61,7 @@ function head(recap, near, onAll) {
   };
   if (near.earlier) actions.append(go(near.earlier, `← ${shortDay(near.earlier.start)}`));
   if (near.later) actions.append(go(near.later, `${shortDay(near.later.start)} →`));
-  const log = elText("button", "sc-btn quiet small", "Timeline");
+  const log = elText("button", "sc-btn quiet small", "Log");
   log.type = "button";
   log.onclick = () => {
     window.__tlSession = { index: null, from: recap.start * 1000 - 1000, to: recap.end * 1000 + 1000 };
