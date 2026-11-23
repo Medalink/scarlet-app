@@ -8,14 +8,20 @@ use crate::talents::Line;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-pub const CODES: [&str; 16] = [
-    "S", "LN", "LE", "LB", "SN", "LO", "O", "WE", "A", "RX", "RO", "SK", "SL", "KN", "C", "ES",
+pub const CODES: [&str; 18] = [
+    "S", "LN", "LE", "LB", "SN", "LO", "O", "WE", "A", "RX", "RO", "SK", "SL", "KN", "C", "CR",
+    "VB", "ES",
 ];
 
 const LUREMASTER: &str = "1225455";
 const WORKING_OVERTIME: &str = "1225451";
 const WELL_RESTED: &str = "1225478";
 const GOURMAND: &str = "1225499";
+const MASTER_CHEF: &str = "1225457";
+const BARTERING: &str = "1225459";
+const PERMANENCE: &str = "1225502";
+const CAMP_BENEFITS: &str = "1229741";
+const PLACEHOLDER: &str = "To be added in a future update.";
 
 const BOBBER: &str = "35591";
 const CATCH_ITEMS_MS: i64 = 1_500;
@@ -348,21 +354,97 @@ fn luremaster(lines: &[Line]) -> Samples {
     }
 }
 
-fn gourmand(lines: &[Line], names: &HashMap<&str, &str>) -> Samples {
-    let points = lines
+fn aura_minutes(lines: &[Line], is_aura: impl Fn(&str) -> bool) -> Vec<(i64, f64)> {
+    lines
         .iter()
         .filter(|l| l.code == "A" && field(l, 0) == "1" && field(l, 5) != "s")
-        .filter(|l| names.get(field(l, 1)) == Some(&"Well Fed"))
+        .filter(|l| is_aura(field(l, 1)))
         .filter_map(|l| {
             decimal(field(l, 3))
                 .filter(|d| *d > 0.0)
                 .map(|d| (l.ms, d / 60.0))
         })
-        .collect();
+        .collect()
+}
+
+fn gourmand(lines: &[Line], names: &HashMap<&str, &str>) -> Samples {
     Samples {
         what: "Well Fed duration",
         trials: "Buffs",
         unit: "min",
+        kind: Kind::Increase,
+        points: aura_minutes(lines, |id| names.get(id) == Some(&"Well Fed")),
+    }
+}
+
+fn permanence(lines: &[Line]) -> Samples {
+    Samples {
+        what: "Camp Benefits duration",
+        trials: "Camps",
+        unit: "min",
+        kind: Kind::Increase,
+        points: aura_minutes(lines, |id| id == CAMP_BENEFITS),
+    }
+}
+
+fn master_chef(lines: &[Line]) -> Samples {
+    let cooks: Vec<i64> = lines
+        .iter()
+        .filter(|l| l.code == "SK" && field(l, 0) == "Cooking")
+        .map(|l| l.ms)
+        .collect();
+    let crafts: Vec<(i64, &str, u32)> = lines
+        .iter()
+        .filter(|l| l.code == "CR")
+        .filter_map(|l| number(field(l, 1)).map(|q| (l.ms, field(l, 0), q)))
+        .collect();
+    let mut cooked: HashSet<&str> = HashSet::new();
+    let mut usual: HashMap<&str, u32> = HashMap::new();
+    for (ms, item, quantity) in &crafts {
+        let lo = cooks.partition_point(|c| *c < ms - SKILL_UP_BEFORE_MS);
+        if cooks.get(lo).is_some_and(|c| *c <= ms + SKILL_UP_AFTER_MS) {
+            cooked.insert(item);
+        }
+        let u = usual.entry(item).or_insert(*quantity);
+        *u = (*u).min(*quantity);
+    }
+    let points = crafts
+        .iter()
+        .filter(|(_, item, _)| cooked.contains(item))
+        .map(|(ms, item, quantity)| (*ms, if *quantity > usual[item] { 1.0 } else { 0.0 }))
+        .collect();
+    Samples {
+        what: "Cooking crafts that made more than the dish's usual amount",
+        trials: "Crafts",
+        unit: "%",
+        kind: Kind::Chance,
+        points,
+    }
+}
+
+fn bartering(lines: &[Line]) -> Samples {
+    let buys: Vec<(i64, &str, f64)> = lines
+        .iter()
+        .filter(|l| l.code == "VB" && field(l, 0) == "b" && field(l, 5) != "1")
+        .filter_map(|l| {
+            let count = decimal(field(l, 2)).filter(|c| *c > 0.0)?;
+            let copper = decimal(field(l, 3)).filter(|c| *c > 0.0)?;
+            Some((l.ms, field(l, 1), copper / count))
+        })
+        .collect();
+    let mut most: HashMap<&str, f64> = HashMap::new();
+    for (_, item, unit) in &buys {
+        let m = most.entry(item).or_insert(*unit);
+        *m = m.max(*unit);
+    }
+    let points = buys
+        .iter()
+        .map(|(ms, item, unit)| (*ms, unit / most[item] * 100.0))
+        .collect();
+    Samples {
+        what: "Vendor price paid, % of the most paid for the same item",
+        trials: "Purchases",
+        unit: "%",
         kind: Kind::Increase,
         points,
     }
@@ -538,6 +620,12 @@ pub fn build<'a>(lines: impl IntoIterator<Item = Line<'a>>) -> Legacy {
     let names = spell_names(&lines);
     let mut talents: Vec<Talent> = nodes
         .iter()
+        .filter(|(_, n)| {
+            n.rank() > 0
+                || !n
+                    .texts()
+                    .is_some_and(|t| !t.1.is_empty() && t.1.values().all(|x| x == PLACEHOLDER))
+        })
         .map(|(id, n)| {
             let spell_id = if n.spell_id.is_empty() {
                 n.texts().map(|t| t.0.clone()).unwrap_or_default()
@@ -549,6 +637,9 @@ pub fn build<'a>(lines: impl IntoIterator<Item = Line<'a>>) -> Legacy {
                 GOURMAND => Some(gourmand(&lines, &names)),
                 WELL_RESTED => Some(well_rested(&lines)),
                 WORKING_OVERTIME => Some(working_overtime(&lines, &names)),
+                MASTER_CHEF => Some(master_chef(&lines)),
+                BARTERING => Some(bartering(&lines)),
+                PERMANENCE => Some(permanence(&lines)),
                 _ => None,
             };
             let name = names
