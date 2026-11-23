@@ -410,6 +410,77 @@ const CHECKS = [
   },
   {
     lane: "app",
+    name: "the sessions list is newest first, steps through sessions, and follows the session mode",
+    async run(ctx) {
+      const app = running(ctx);
+      const file = path.join(ctx.site.app.home, "settings.json");
+      const cards = () => app.evaluate(`[...document.querySelectorAll("#body .sc-sessions .sc-session")].map((c) => c.innerText.replace(/\\s+/g, " "))`);
+      const cardCount = (n, what) => app.until(`document.querySelectorAll("#body .sc-sessions .sc-session").length === ${n}`, what);
+      const press = (text, scope = "#body button") => app.evaluate(`[...document.querySelectorAll(${JSON.stringify(scope)})].find((b) => b.textContent === ${JSON.stringify(text)}).click()`);
+      const modeSaved = async (mode) => {
+        let saved;
+        for (let i = 0; i < 150; i++) {
+          saved = JSON.parse(read(file));
+          if (saved.session_mode === mode) break;
+          await sleep(20);
+        }
+        expectEqual("session_mode in settings.json", saved.session_mode, mode);
+        return saved;
+      };
+      await selectCharacter(app, "");
+      await app.evaluate(`location.hash = "sessions"`);
+      await cardCount(3, "the list shows three WoW runs");
+      const [newest, middle, oldest] = await cards();
+      expectMatch("the newest card", newest, /Probe Lane/);
+      expectMatch("the second card", middle, /2m in Westfall/);
+      expectMatch("the oldest card", oldest, /Level 5 to 6 in Elwynn Forest/);
+
+      await app.evaluate(`document.querySelector("#body .sc-sessions .sc-session").click()`);
+      await app.until(`/^#sessions\\/\\d+-\\d+$/.test(location.hash) && document.querySelector("#body .recap-actions select")`, "a card opens its session page with the session select");
+      const bar = await app.evaluate(`({ older: !!document.querySelector('#body [aria-label="Older session"]'), newer: !!document.querySelector('#body [aria-label="Newer session"]'), options: [...document.querySelectorAll("#body .recap-actions select option")].map((o) => o.textContent) })`);
+      expectEqual("the newest session has an Older button and no Newer button", [bar.older, bar.newer], [true, false]);
+      expectEqual("sessions in the select", bar.options.length, 3);
+      expectMatch("the first option of the select", bar.options[0], /Probe Lane/);
+      await app.evaluate(`document.querySelector('#body [aria-label="Older session"]').click()`);
+      await app.until(`/Level 5 to 6|Westfall/.test(${BODY}) && document.querySelector('#body [aria-label="Newer session"]')`, "Older opens the session before it");
+
+      await app.evaluate(`location.hash = "sessions"`);
+      await cardCount(3, "the list is back");
+      await press("Days", "#body .sc-seg button");
+      await modeSaved("day");
+      await cardCount(3, "Days shows one card for each of the three days");
+      await app.evaluate(`document.querySelector("#body .sc-sessions .sc-session").click()`);
+      await app.until(`/day, .* · 1 session · .* played/.test(${BODY})`, "a day's page reads as a day");
+      await app.evaluate(`location.hash = "sessions"`);
+      await cardCount(3, "the list is back in Days");
+      await press("WoW runs", "#body .sc-seg button");
+      await modeSaved("auto");
+      await cardCount(3, "WoW runs shows three cards again");
+
+      const saved = JSON.parse(read(file));
+      fs.writeFileSync(file, JSON.stringify({ ...saved, session_marks: [{ from: 1795000040000, to: 1795000100000 }] }));
+      await press("Manual", "#body .sc-seg button");
+      await modeSaved("manual");
+      await cardCount(1, "Manual shows the one marked session");
+      expectMatch("the marked session's card", (await cards())[0], /1m /);
+      await app.evaluate(`document.querySelector("#body .sc-sessions .sc-session").click()`);
+      await app.until(`/1m 0s played/.test(${BODY}) && /Experience 205 /.test(${BODY}) && !/1,605/.test(${BODY})`, "a marked session's page holds only the minute inside it");
+      await app.evaluate(`location.hash = "sessions"`);
+      await cardCount(1, "the list is back in Manual");
+      await press("Start session");
+      await cardCount(2, "Start session adds a card");
+      expectMatch("the card of the running session", (await cards())[0], /In progress/);
+      await app.until(`[...document.querySelectorAll("#body button")].some((b) => b.textContent === "Stop session")`, "Stop session is offered");
+      await press("Stop session");
+      await cardCount(1, "Stop session leaves only the marked session");
+      await press("WoW runs", "#body .sc-seg button");
+      await modeSaved("auto");
+      await cardCount(3, "WoW runs shows three cards after Manual");
+      fs.writeFileSync(file, JSON.stringify({ ...JSON.parse(read(file)), session_marks: [] }));
+    },
+  },
+  {
+    lane: "app",
     name: "the timeline reads each hit of a death recap",
     async run(ctx) {
       const app = running(ctx);

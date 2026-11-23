@@ -1,5 +1,5 @@
 // A full-page screenshot of each view, from the real exe on a hidden desktop, for comparing with the design's renders.
-//   node scripts/shots.mjs --out <dir> [--fixture | --home <dir>] [--views a,b,c] [--char Name-Surname] [--upload]
+//   node scripts/shots.mjs --out <dir> [--fixture | --home <dir>] [--views a,b,c] [--char Name-Surname] [--mode auto|day|manual] [--upload]
 // --fixture builds the e2e fixture and exports it; --home copies a Scarlet home (settings.json and its data folder) to
 // a temp folder under E:\Temp first, so the original is never written. Uploading is switched off unless --upload.
 import { spawnSync } from "node:child_process";
@@ -20,6 +20,7 @@ const { values } = parseArgs({
     upload: { type: "boolean" },
     run: { type: "string" },
     exe: { type: "string" },
+    mode: { type: "string" },
   },
 });
 if (!values.out || (!values.fixture && !values.home)) {
@@ -40,12 +41,12 @@ if (values.fixture) {
   const cli = path.join(REPO, "companion", "target", "debug", "scarlet.exe");
   const run = spawnSync(cli, ["export", "--wow", wow, "--out", out], { encoding: "utf8", windowsHide: true });
   if (run.status !== 0) throw new Error(`export failed: ${run.stderr}`);
-  settings = { wow, data: out, watch: false, last_view: "sessions", keep_addon: false, open_with_wow: false, setup_done: true, upload: { enabled: Boolean(values.upload), server: "http://127.0.0.1:8471" } };
+  settings = { wow, data: out, watch: false, last_view: "sessions", keep_addon: false, open_with_wow: false, setup_done: true, upload: { enabled: Boolean(values.upload), server: "http://127.0.0.1:8471" }, session_mode: values.mode ?? "auto", session_marks: values.mode === "manual" ? [{ from: 1795000040000, to: 1795000100000 }] : [] };
 } else {
   const source = JSON.parse(fs.readFileSync(path.join(values.home, "settings.json"), "utf8"));
   const copy = path.join(temp, "out");
   fs.cpSync(source.data, copy, { recursive: true });
-  settings = { wow: "", more_wow: [], last_view: "sessions", ...source, data: copy, watch: false, keep_addon: false, open_with_wow: false, setup_done: true, upload: { ...source.upload, enabled: Boolean(values.upload) } };
+  settings = { wow: "", more_wow: [], last_view: "sessions", ...source, data: copy, watch: false, keep_addon: false, open_with_wow: false, setup_done: true, session_mode: values.mode ?? source.session_mode, upload: { ...source.upload, enabled: Boolean(values.upload) } };
 }
 fs.writeFileSync(path.join(home, "settings.json"), JSON.stringify(settings));
 
