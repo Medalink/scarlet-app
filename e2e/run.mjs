@@ -296,9 +296,10 @@ const CHECKS = [
     async run(ctx) {
       await startApp(ctx);
       const page = await ctx.app.evaluate(
-        `({ items: document.querySelectorAll("#nav .item").length, title: document.querySelector("#pagetitle").textContent, ver: document.querySelector("#ver").textContent })`,
+        `({ items: document.querySelectorAll("#nav .item").length, classEntryHidden: document.querySelector('#nav .item[data-key="classpage"]').hidden, title: document.querySelector("#pagetitle").textContent, ver: document.querySelector("#ver").textContent })`,
       );
-      expectEqual("items in the nav", page.items, VIEWS.length);
+      expectEqual("items in the nav", page.items, VIEWS.length + 1);
+      expectEqual("the class entry is hidden while the site has no page", page.classEntryHidden, true);
       expectNoMatch("the page title", page.title, /^boot:/);
       expectEqual("the version", page.ver, "dev");
     },

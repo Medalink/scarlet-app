@@ -27,7 +27,7 @@ pub enum FeatsState {
     },
 }
 
-fn registered_session() -> Result<Option<Session>, String> {
+pub(crate) fn registered_session() -> Result<Option<Session>, String> {
     let s = settings::load();
     let cfg = &s.upload;
     if !cfg.enabled {

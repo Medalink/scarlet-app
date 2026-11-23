@@ -13,6 +13,7 @@ import * as map from "./views/map.js";
 import * as charts from "./views/charts.js";
 import * as loot from "./views/loot.js";
 import * as talents from "./views/talents.js";
+import * as classview from "./views/classview.js";
 import * as items from "./views/items.js";
 import * as addons from "./views/addons.js";
 import * as compress from "./views/compress.js";
@@ -30,6 +31,7 @@ const VIEWS = {
   charts: ["Charts", charts],
   loot: ["Loot", loot],
   talents: ["Talents", talents],
+  classpage: [() => classview.label(), classview],
   items: ["Items", items],
   addons: ["Addons", addons],
   compress: ["Compress", compress],
@@ -37,7 +39,7 @@ const VIEWS = {
 };
 
 const NAV_GROUPS = [
-  ["Character", ["overview", "feats", "stats", "talents"]],
+  ["Character", ["overview", "feats", "stats", "talents", "classpage"]],
   ["History", ["heatmap", "timeline", "sessions", "map", "charts", "loot", "items"]],
   ["System", ["addons", "compress", "settings"]],
 ];
@@ -47,6 +49,7 @@ const NAV_ICONS = {
   feats: '<path d="m12 3 7.2 3v5.6c0 4.3-3 7.6-7.2 9.4-4.2-1.8-7.2-5.1-7.2-9.4V6z"/>',
   stats: '<path d="M4 19.5h16M7 16v-5m5 5V6m5 10v-8"/>',
   talents: '<circle cx="12" cy="5" r="2.2"/><circle cx="6" cy="18.6" r="2.2"/><circle cx="18" cy="18.6" r="2.2"/><path d="M12 7.2v4.4m0 0-4.9 5.2M12 11.6l4.9 5.2"/>',
+  classpage: '<path d="m12 3.4 2.5 5.3 5.8.8-4.2 4.1 1 5.7-5.1-2.7-5.1 2.7 1-5.7-4.2-4.1 5.8-.8z"/>',
   heatmap: '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M9 9.5v10M15 9.5v10"/>',
   timeline: '<path d="M5 7h14M5 12h10M5 17h14"/>',
   sessions: '<circle cx="12" cy="12" r="8.6"/><path d="M12 7v5.2l3.4 2"/>',
@@ -77,6 +80,7 @@ function buildNav() {
       const item = el("button", "item");
       item.type = "button";
       item.dataset.key = key;
+      item.hidden = key === "classpage";
       const ico = NAV_ICONS[key] ? `<svg class="nav-ico" viewBox="0 0 24 24" aria-hidden="true">${NAV_ICONS[key]}</svg>` : "";
       item.innerHTML = `${ico}<span class="nav-label">${labelOf(key)}</span>`;
       item.onclick = () => {
@@ -117,6 +121,7 @@ function setView() {
     if (mine !== navSeq) return;
     const route = (location.hash || "#overview").slice(1);
     const [key, sub] = route.split("/");
+    syncClassEntry();
     const next = VIEWS[key] ? key : "overview";
     if (activeMod?.cleanup) activeMod.cleanup();
     current = next;
@@ -135,6 +140,14 @@ function setView() {
   });
   navTail = run.catch(() => {});
   return run;
+}
+
+async function syncClassEntry() {
+  const name = await classview.probe().catch(() => null);
+  const item = document.querySelector('#nav .item[data-key="classpage"]');
+  if (!item) return;
+  item.hidden = !name;
+  item.querySelector(".nav-label").textContent = labelOf("classpage");
 }
 
 async function refreshCharSelector() {
@@ -179,6 +192,7 @@ async function boot() {
   if (s && !s.setup_done) openSetup();
   await refreshCharSelector();
   headStats();
+  syncClassEntry();
   $("#char").onchange = async (e) => {
     state.ch = e.target.value || null;
     await setView();
@@ -227,6 +241,7 @@ async function boot() {
     await loadState();
     headStats();
     await refreshCharSelector();
+    syncClassEntry();
     // Settings draws itself after a save; redrawing it here would wipe "Saved." and whatever
     // the player is typing when an export lands.
     if (!location.hash.startsWith("#settings")) await setView();

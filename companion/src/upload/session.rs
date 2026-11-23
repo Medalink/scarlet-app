@@ -479,6 +479,23 @@ impl Session {
         Ok(self.api("GET", "/installs/me/feats", None)?.json)
     }
 
+    /// `GET /installs/me/class-page/{character}`, as the server answered: the class page of one
+    /// character of this install, or an empty list when the site has none for it.
+    pub fn class_page(&mut self, character: &str) -> Result<Value> {
+        let name: String = character
+            .bytes()
+            .map(|b| match b {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                    (b as char).to_string()
+                }
+                _ => format!("%{b:02X}"),
+            })
+            .collect();
+        Ok(self
+            .api("GET", &format!("/installs/me/class-page/{name}"), None)?
+            .json)
+    }
+
     /// `POST /installs/me/feats/seen`: the tier shown for each feat key of one character.
     pub fn feats_seen(&mut self, character: &str, shown: &BTreeMap<String, u8>) -> Result<()> {
         let body = json!({ "character": character, "feats": shown }).to_string();

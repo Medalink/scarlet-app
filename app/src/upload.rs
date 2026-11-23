@@ -463,7 +463,7 @@ pub async fn upload_link() -> Result<LinkView, String> {
 
 /// Opens an address in the default browser. Only called with the link address the website just
 /// returned for this install.
-fn open_url(url: &str) -> Result<(), String> {
+pub(crate) fn open_url(url: &str) -> Result<(), String> {
     use windows_sys::Win32::System::Com::{
         COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE, CoInitializeEx, CoUninitialize,
     };

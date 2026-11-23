@@ -6,6 +6,7 @@ mod addon_sync;
 mod addons;
 mod agg;
 mod browse;
+mod classpage;
 mod commands;
 mod discover;
 mod feats;
@@ -157,6 +158,9 @@ fn main() {
             upload::upload_now,
             upload::upload_linked,
             upload::upload_link,
+            classpage::class_icon,
+            classpage::class_page_get,
+            classpage::class_page_open,
             feats::feats_get,
             feats::feats_seen,
         ])

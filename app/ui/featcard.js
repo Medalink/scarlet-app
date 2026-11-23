@@ -74,7 +74,14 @@ export function card(feat) {
   }
   const text = el("div");
   text.append(name, detail, track);
-  li.append(seal(feat.icon, feat.tier), text);
+  const round = seal(feat.icon, feat.tier);
+  if (feat.art) {
+    const art = el("img", "seal-art");
+    art.alt = "";
+    art.dataset.icon = feat.art;
+    round.append(art);
+  }
+  li.append(round, text);
   return li;
 }
 
