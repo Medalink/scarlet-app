@@ -2,7 +2,7 @@
 
 import { el, num } from "./lib.js";
 import { BY_KEY } from "./feats-catalog.js";
-import { METAL, TIER_NAMES, svg } from "./glyphs.js";
+import { QUALITY, TIER_NAMES, svg } from "./glyphs.js";
 import { drawCrest } from "./crests.js";
 import { hydrate } from "./views/classblocks.js";
 
@@ -31,7 +31,7 @@ export function pips(tier) {
     root.append(
       svg("rect", {
         x: 2.5 + i * 9, y: 2, width: 6, height: 6, transform: `rotate(45 ${5.5 + i * 9} 5)`,
-        fill: i < tier ? METAL[tier] : "none", stroke: i < tier ? "none" : "rgba(255,255,255,0.22)", "stroke-width": 1,
+        fill: i < tier ? QUALITY[tier].color : "none", stroke: i < tier ? "none" : "rgba(255,255,255,0.22)", "stroke-width": 1,
       }),
     );
   }

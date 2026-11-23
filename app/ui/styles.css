@@ -790,18 +790,17 @@ table.talents td[colspan] { white-space: normal; }
 .t1 { --metal: var(--tier-1); }
 .t2 { --metal: var(--tier-2); }
 .t3 { --metal: var(--tier-3); }
-.t4 { --metal: var(--soft); }
+.t4 { --metal: var(--tier-4); }
 .t5 { --metal: var(--tier-5); }
 
 .toasts { position: fixed; right: 20px; bottom: 20px; z-index: 50; display: flex; flex-direction: column; align-items: flex-end; gap: 10px; pointer-events: none; }
 .toast { --ring: var(--metal); pointer-events: auto; position: relative; display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; column-gap: 14px; align-items: center; width: 344px; height: 78px; max-width: calc(100vw - 40px); padding: 7px 10px 7px 18px; overflow: hidden; background: var(--card); border: 1px solid var(--line2); border-radius: 4px; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45); animation: toast-in 200ms ease-out both; }
 .toast::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--ring); }
 .toast::after { content: ""; position: absolute; top: 0; bottom: 0; left: 0; width: 38%; background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.16), transparent); transform: translateX(-120%) skewX(-15deg); animation: toast-sweep 600ms ease-in-out 500ms both; pointer-events: none; }
-.toast.t5 { --ring: var(--tier-5); }
 .toast-glow { position: absolute; left: 50%; top: 50%; width: 120px; height: 120px; margin: -60px 0 0 -60px; border-radius: 50%; background: radial-gradient(circle, color-mix(in srgb, var(--ring) 60%, transparent), transparent 65%); opacity: 0; pointer-events: none; animation: toast-glow 620ms ease-out 120ms both; }
 .toast.t5 .toast-glow { background: radial-gradient(circle, color-mix(in srgb, var(--tier-5) 70%, transparent), transparent 65%); animation: toast-glow 620ms ease-out 120ms both, toast-glow 620ms ease-out 380ms both; }
 .toast-crest { position: relative; display: grid; place-items: center; }
-.toast-more { display: grid; place-items: center; width: 64px; height: 64px; font: 750 24px/1 var(--display); color: var(--tier-2); }
+.toast-more { display: grid; place-items: center; width: 64px; height: 64px; font: 750 24px/1 var(--display); color: var(--text); }
 .toast-text { min-width: 0; animation: toast-fade 300ms ease-out 520ms both; }
 .toast-l { font-size: 12.5px; color: var(--muted); }
 .toast-n { margin-top: 2px; display: flex; align-items: baseline; flex-wrap: wrap; gap: 2px 8px; font: 750 21px/1.05 var(--display); color: var(--fg); }
@@ -931,9 +930,6 @@ main:has(.cv-banner) #pagetitle { display: none; }
 .sc-num-xl { font-size: 52px; line-height: 0.9; }
 .sc-num-md { font-size: 24px; }
 .sc-num small, .sc-unit { font: 600 0.42em/1 var(--body); color: var(--muted); margin-left: 0.25em; letter-spacing: 0; }
-.sc-g { color: var(--tier-3); }
-.sc-s { color: var(--tier-2); }
-.sc-c { color: var(--tier-1); }
 .sc-panel { background: var(--panel); border: 1px solid var(--line); border-radius: 4px; padding: 16px 20px; }
 .sc-grid { display: grid; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 4px; overflow: hidden; }
 .sc-grid > * { background: var(--bg); }
@@ -994,8 +990,8 @@ main:has(.cv-banner) #pagetitle { display: none; }
 .sc-wall-b:hover { background: var(--panel); }
 .sc-wall > .t0 .sc-wall-b { color: var(--muted); }
 .sc-wall > .on .sc-wall-b { background: var(--panel); box-shadow: inset 0 0 0 1px var(--line2); color: var(--fg); }
-.sc-chip { display: inline-block; font: 500 11px/1 var(--mono); font-stretch: 85%; padding: 3px 5px; border: 1px solid color-mix(in srgb, var(--metal, var(--muted)) 55%, transparent); border-radius: 2px; color: var(--metal, var(--muted)); white-space: nowrap; translate: 0 -0.12em; }
-.sc-chip.t5 { background: var(--tier-5); border-color: var(--tier-5); color: var(--ink); }
+.sc-chip { display: inline-block; font: 500 11px/1 var(--mono); font-stretch: 85%; padding: 3px 5px; border: 1px solid color-mix(in srgb, var(--metal, var(--muted)) 70%, transparent); border-radius: 2px; background: color-mix(in srgb, var(--metal, var(--muted)) 20%, transparent); color: var(--fg); white-space: nowrap; translate: 0 -0.12em; }
+.sc-chip.t5 { background: var(--tier-5); border-color: var(--tier-5); color: var(--tier-5-on); }
 .sc-feat { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 14px; align-items: center; }
 .sc-feat-n { display: flex; align-items: baseline; gap: 8px; font: 750 23px/1 var(--display); color: var(--fg); }
 .sc-feat-d { margin-top: 5px; font-size: 13.5px; line-height: 1.3; color: var(--text); user-select: text; }

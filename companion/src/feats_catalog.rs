@@ -33,8 +33,6 @@ pub struct CatalogFeat {
     pub live: Option<Live>,
 }
 
-pub const TIERS: [&str; 5] = ["Copper", "Silver", "Gold", "Scarlet", "Legend"];
-
 pub type Named = (&'static str, &'static [&'static str]);
 pub type Nested = (&'static str, &'static [Named]);
 

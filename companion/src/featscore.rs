@@ -59,6 +59,7 @@ const MIN_SPEC_LEVEL: u32 = 10;
 const NEAR: usize = 3;
 const SCORE_SCOPE: &str = "general";
 pub const TIER_COUNT: usize = 5;
+const TIERS: [&str; TIER_COUNT] = ["Uncommon", "Rare", "Epic", "Legendary", "Scarlet"];
 
 fn norm(s: &str) -> String {
     s.chars()
@@ -420,11 +421,7 @@ fn moment_text(feat: &CatalogFeat, tier: u8) -> String {
     };
     let text = grouped(n);
     let noun = if n == 1.0 { feat.one } else { feat.many };
-    format!(
-        "{}, {}: {text} {noun}",
-        feat.name,
-        crate::feats_catalog::TIERS[tier as usize - 1]
-    )
+    format!("{}, {}: {text} {noun}", feat.name, TIERS[tier as usize - 1])
 }
 
 /// What a character's counts come to, kept beside its overview so Feats.lua can be written without its events.

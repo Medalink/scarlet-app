@@ -52,7 +52,7 @@ const demoRecap = () => {
     moments: [
       { at: 49 * 60, kind: "death", text: "Died to a Wastewander Assassin" },
       { at: 126 * 60, kind: "death", text: "Died to a Dunemaul Brute" },
-      { at: 119 * 60, kind: "feat", text: "Rampage, Silver: 300 kills in one session", feat: "rampage", tier: 2 },
+      { at: 119 * 60, kind: "feat", text: "Rampage, Rare: 300 kills in one session", feat: "rampage", tier: 2 },
     ],
     route: null,
     feats: { earned: [{ key: "rampage", from: 1, tier: 2, at: 119 * 60, value: 312, name: "Rampage", family: "combat" }], near: [] },
@@ -116,7 +116,7 @@ export async function render(body) {
     g.append(...cells);
     return g;
   };
-  const NEXT_PIECE = ["The shield fills in copper", "The crown fills in silver", "The banner fills in gold", "The wings fill in scarlet", "The rays fill in gold", "Nothing left to fill"];
+  const NEXT_PIECE = ["The shield fills in green", "The crown fills in blue", "The banner fills in purple", "The side piece fills in orange", "The rays fill in light", "Nothing left to fill"];
   const PROGRESS = [0.3, 0.9, 0.5, 0.7, 0.4, 0];
   const tiers = grid(NEXT_PIECE.map((label, tier) => crestCell("character", "kills", tier, PROGRESS[tier], label)));
   const scopes = el("div", "sys-row");
@@ -134,11 +134,11 @@ export async function render(body) {
 
   const cards = el("ul", "feats");
   cards.append(
-    card({ name: "Soloist", tier: 0, glyph: "dungeons", crest: "character", progress: 0.3, counted: "No dungeon run alone yet", to_next: "1 to Copper", share: 6 }),
-    card({ name: "Slayer", tier: 2, tier_name: "Silver", glyph: "kills", crest: "character", progress: 0.99, counted: "9,912 kills", to_next: "88 to Gold", share: 64 }),
-    card({ name: "Rampage", tier: 2, tier_name: "Silver", glyph: "kills", crest: "character", progress: 0.04, counted: "312 kills in one session", to_next: "288 to Gold" }),
-    card({ name: "Flawless", tier: 5, tier_name: "Legend", glyph: "shield", crest: "character", progress: 1, counted: "100 dungeon runs with no deaths in the party", to_next: "Legend since 4 November", share: 0.4 }),
-    card({ name: "Veteran", tier: 3, tier_name: "Gold", glyph: "hours", crest: "account", progress: 0.4, counted: "1,840 hours on the account", to_next: "120 to Scarlet" }),
+    card({ name: "Soloist", tier: 0, glyph: "dungeons", crest: "character", progress: 0.3, counted: "No dungeon run alone yet", to_next: "1 to Uncommon", share: 6 }),
+    card({ name: "Slayer", tier: 2, tier_name: "Rare", glyph: "kills", crest: "character", progress: 0.99, counted: "9,912 kills", to_next: "88 to Epic", share: 64 }),
+    card({ name: "Rampage", tier: 2, tier_name: "Rare", glyph: "kills", crest: "character", progress: 0.04, counted: "312 kills in one session", to_next: "288 to Epic" }),
+    card({ name: "Flawless", tier: 5, tier_name: "Scarlet", glyph: "shield", crest: "character", progress: 1, counted: "100 dungeon runs with no deaths in the party", to_next: "Scarlet since 4 November", share: 0.4 }),
+    card({ name: "Veteran", tier: 3, tier_name: "Epic", glyph: "hours", crest: "account", progress: 0.4, counted: "1,840 hours on the account", to_next: "120 to Legendary" }),
   );
   root.append(section("Feat card", cards, caption("The card has no bar: the next piece filling in on the crest is the progress.")));
 
@@ -206,7 +206,7 @@ export async function render(body) {
   seg.append(elText("button", "", "Everyone"), elText("button", "on", "You vs everyone"), elText("button", "", "Only you"));
   const chips = el("span");
   chips.style.cssText = "display:flex;gap:8px";
-  chips.append(elText("button", "sc-chipbtn on", "All tiers"), elText("button", "sc-chipbtn", "Silver"), elText("button", "sc-chipbtn", "Gold"));
+  chips.append(elText("button", "sc-chipbtn on", "All tiers"), elText("button", "sc-chipbtn", "Rare"), elText("button", "sc-chipbtn", "Epic"));
   const tog = (on, text) => {
     const t = el("span");
     t.style.cssText = "display:flex;align-items:center;gap:8px;font-size:13.5px";
@@ -248,7 +248,7 @@ export async function render(body) {
     const { playToasts } = await import("../feat-toast.js");
     playToasts(
       "Sable-Varrow",
-      [{ key: "rampage", name: "Rampage", glyph: "kills", icon: "kills", family: "combat", from: 1, from_name: "Copper", tier: 2, tier_name: "Silver", counted: "300 kills in one session", progress: 0.04 }],
+      [{ key: "rampage", name: "Rampage", glyph: "kills", icon: "kills", family: "combat", from: 1, from_name: "Uncommon", tier: 2, tier_name: "Rare", counted: "300 kills in one session", progress: 0.04 }],
       () => {},
       { local: true },
     );

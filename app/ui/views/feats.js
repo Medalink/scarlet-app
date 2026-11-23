@@ -26,7 +26,7 @@ function localCard(f) {
     collection: cat.collection,
     crest: cat.crest,
     counted: countText(cat, f.value),
-    to_next: f.left == null ? "Legend" : `${amount(cat, f.left)} to ${TIER_NAMES[f.tier + 1]}`,
+    to_next: f.left == null ? TIER_NAMES[TIERS.length] : `${amount(cat, f.left)} to ${TIER_NAMES[f.tier + 1]}`,
     progress: f.progress,
     value: f.value,
   };
@@ -79,7 +79,7 @@ function fromSite(entry) {
 }
 
 function accountFeat(cat, f) {
-  const toNext = f.next == null ? (cat.account === "max" ? null : "Legend") : `${amount(cat, Math.max(0, f.next - f.value))} to ${TIER_NAMES[f.tier + 1]}`;
+  const toNext = f.next == null ? (cat.account === "max" ? null : TIER_NAMES[TIERS.length]) : `${amount(cat, Math.max(0, f.next - f.value))} to ${TIER_NAMES[f.tier + 1]}`;
   return {
     key: cat.key,
     name: cat.name,

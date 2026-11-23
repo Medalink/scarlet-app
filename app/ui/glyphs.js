@@ -60,4 +60,4 @@ export const GLYPHS = {
   "m-tree": '<path d="M12 4.6 6.4 12h3L6.8 16.4h10.4L14.6 12h3z"/><path d="M12 16.4v3"/>',
   };
 
-export { METAL, TIER_NAMES } from "./tiers.js";
+export { QUALITY, TIER_NAMES } from "./tiers.js";

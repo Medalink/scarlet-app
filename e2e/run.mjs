@@ -24,7 +24,7 @@ const OTHER_CHARACTER_ONLY = new Set(["character", "sessions", "log", "map", "lo
 
 const BODY = `document.querySelector("#body").innerText.replace(/\\s+/g, " ")`;
 
-const ACCOUNT_ROW = /(?=.*Account holds \d+ feats?)(?=.*Account \d+ of \d+)/.source;
+const ACCOUNT_ROW = /(?=.*Account holds \d+ feats?)(?=.*Account \d+ of \d+)(?=.*Scarlet.*Legendary.*Epic.*Rare.*Uncommon)/.source;
 const FEATS_LOCAL = new RegExp(String.raw`^${ACCOUNT_ROW}(?=.*Testa Fixture holds [1-9]\d* feats?)(?=.*Closest to the next tier)(?=.*Every feat Testa can hold)(?=.*\d+ more feats are counted on the website Website settings)`);
 const FEATS_LOCAL_ALL = new RegExp(String.raw`^${ACCOUNT_ROW}(?=.*Probe Lane holds [1-9]\d* feats?)(?=.*Testa Fixture holds [1-9]\d* feats?)(?=.*\d+ more feats are counted on the website)`);
 
@@ -35,7 +35,7 @@ const VIEWS = [
     never: /No characters recorded yet/,
   },
   { key: "characters", shows: /^(?=.*Level target)(?=.*Testa Fixture)(?=.*Probe Lane)/, never: /No characters recorded yet/ },
-  { key: "feats", shows: FEATS_LOCAL, never: /No feats counted|Could not|refused/ },
+  { key: "feats", shows: FEATS_LOCAL, never: /No feats counted|Could not|refused|Copper|Silver|Legend\b|Poor/ },
   { key: "stats", shows: /^(?=.*1,605 Experience .* 2 Kills)(?=.*Travel and time)(?=.*Experience over time)(?=.*Top spells cast Heroic Strike 1)(?=.*Moving and standing)(?=.*Zones by time)/, never: /No recorded time yet/ },
   { key: "activity", shows: /Peak: [1-9]\d* events in an hour/, never: /Peak: 0 events|No events yet/ },
   { key: "log", shows: /kill Stonetusk Boar \(113\) by you/, never: /No events|Nothing recorded/ },

@@ -5,6 +5,7 @@
 
 import { invoke, el, esc, barList } from "../lib.js";
 import { cardList } from "../featcard.js";
+import { TIER_NAMES } from "../glyphs.js";
 import { blocks, hydrate, iconTag, say } from "./classblocks.js";
 
 const CLASS_COLORS = {
@@ -90,14 +91,8 @@ function feats(page) {
   const box = el("div", "cv-feats");
   const earned = page.feats.filter((f) => f.tier >= 1).length;
   const count = (tier) => page.feats.filter((f) => f.tier === tier).length;
-  const tiers = [
-    [5, "Legend"],
-    [4, "Scarlet"],
-    [3, "Gold"],
-    [2, "Silver"],
-    [1, "Copper"],
-  ].filter(([tier]) => tier <= 3 || count(tier) > 0);
-  const sum = tiers.map(([tier, name]) => `<span><b>${count(tier)}</b> ${name}</span>`).join("");
+  const tiers = [5, 4, 3, 2, 1].filter((tier) => tier <= 3 || count(tier) > 0);
+  const sum = tiers.map((tier) => `<span><b>${count(tier)}</b> ${TIER_NAMES[tier]}</span>`).join("");
   box.innerHTML = `<h3 class="section-title">${esc(page.class_name)} feats</h3><p class="feats-sum"><span><b>${earned}</b> of ${page.feats.length} feats</span>${sum}</p>`;
   box.append(cardList(page.feats.map((f) => ({ ...f, icon: f.glyph, art: f.icon })), true));
   return box;
