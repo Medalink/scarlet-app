@@ -24,7 +24,7 @@ const OTHER_CHARACTER_ONLY = new Set(["character", "sessions", "log", "map", "lo
 
 const BODY = `document.querySelector("#body").innerText.replace(/\\s+/g, " ")`;
 
-const FEATS_LOCAL = /^(?=.*Testa Fixture holds [1-9]\d* feats?)(?=.*Closest to the next tier)(?=.*Every feat Testa can hold)(?=.*\d+ more feats are counted on the website\. Uploading is off\. Website settings)/;
+const FEATS_LOCAL = /^(?=.*Testa Fixture holds [1-9]\d* feats?)(?=.*Closest to the next tier)(?=.*Every feat Testa can hold)(?=.*\d+ more feats are counted on the website Website settings)/;
 const FEATS_LOCAL_ALL = /^(?=.*Probe Lane holds [1-9]\d* feats?)(?=.*Testa Fixture holds [1-9]\d* feats?)(?=.*\d+ more feats are counted on the website)/;
 
 const VIEWS = [

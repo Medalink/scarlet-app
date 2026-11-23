@@ -520,6 +520,52 @@ pub async fn upload_linked() -> Result<bool, String> {
     .await
 }
 
+fn percent_encoded(text: &str) -> String {
+    text.bytes()
+        .map(|b| match b {
+            b'0'..=b'9' | b'A'..=b'Z' | b'a'..=b'z' | b'-' | b'.' | b'_' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
+fn session_page(character: &str, start: i64, end: i64) -> Option<String> {
+    let s = settings::load();
+    let linked = s.upload.enabled
+        && s.upload.server_problem().is_none()
+        && LINKED.load(Ordering::Relaxed)
+        && s.upload.character_on(character);
+    if !linked {
+        return None;
+    }
+    let synced = ustate::load(&s.data).characters.get(character)?.last_sync;
+    (i64::try_from(synced).ok()? >= end).then(|| {
+        format!(
+            "{}/c/{}/sessions/{start}",
+            config::site(&s.upload.server),
+            percent_encoded(character)
+        )
+    })
+}
+
+/// Whether a session of this character is on the website, so its recap can link there.
+#[tauri::command]
+pub async fn session_on_web(character: String, start: i64, end: i64) -> Result<bool, String> {
+    blocking(move || Ok(session_page(&character, start, end).is_some())).await
+}
+
+#[tauri::command]
+pub async fn open_session_on_web(character: String, start: i64, end: i64) -> Result<(), String> {
+    blocking(move || {
+        let url =
+            session_page(&character, start, end).ok_or("This session is not on the website.")?;
+        open_url(&url)
+    })
+    .await
+}
+
 /// Issues a link code, signs the website's redeem line with the install key and opens the confirm
 /// page in the browser. Only the status comes back; the code itself reaches the UI through
 /// `upload_get`, so no webview reply carries it.

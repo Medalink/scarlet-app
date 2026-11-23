@@ -6,14 +6,13 @@ import { BY_KEY, CATALOG } from "../feats-catalog.js";
 import { TIER_NAMES } from "../glyphs.js";
 import { seal, pips, tierChip, cardList, cardSeal, countText, amount, withCatalog } from "../featcard.js";
 import { playToasts, stopToasts } from "../feat-toast.js";
-import { linkPrompt, webState } from "../link.js";
+import { linkPrompt } from "../link.js";
 
 const TIERS = [1, 2, 3, 4, 5];
 const COLLECTIONS = [...new Set(CATALOG.feats.map((f) => f.collection))];
 const SCORE_MAX = CATALOG.feats.filter((f) => f.scope === "general" && !f.economy).length * TIERS.length;
 
 let expandNext = false;
-let uploadingOff = true;
 
 function localCard(f) {
   const cat = BY_KEY.get(f.key);
@@ -241,7 +240,7 @@ function characterBlock(model, single) {
   let button = null;
   let tail = null;
   if (model.local && model.elsewhere) {
-    const more = `${num(model.elsewhere)} more ${model.elsewhere === 1 ? "feat is" : "feats are"} counted on the website.${uploadingOff ? " Uploading is off." : ""}`;
+    const more = `${num(model.elsewhere)} more ${model.elsewhere === 1 ? "feat is" : "feats are"} counted on the website`;
     tail = linkRow(more, "Website settings", () => (location.hash = "settings/website"));
     block.append(tail);
   }
@@ -311,7 +310,6 @@ async function load(box) {
     return;
   }
   if (got.local) {
-    uploadingOff = (await webState()).state === "off";
     const wanted = state.ch;
     for (const m of got.models.filter((x) => !wanted || x.name === wanted)) m.news = localNews(m);
   }

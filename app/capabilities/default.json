@@ -68,6 +68,8 @@
     "allow-upload-delete-all",
     "allow-upload-now",
     "allow-upload-linked",
+    "allow-session-on-web",
+    "allow-open-session-on-web",
     "allow-upload-link",
     "allow-feats-get",
     "allow-feats-seen",

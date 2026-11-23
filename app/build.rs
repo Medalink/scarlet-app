@@ -60,6 +60,8 @@ fn main() {
             "upload_now",
             "upload_linked",
             "upload_link",
+            "session_on_web",
+            "open_session_on_web",
             "feats_get",
             "feats_seen",
             "class_page_get",

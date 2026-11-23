@@ -1,10 +1,11 @@
 // The session recap of recap-app.html, drawn from `run_summary(...).recaps`: head, route and tiles, strip, feats and
 // comparison, time and experience, counts, moments, quests and loot.
 
-import { invoke, el, elText, num, dur, moneyHtml, displayName, distanceHtml, tile, tiles, stack, bars, compare, strip, routeCard, wireTips } from "../lib.js";
+import { invoke, el, elText, num, dur, moneyHtml, displayName, distanceHtml, distanceText, tile, tiles, stack, bars, compare, strip, routeCard, wireTips } from "../lib.js";
 import { BY_KEY } from "../feats-catalog.js";
 import { GLYPHS, TIER_NAMES, svg } from "../glyphs.js";
 import { seal, tierChip, countText, amount } from "../featcard.js";
+import { webState } from "../link.js";
 
 const YARDS_PER_MILE = 1760;
 const clockOf = (sec) => {
@@ -13,7 +14,6 @@ const clockOf = (sec) => {
 };
 const dayOf = (sec) => new Date(sec * 1000).toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
 const shortDay = (ms) => new Date(ms).toLocaleDateString([], { day: "numeric", month: "short" });
-const miles = (yd) => (yd / YARDS_PER_MILE).toFixed(1);
 const rate = (n, secs) => (secs > 0 ? n / (secs / 3600) : 0);
 
 const panel = (...kids) => {
@@ -45,7 +45,7 @@ function neighbors(recap, rows) {
   };
 }
 
-function head(recap, near, onAll) {
+function head(recap, near, onAll, onWeb) {
   const box = el("div", "recap-head");
   const text = el("div");
   text.append(elText("h1", "sc-title", recap.title.text));
@@ -72,6 +72,14 @@ function head(recap, near, onAll) {
   all.type = "button";
   all.onclick = onAll;
   actions.append(all);
+  if (onWeb) {
+    const web = elText("button", "sc-btn quiet small", "Open on the website ");
+    web.type = "button";
+    web.append(svg("svg", { viewBox: "0 0 24 24", width: 14, height: 14, fill: "none", stroke: "currentColor", "stroke-width": 1.9, "stroke-linecap": "round", "stroke-linejoin": "round" }));
+    web.lastChild.innerHTML = GLYPHS.arrow;
+    web.onclick = () => invoke("open_session_on_web", { character: recap.character, start: recap.start, end: recap.end }).catch(() => {});
+    actions.append(web);
+  }
   box.append(text, actions);
   return box;
 }
@@ -104,9 +112,10 @@ function tileGrid(recap) {
   }
   const yards = (c.foot ?? 0) + (c.walk ?? 0) + (c.mount ?? 0) + (c.swim ?? 0) + (c.fly ?? 0);
   if (yards) {
-    const modes = [["Swimming", c.swim ?? 0, "--m-swim"], ["On foot", (c.foot ?? 0) + (c.walk ?? 0), "--m-foot"], ["Mounted", c.mount ?? 0, "--m-mount"], ["Flown", c.fly ?? 0, "--m-flight"]].filter((m) => m[1] > 0);
-    const note = modes.map(([name, yd]) => `${miles(yd)} ${name === "On foot" ? "on foot" : name === "Swimming" ? "swum" : name === "Mounted" ? "mounted" : "flown"}`).join(" · ");
-    list.push(tile("Distance", distanceHtml(yards), note, { size: "xl", best: best("distance"), extra: stack(modes.map(([n, v, k]) => [n, v, k, `${miles(v)} mi`]), { key: false, h: 8 }) }));
+    const modes = [["Swimming", c.swim ?? 0, "--m-swim", "swum"], ["On foot", (c.foot ?? 0) + (c.walk ?? 0), "--m-foot", "on foot"], ["Mounted", (c.mount ?? 0) + (c.fly ?? 0), "--m-mount", "mounted"]].filter((m) => m[1] > 0);
+    const noteOrder = ["on foot", "mounted", "swum"];
+    const note = modes.map(([, yd, , word]) => [word, yd]).sort((a, b) => noteOrder.indexOf(a[0]) - noteOrder.indexOf(b[0])).map(([word, yd]) => `${distanceText(yd)} ${word}`).join(" · ");
+    list.push(tile("Distance", distanceHtml(yards), note, { size: "xl", best: best("distance"), extra: stack(modes.map(([n, v, k]) => [n, v, k, distanceText(v)]), { key: false, h: 8 }) }));
   }
   return tiles(list, 2);
 }
@@ -216,7 +225,7 @@ function timePanel(recap) {
   };
   if (c.combat) box.append(label("In combat"), stack(two("In combat", c.combat, "Out of combat")));
   if (c.restedTime) box.append(label("Rested"), stack(two("Rested", c.restedTime, "Not rested")));
-  if (c.groupTime) box.append(label("In a group"), stack(two("In a group", c.groupTime, "Alone")));
+  if (c.groupTime) box.append(label("In a group"), stack(two("In a group", c.groupTime, "Solo")));
   return moving.length ? box : null;
 }
 
@@ -237,7 +246,7 @@ function levelRows(recap) {
 
 function experiencePanel(recap) {
   const x = recap.xp;
-  const rows = [["Kills", x.kills, "--s-kill"], ["Dungeons", x.dungeons, "--s-dungeon"], ["Quests", x.quests, "--s-quest"], ["Exploring", x.explore, "--s-explore"], ["Other", x.other, "--s-other"]].filter((r) => r[1] > 0);
+  const rows = [["Kills", x.kills, "--s-kill"], ["Exploring", x.explore, "--s-explore"], ["Quests", x.quests, "--s-quest"], ["Dungeons", x.dungeons, "--s-dungeon"], ["Other", x.other, "--s-other"]].filter((r) => r[1] > 0);
   if (!rows.length) return null;
   const box = panel(heading("Experience by source"), stack(rows));
   const levels = levelRows(recap);
@@ -332,8 +341,13 @@ function row(kind, ...panels) {
   return grid;
 }
 
-function draw(into, recap, near, onAll) {
-  into.replaceChildren(head(recap, near, onAll));
+async function onTheWebsite(recap) {
+  if ((await webState()).state !== "linked") return false;
+  return invoke("session_on_web", { character: recap.character, start: recap.start, end: recap.end }).catch(() => false);
+}
+
+function draw(into, recap, near, onAll, onWeb) {
+  into.replaceChildren(head(recap, near, onAll, onWeb));
   const lead = el("div", "recap-lead");
   lead.append(routePanel(recap), tileGrid(recap));
   into.append(lead);
@@ -356,7 +370,12 @@ export async function renderRecaps(body, run) {
   const page = el("div", "recap");
   const content = el("div");
   const onAll = () => window.__nav("sessions");
-  const show = (recap) => draw(content, recap, neighbors(recap, rows), onAll);
+  let latest = 0;
+  const show = async (recap) => {
+    const mine = ++latest;
+    const onWeb = await onTheWebsite(recap);
+    if (mine === latest) draw(content, recap, neighbors(recap, rows), onAll, onWeb);
+  };
   if (run.recaps.length > 1) {
     const seg = el("div", "sc-seg");
     run.recaps.forEach((recap, i) => {

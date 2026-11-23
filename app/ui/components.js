@@ -5,7 +5,11 @@ import { el, elText, num, dur, displayName } from "./lib.js";
 import { GLYPHS, METAL, PLATES, svg } from "./glyphs.js";
 import { BY_KEY } from "./feats-catalog.js";
 
-export const distanceHtml = (yd) => (yd < 880 ? `${num(yd)}<small>yd</small>` : `${(yd / 1760).toFixed(1)}<small>mi</small>`);
+const HALF_MILE_YD = 880;
+const YARDS_PER_MILE = 1760;
+
+export const distanceHtml = (yd) => (yd < HALF_MILE_YD ? `${num(yd)}<small>yd</small>` : `${(yd / YARDS_PER_MILE).toFixed(1)}<small>mi</small>`);
+export const distanceText = (yd) => (yd < HALF_MILE_YD ? `${num(yd)} yd` : `${(yd / YARDS_PER_MILE).toFixed(1)} mi`);
 
 let tipEl = null;
 

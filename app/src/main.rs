@@ -161,6 +161,8 @@ fn main() {
             upload::upload_now,
             upload::upload_linked,
             upload::upload_link,
+            upload::session_on_web,
+            upload::open_session_on_web,
             classpage::class_icon,
             classpage::class_page_get,
             classpage::class_page_open,
