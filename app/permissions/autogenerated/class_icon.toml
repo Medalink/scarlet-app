@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-class-icon"
+description = "Enables the class_icon command without any pre-configured scope."
+commands.allow = ["class_icon"]
+
+[[permission]]
+identifier = "deny-class-icon"
+description = "Denies the class_icon command without any pre-configured scope."
+commands.deny = ["class_icon"]
