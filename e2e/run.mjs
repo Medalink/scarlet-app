@@ -245,11 +245,14 @@ const CHECKS = [
     name: "the addon files are written",
     run(ctx) {
       const dir = path.join(ctx.site.cli.wow, "_forever_", "Interface", "AddOns", "ScarletData");
-      for (const file of ["Digest.lua", "Items.lua", "ScarletData.toc"]) {
+      for (const file of ["Digest.lua", "Items.lua", "Recaps.lua", "ScarletData.toc"]) {
         if (!fs.existsSync(path.join(dir, file))) throw mismatch("a file the export writes for the addon", file, "missing");
       }
       const digest = read(path.join(dir, "Digest.lua"));
       for (const c of CHARACTERS) expectMatch(`Digest.lua names ${c.name}`, digest, new RegExp(`\\["${c.name}"\\]`));
+      const recaps = read(path.join(dir, "Recaps.lua"));
+      expectMatch("Recaps.lua holds the fixture sessions", recaps, /^ScarletRecaps = \{[\s\S]*\["Testa-Fixture"\][\s\S]*Level 5 to 6 in Elwynn Forest/);
+      expectMatch("the toc lists Recaps.lua", read(path.join(dir, "ScarletData.toc")), /^Recaps\.lua$/m);
     },
   },
   {

@@ -15,6 +15,7 @@ use crate::lua::{self, Lua};
 use crate::mastercraft;
 use crate::naowhforever;
 use crate::overview::{self, Overview};
+use crate::recap;
 use crate::rxp;
 use crate::tables;
 use flate2::read::{DeflateDecoder, ZlibDecoder};
@@ -394,7 +395,7 @@ fn roster(out: &Path) -> Vec<String> {
     names
 }
 
-const OVERVIEW_REV: &str = "6";
+const OVERVIEW_REV: &str = "7";
 
 fn overview_rev_stale(out: &Path) -> bool {
     let file = out.join("overview.rev");
@@ -403,6 +404,28 @@ fn overview_rev_stale(out: &Path) -> bool {
         eprintln!("scarlet: {}: {e}", file.display());
     }
     stale
+}
+
+fn write_recaps(dir: &Path, name: &str, evs: &[archive::Event]) {
+    let log = recap::Log::new(evs.iter().map(|e| recap::Rec {
+        ms: e.ms,
+        code: e.code.as_str(),
+        fields: e.fields.as_slice(),
+    }));
+    let recaps = recap::for_character(name, &log);
+    let written = serde_json::to_string(&recaps)
+        .map_err(|e| e.to_string())
+        .and_then(|text| write_atomic(&dir.join("recaps.json"), &text).map_err(|e| e.to_string()));
+    if let Err(e) = written {
+        eprintln!("scarlet: {name}: recaps: {e}");
+    }
+}
+
+fn read_recaps(dir: &Path) -> Vec<serde_json::Value> {
+    fs::read_to_string(dir.join("recaps.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default()
 }
 
 fn write_inventory(dir: &Path, name: &str, evs: &[archive::Event]) {
@@ -989,7 +1012,7 @@ fn save_accounts(wows: &[PathBuf], out: &Path) -> BTreeMap<String, Vec<String>> 
 }
 
 const DATA_ADDON: &str = "ScarletData";
-const DATA_FILES: [&str; 2] = ["Digest.lua", "Items.lua"];
+const DATA_FILES: [&str; 3] = ["Digest.lua", "Items.lua", "Recaps.lua"];
 const FALLBACK_INTERFACE: &str = "16001";
 
 fn write_digest(wow: &Path, out: &Path, accounts: &BTreeMap<String, Vec<String>>) {
@@ -1011,6 +1034,7 @@ fn write_digest(wow: &Path, out: &Path, accounts: &BTreeMap<String, Vec<String>>
     let own = roster(out);
     let rebuild = overview_rev_stale(out);
     let mut chars: Vec<(String, Overview)> = Vec::new();
+    let mut recaps: Vec<(String, Vec<serde_json::Value>)> = Vec::new();
     for d in dirs {
         let Some(name) = d.file_name().map(|n| n.to_string_lossy().to_string()) else {
             continue;
@@ -1019,6 +1043,7 @@ fn write_digest(wow: &Path, out: &Path, accounts: &BTreeMap<String, Vec<String>>
         if rebuild
             || !file.is_file()
             || !d.join("inventory.json").is_file()
+            || !d.join("recaps.json").is_file()
             || overview_is_stale(&d, &file)
         {
             match load_events(&d, &name) {
@@ -1027,6 +1052,7 @@ fn write_digest(wow: &Path, out: &Path, accounts: &BTreeMap<String, Vec<String>>
                         eprintln!("scarlet: {name}: overview: {e}");
                     }
                     write_inventory(&d, &name, &evs);
+                    write_recaps(&d, &name, &evs);
                 }
                 _ => continue,
             }
@@ -1035,7 +1061,10 @@ fn write_digest(wow: &Path, out: &Path, accounts: &BTreeMap<String, Vec<String>>
             .ok()
             .and_then(|t| serde_json::from_str::<Overview>(&t).ok());
         match ov {
-            Some(ov) if !ov.sessions.is_empty() => chars.push((name, ov)),
+            Some(ov) if !ov.sessions.is_empty() => {
+                recaps.push((name.clone(), read_recaps(&d)));
+                chars.push((name, ov));
+            }
             Some(_) => {}
             None => eprintln!("scarlet: {name}: overview.json unreadable"),
         }
@@ -1072,6 +1101,7 @@ fn write_digest(wow: &Path, out: &Path, accounts: &BTreeMap<String, Vec<String>>
         return;
     }
     write_items(&data, &chars, out, made);
+    write_recap_file(&data, &recaps, made);
     let text = overview::digest_lua_with(&chars, made, &accounts);
     let dest = data.join("Digest.lua");
     match write_atomic(&dest, &text) {
@@ -1186,6 +1216,15 @@ fn write_atomic(dest: &Path, text: &str) -> std::io::Result<()> {
     fs::rename(&tmp, dest).inspect_err(|_| {
         let _ = fs::remove_file(&tmp);
     })
+}
+
+fn write_recap_file(data: &Path, recaps: &[(String, Vec<serde_json::Value>)], made: i64) {
+    let text = recap::recaps_lua(recaps, made);
+    let dest = data.join("Recaps.lua");
+    match write_atomic(&dest, &text) {
+        Ok(()) => println!("recaps: {} bytes -> {}", text.len(), dest.display()),
+        Err(e) => println!("recaps: could not write {}: {e}", dest.display()),
+    }
 }
 
 fn write_items(data: &Path, chars: &[(String, Overview)], out: &Path, made: i64) {

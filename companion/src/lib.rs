@@ -3,6 +3,7 @@
 //! events. Shared by the `scarlet` CLI and the desktop app.
 
 pub mod addons;
+pub mod agg;
 pub mod archive;
 pub mod counts;
 pub mod dungeonjournal;
@@ -20,6 +21,7 @@ pub mod lua;
 pub mod mastercraft;
 pub mod naowhforever;
 pub mod overview;
+pub mod recap;
 pub mod rxp;
 pub mod tables;
 pub mod talents;
