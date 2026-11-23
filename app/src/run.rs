@@ -4,6 +4,7 @@
 use crate::commands;
 use crate::launch;
 use crate::recap::{self, SessionRecap};
+use crate::session_groups::{Part, groups};
 use crate::store::Store;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
@@ -58,6 +59,13 @@ pub fn from_args() -> Option<Run> {
     })
 }
 
+fn zones_in<'a>(st: &'a Store, part: &Part) -> &'a [String] {
+    st.sessions
+        .iter()
+        .find(|s| s.ch == part.ch && s.start <= part.start && s.end >= part.end)
+        .map_or(&[], |s| s.zones.as_slice())
+}
+
 #[derive(Serialize)]
 pub struct RunSession {
     char_name: String,
@@ -80,14 +88,20 @@ pub struct RunSummary {
 
 /// The summary of the run `[from, to]`, computed from the current store so a view
 /// re-rendering on `store-changed` picks up a late export. A run covers every
-/// character, one recap each. With `clip` the recaps and rows hold only what happened inside `[from, to]`, for
+/// character, one recap each. With `group` the recaps and rows hold only that session's parts, for
 /// `ch` alone when given; without it a run is never clipped to the process times, since a run holds several sessions.
-pub fn summary(st: &Store, from: i64, to: i64, ch: Option<u32>, clip: bool) -> RunSummary {
-    let mut rows: Vec<(u32, i64, i64, &[String])> = if clip {
-        st.sessions
+pub fn summary(
+    st: &Store,
+    from: i64,
+    to: i64,
+    ch: Option<u32>,
+    group: Option<&[Part]>,
+) -> RunSummary {
+    let mut rows: Vec<(u32, i64, i64, &[String])> = if let Some(parts) = group {
+        parts
             .iter()
-            .filter(|s| s.start <= to && s.end >= from && ch.is_none_or(|c| s.ch == c))
-            .map(|s| (s.ch, s.start.max(from), s.end.min(to), s.zones.as_slice()))
+            .filter(|p| ch.is_none_or(|c| p.ch == c))
+            .map(|p| (p.ch, p.start, p.end, zones_in(st, p)))
             .collect()
     } else {
         pick(st, from, to)
@@ -144,7 +158,8 @@ pub fn summary(st: &Store, from: i64, to: i64, ch: Option<u32>, clip: bool) -> R
     }
 }
 
-/// The summary of a run, computed on demand. `ch` limits it to one character and `clip` cuts it to `[from, to]`.
+/// The summary of a run, computed on demand. `ch` limits it to one character and `clip` cuts it to the session of the
+/// chosen mode that starts at `from`.
 #[tauri::command]
 pub async fn run_summary(
     app: AppHandle,
@@ -154,9 +169,24 @@ pub async fn run_summary(
     clip: Option<bool>,
 ) -> RunSummary {
     commands::blocking(move || {
+        let (mode, marks) = {
+            let s = commands::state(&app)
+                .settings
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            (s.session_mode, s.session_marks.clone())
+        };
         commands::with_store(&app, |st| {
             let c = ch.and_then(|n| st.char_index(&n));
-            summary(st, from, to, c, clip.unwrap_or(false))
+            let group = clip
+                .unwrap_or(false)
+                .then(|| {
+                    groups(st, mode, &marks, c, now_ms())
+                        .into_iter()
+                        .find(|g| g.from == from)
+                })
+                .flatten();
+            summary(st, from, to, c, group.as_ref().map(|g| g.parts.as_slice()))
         })
     })
     .await
