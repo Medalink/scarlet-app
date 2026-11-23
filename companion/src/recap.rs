@@ -43,6 +43,101 @@ const MIN_SHEET_ASPECT: f64 = 0.4;
 const MAX_SHEET_ASPECT: f64 = 2.5;
 const MILE_YD: f64 = 1760.0;
 const GATHER_TITLE: i64 = 20;
+const GATHER_LOOT_MS: i64 = 2_000;
+const FISHING_BOBBER: &str = "35591";
+const HERB_SPELLS: [i64; 11] = [
+    2_366, 2_368, 2_369, 2_371, 3_570, 11_993, 1_235_236, 1_240_949, 1_240_960, 1_240_971,
+    1_240_984,
+];
+const ORE_SPELLS: [i64; 12] = [
+    2_575, 2_576, 2_577, 2_578, 2_579, 3_564, 10_248, 1_235_230, 1_240_951, 1_240_962, 1_240_973,
+    1_240_986,
+];
+const SKIN_SPELLS: [i64; 8] = [
+    8_613, 8_617, 8_618, 10_768, 1_240_952, 1_240_963, 1_240_974, 1_240_987,
+];
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Gather {
+    Herb,
+    Ore,
+    Fish,
+    Skin,
+}
+
+impl Gather {
+    fn of_spell(spell: i64) -> Option<Self> {
+        [
+            (Self::Herb, &HERB_SPELLS[..]),
+            (Self::Ore, &ORE_SPELLS[..]),
+            (Self::Skin, &SKIN_SPELLS[..]),
+        ]
+        .into_iter()
+        .find(|(_, spells)| spells.contains(&spell))
+        .map(|(kind, _)| kind)
+    }
+
+    fn loot_source(self) -> &'static str {
+        if self == Self::Skin { "c" } else { "g" }
+    }
+
+    fn words(self) -> (&'static str, &'static str) {
+        match self {
+            Self::Herb => ("herb", "herbs"),
+            Self::Ore => ("ore", "ore"),
+            Self::Fish => ("fish", "fish"),
+            Self::Skin => ("skin", "skins"),
+        }
+    }
+}
+
+#[derive(Default)]
+struct Gathered {
+    counts: Vec<(Gather, i64)>,
+    awaiting: Option<(Gather, i64)>,
+}
+
+impl Gathered {
+    fn cast(&mut self, spell: i64, ms: i64) {
+        self.awaiting = Gather::of_spell(spell).map(|kind| (kind, ms));
+    }
+
+    fn loot(&mut self, source: &str, id: &str, ms: i64) {
+        let kind = if source == "g" && id == FISHING_BOBBER {
+            Some(Gather::Fish)
+        } else {
+            match self.awaiting.take() {
+                Some((kind, at)) if kind.loot_source() == source && ms - at <= GATHER_LOOT_MS => {
+                    Some(kind)
+                }
+                _ => None,
+            }
+        };
+        let Some(kind) = kind else { return };
+        match self.counts.iter_mut().find(|c| c.0 == kind) {
+            Some(c) => c.1 += 1,
+            None => self.counts.push((kind, 1)),
+        }
+    }
+
+    fn total(&self) -> i64 {
+        self.counts.iter().map(|c| c.1).sum()
+    }
+
+    fn phrase(&self) -> String {
+        let mut ranked = self.counts.clone();
+        ranked.sort_by_key(|c| std::cmp::Reverse(c.1));
+        ranked
+            .iter()
+            .take(2)
+            .map(|(kind, n)| {
+                let (one, many) = kind.words();
+                format!("{n} {}", if *n == 1 { one } else { many })
+            })
+            .collect::<Vec<_>>()
+            .join(" and ")
+    }
+}
 const QUEST_TITLE: i64 = 5;
 const KILL_TITLE: i64 = 50;
 const TRAVEL_MILES: f64 = 3.0;
@@ -257,7 +352,7 @@ struct Scan<'a> {
     combat: Vec<(i64, i64)>,
     xp_at: Vec<(i64, i64)>,
     last_death: Option<(i64, usize)>,
-    gathers: i64,
+    gathered: Gathered,
     casts_by_spell: HashMap<String, i64>,
     spec: String,
     bosses: i64,
@@ -325,7 +420,7 @@ impl<'a> Scan<'a> {
             combat: vec![],
             xp_at: vec![],
             last_death: None,
-            gathers: 0,
+            gathered: Gathered::default(),
             casts_by_spell: HashMap::new(),
             spec: String::new(),
             bosses: 0,
@@ -552,10 +647,11 @@ impl<'a> Scan<'a> {
                 let zone = self.zone.clone().unwrap_or_default();
                 *self.quest_zones.entry(zone).or_default() += 1;
             }
-            "LO" if field(f, 0) == "g" => self.gathers += 1,
+            "LO" => self.gathered.loot(field(f, 0), field(f, 1), r.ms),
             "T" if field(f, 0) == "1" => self.flights += 1,
             "AC" => self.achievements += 1,
             "C" => {
+                self.gathered.cast(number(f, 0), r.ms);
                 if let Some(name) = self.f.names.get(&name_key('s', field(f, 0))) {
                     *self.casts_by_spell.entry(name.to_lowercase()).or_default() += 1;
                 }
@@ -612,7 +708,7 @@ struct TitleInput<'a> {
     dungeon: Option<(&'a str, i64)>,
     quests: i64,
     kills: i64,
-    gathers: i64,
+    gathered: &'a Gathered,
     miles: f64,
     zones: usize,
     played: i64,
@@ -638,8 +734,8 @@ fn title(t: &TitleInput) -> Title {
         ("quests", format!("{} quests in {zone}", t.quests))
     } else if t.kills >= KILL_TITLE {
         ("kills", format!("{} kills in {zone}", t.kills))
-    } else if t.gathers >= GATHER_TITLE {
-        ("gather", format!("{} gathers in {zone}", t.gathers))
+    } else if t.gathered.total() >= GATHER_TITLE {
+        ("gather", format!("{} in {zone}", t.gathered.phrase()))
     } else if t.miles >= TRAVEL_MILES && t.zones >= TRAVEL_ZONES {
         (
             "travel",
@@ -687,7 +783,7 @@ fn finish_scan(s: &mut Scan, spans: &[(i64, i64)]) -> Scanned {
         dungeon,
         quests: s.agg.completed as i64,
         kills: s.agg.kills as i64,
-        gathers: s.gathers,
+        gathered: &s.gathered,
         miles: s.agg.distance() as f64 / MILE_YD,
         zones: zones.len(),
         played,
