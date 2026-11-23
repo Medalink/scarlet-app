@@ -2,9 +2,11 @@
 //! `Recaps.lua` give the same numbers; this reads the store's events for it.
 
 use crate::store::{Row, Store};
+use scarlet::recap::Tally;
 use scarlet::recap::{Events, Facts, Rec};
 pub use scarlet::recap::{SessionRecap, Title};
 use std::iter::Peekable;
+use std::sync::Arc;
 
 struct Source<'a> {
     st: &'a Store,
@@ -106,6 +108,11 @@ pub fn title_of(st: &Store, session: usize) -> Title {
 }
 
 /// The sessions of one character as tallies, for counting its feats.
-pub fn tallies(st: &Store, ch: u32) -> Vec<scarlet::recap::Tally> {
-    with_facts(st, ch, true, false, scarlet::recap::tallies)
+pub fn tallies(st: &Store, ch: u32) -> Arc<Vec<Tally>> {
+    if let Some(done) = st.tallies().get(&ch) {
+        return done.clone();
+    }
+    let made = Arc::new(with_facts(st, ch, true, false, scarlet::recap::tallies));
+    st.tallies().insert(ch, made.clone());
+    made
 }

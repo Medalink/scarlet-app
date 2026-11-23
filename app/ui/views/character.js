@@ -22,7 +22,7 @@ async function who() {
 }
 
 async function extras(name) {
-  const [near, cards] = await Promise.all([closestFor(name), invoke("session_cards", { ch: name })]);
+  const [near, cards] = await Promise.all([closestFor(name), invoke("session_cards", { ch: name, limit: 1 })]);
   const latest = cards.filter((c) => c.recap).at(-1);
   if (!near.length && !latest) return null;
   const box = el("div", "char-extra");

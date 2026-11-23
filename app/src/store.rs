@@ -7,9 +7,10 @@ use scarlet::addons;
 use scarlet::archive::{self, Event};
 use scarlet::events::{self, Ev};
 use scarlet::lifetime::{self, Lifetime};
+use scarlet::recap::Tally;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// One event with its character index.
 pub struct Row {
@@ -55,6 +56,7 @@ pub struct Store {
     pub events: Vec<Row>,
     /// The `P` positions (map, x, y) of every character in time order, kept apart from `events` for the recap's route.
     pub paths: Vec<Row>,
+    tallies: Mutex<HashMap<u32, Arc<Vec<Tally>>>>,
     pub lifetimes: Vec<Lifetime>,
     /// Formatted timeline rows, built lazily on first Timeline access.
     lines: OnceLock<Vec<TLine>>,
@@ -325,6 +327,7 @@ impl Store {
             chars,
             events: rows,
             paths,
+            tallies: Mutex::default(),
             lifetimes,
             lines: OnceLock::new(),
             line_count,
@@ -372,6 +375,7 @@ impl Store {
             chars: vec![],
             events: vec![],
             paths: vec![],
+            tallies: Mutex::default(),
             lifetimes: vec![],
             lines: OnceLock::new(),
             line_count: 0,
@@ -384,6 +388,10 @@ impl Store {
             first_ms: 0,
             last_ms: 0,
         }
+    }
+
+    pub fn tallies(&self) -> std::sync::MutexGuard<'_, HashMap<u32, Arc<Vec<Tally>>>> {
+        self.tallies.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     pub fn char_index(&self, name: &str) -> Option<u32> {

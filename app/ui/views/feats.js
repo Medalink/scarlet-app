@@ -286,10 +286,10 @@ function drawCharacters(box, models) {
   );
 }
 
-async function fetchModels() {
+async function fetchModels(ch) {
   let answer;
   try {
-    answer = await invoke("feats_get");
+    answer = await invoke("feats_get", { ch });
   } catch (e) {
     answer = { state: "error", message: String(e) };
   }
@@ -299,12 +299,12 @@ async function fetchModels() {
 }
 
 export async function closestFor(name, n = 3) {
-  const got = await fetchModels();
+  const got = await fetchModels(name);
   return got.models?.find((m) => m.name === name)?.closest.slice(0, n) ?? [];
 }
 
 async function load(box) {
-  const got = await fetchModels();
+  const got = await fetchModels(state.ch);
   if (!box.isConnected) return;
   box.innerHTML = "";
   if (got.error) {

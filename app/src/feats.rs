@@ -62,8 +62,9 @@ pub struct LocalEntry {
 
 const CLOSEST: usize = 3;
 
-fn local_entries(st: &crate::store::Store) -> Vec<LocalEntry> {
+fn local_entries(st: &crate::store::Store, only: Option<&str>) -> Vec<LocalEntry> {
     (0..st.chars.len() as u32)
+        .filter(|ch| only.is_none_or(|name| st.chars[*ch as usize] == name))
         .filter_map(|ch| {
             let tallies = recap::tallies(st, ch);
             if tallies.is_empty() {
@@ -117,13 +118,13 @@ pub(crate) fn registered_session() -> Result<Option<Session>, String> {
 }
 
 #[tauri::command]
-pub async fn feats_get(app: AppHandle) -> FeatsState {
+pub async fn feats_get(app: AppHandle, ch: Option<String>) -> FeatsState {
     blocking(move || {
         let mut sess = match registered_session() {
             Ok(Some(sess)) => sess,
             Ok(None) => {
                 return FeatsState::Local {
-                    characters: with_store(&app, local_entries),
+                    characters: with_store(&app, |st| local_entries(st, ch.as_deref())),
                     catalog: feats_catalog::VERSION,
                 };
             }
@@ -131,7 +132,15 @@ pub async fn feats_get(app: AppHandle) -> FeatsState {
         };
         match sess.feats() {
             Ok(v) => FeatsState::Characters {
-                characters: v.get("characters").cloned().unwrap_or(Value::Array(vec![])),
+                characters: Value::Array(
+                    v.get("characters")
+                        .and_then(Value::as_array)
+                        .into_iter()
+                        .flatten()
+                        .filter(|c| ch.as_deref().is_none_or(|name| c["name"] == name))
+                        .cloned()
+                        .collect(),
+                ),
                 catalog: feats_catalog::VERSION,
             },
             Err(e) => FeatsState::Error {

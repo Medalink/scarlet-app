@@ -685,16 +685,25 @@ pub struct SessionCard {
     recap: Option<crate::recap::SessionRecap>,
 }
 
-/// One lite recap for each session, for the cards of the sessions list.
+/// One lite recap for each session, for the cards of the sessions list; with `limit`, only the newest that many.
 #[tauri::command]
-pub async fn session_cards(app: AppHandle, ch: Option<String>) -> Vec<SessionCard> {
+pub async fn session_cards(
+    app: AppHandle,
+    ch: Option<String>,
+    limit: Option<usize>,
+) -> Vec<SessionCard> {
     blocking(move || {
         with_store(&app, |st| {
             let c = ch.and_then(|n| st.char_index(&n));
-            st.sessions
+            let mine: Vec<(usize, &crate::store::Session)> = st
+                .sessions
                 .iter()
                 .enumerate()
                 .filter(|(_, s)| c.is_none_or(|cc| s.ch == cc))
+                .collect();
+            let skip = limit.map_or(0, |n| mine.len().saturating_sub(n));
+            mine.into_iter()
+                .skip(skip)
                 .map(|(i, s)| SessionCard {
                     index: i as u32,
                     from: s.start,
