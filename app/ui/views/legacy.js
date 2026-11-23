@@ -51,7 +51,7 @@ function talentPanel(t) {
     p.appendChild(
       table(
         [["Rank", "num"], ["Tooltip"]],
-        t.texts.map((x) => `<tr${x.rank === t.rank ? ' class="current"' : ""}><td class="num">${x.rank}</td><td>${esc(x.text)}</td></tr>`)
+        t.texts.map((x) => `<tr${x.rank === t.rank ? ' class="current"' : ""}><td class="num">${x.rank}</td><td class="text">${esc(x.text)}</td></tr>`)
       )
     );
   }

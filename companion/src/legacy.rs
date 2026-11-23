@@ -32,6 +32,11 @@ const GATHER_CASTS: [(&str, &str); 4] = [
     ("Herb Gathering", "Herbalism"),
     ("Skinning", "Skinning"),
 ];
+const GATHER_SPELLS: [(&str, &str); 3] = [
+    ("2575", "Mining"),
+    ("2576", "Mining"),
+    ("11993", "Herbalism"),
+];
 const CRAFTS: [&str; 10] = [
     "Alchemy",
     "Blacksmithing",
@@ -413,12 +418,18 @@ fn working_overtime(lines: &[Line], names: &HashMap<&str, &str>) -> Samples {
                 }
                 continue;
             }
-            "C" => names.get(field(l, 0)).and_then(|n| {
-                GATHER_CASTS
-                    .iter()
-                    .find(|(cast, _)| cast == n)
-                    .map(|(_, p)| *p)
-            }),
+            "C" => GATHER_SPELLS
+                .iter()
+                .find(|(id, _)| *id == field(l, 0))
+                .map(|(_, p)| *p)
+                .or_else(|| {
+                    names.get(field(l, 0)).and_then(|n| {
+                        GATHER_CASTS
+                            .iter()
+                            .find(|(cast, _)| cast == n)
+                            .map(|(_, p)| *p)
+                    })
+                }),
             "LO" if field(l, 0) == "g" && field(l, 1) == BOBBER => Some("Fishing"),
             "CR" => near(l.ms, None).or_else(|| recipe_prof.get(field(l, 4)).copied()),
             _ => None,
