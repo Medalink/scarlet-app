@@ -67,6 +67,7 @@ pub struct Reply {
 pub struct Client {
     agent: ureq::Agent,
     site: String,
+    site_host: String,
     key: Option<SigningKey>,
     install: Option<String>,
     /// The last time signed for each message, so the same request is never signed twice for one second.
@@ -92,6 +93,39 @@ fn agent() -> &'static str {
     AGENT.get_or_init(|| format!("scarlet ({})", std::env::consts::OS))
 }
 
+fn host_of(site: &str) -> String {
+    let (scheme, rest) = site.split_once("://").unwrap_or(("", site));
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or(rest);
+    let host = authority.rsplit('@').next().unwrap_or(authority);
+    let (name, port) = host_port(host);
+    let name = name.to_ascii_lowercase();
+    let default = match (scheme, port) {
+        (_, None) => true,
+        ("https", Some(p)) => p == "443",
+        ("http", Some(p)) => p == "80",
+        _ => false,
+    };
+    match (port, default) {
+        (Some(p), false) => format!("{name}:{p}"),
+        _ => name,
+    }
+}
+
+fn host_port(host: &str) -> (&str, Option<&str>) {
+    if let Some(rest) = host.strip_prefix('[')
+        && let Some(at) = rest.find(']')
+    {
+        return (&host[..at + 2], rest[at + 1..].strip_prefix(':'));
+    }
+    if host.matches(':').count() > 1 {
+        return (host, None);
+    }
+    match host.split_once(':') {
+        Some((a, b)) => (a, Some(b)),
+        None => (host, None),
+    }
+}
+
 impl Client {
     /// `site` is the website's address; the API is under `/api/v1` there.
     pub fn new(site: &str, seed: Option<&[u8; 32]>) -> Client {
@@ -101,9 +135,11 @@ impl Client {
             .user_agent(agent())
             .build()
             .into();
+        let site = super::config::site(site);
         Client {
             agent,
-            site: super::config::site(site),
+            site_host: host_of(&site),
+            site,
             key: seed.map(SigningKey::from_bytes),
             install: None,
             signed_at: HashMap::new(),
@@ -182,10 +218,11 @@ impl Client {
                 let last = self.signed_at.get(&id).copied();
                 let time = last.map_or(now(), |l| (l + 1).max(now()));
                 self.signed_at.insert(id, time);
-                let message = format!("{method}\n{full}\n{time}\n{body_hash}");
+                let message = format!("{method}\n{full}\n{time}\n{body_hash}\n{}", self.site_host);
                 let sig = STANDARD.encode(key.sign(message.as_bytes()).to_bytes());
                 headers.push(("Scarlet-Install", install));
                 headers.push(("Scarlet-Time", time.to_string()));
+                headers.push(("Scarlet-Site", self.site_host.clone()));
                 headers.push(("Scarlet-Signature", sig));
             }
             let started = Instant::now();
