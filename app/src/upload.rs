@@ -566,9 +566,9 @@ pub async fn open_session_on_web(character: String, start: i64, end: i64) -> Res
     .await
 }
 
-/// Issues a link code, signs the website's redeem line with the install key and opens the confirm
-/// page in the browser. Only the status comes back; the code itself reaches the UI through
-/// `upload_get`, so no webview reply carries it.
+/// Issues a link code, signs the redeem line the app builds from it with the install key and opens
+/// the confirm page in the browser, where the person types the code. Only the status comes back;
+/// the code itself reaches the UI through `upload_get`, so no webview reply carries it.
 #[tauri::command]
 pub async fn upload_link() -> Result<LinkView, String> {
     blocking(|| {

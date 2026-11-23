@@ -4,6 +4,20 @@
 as a GitHub release on `Medalink/scarlet-app`. It has two lanes: a beta you can test, and a release that is the
 same two commits promoted.
 
+## The release workflow
+
+On medaviper the T3 workflow `scarlet-release` (roster `t3/workflows/medaviper/scarlet-release.ts`) cuts a beta at
+04:30 every day that `main` of either repo moved since the last beta or release. It waits while a game runs, as
+`dev-update.ps1` does. Each beta then asks in the T3 inbox whether to promote it. `promote` runs the release lane
+below with `-From` that beta, which also uploads the addon to CurseForge and Wago. A newer beta withdraws the older
+question. The commands below still work by hand.
+
+```
+t3 workflow questions                                                  # the open promote question
+t3 workflow signal '{"choice":"promote"}' --run <run> --wait promote
+t3 workflow start scarlet-release --key dry-<n> --input '{}'            # a dry run: builds and signs, publishes nothing
+```
+
 ## Cut a beta
 
 ```

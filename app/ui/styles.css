@@ -771,6 +771,8 @@ table.alts th.gap, table.alts td.gap { padding-left: 28px; }
 
 table.talents th.num, table.talents td.num { padding-right: 16px; }
 table.talents td[colspan] { white-space: normal; }
+table.talents tr.current td { font-weight: 600; }
+table.talents td.text { white-space: normal; min-width: 18em; }
 
 .feats-view { container-type: inline-size; }
 .feats-block + .feats-block { margin-top: 30px; padding-top: 6px; border-top: 1px solid var(--line2); }

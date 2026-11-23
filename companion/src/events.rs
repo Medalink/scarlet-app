@@ -129,6 +129,7 @@ pub fn word(code: &str) -> &str {
         "LB" => "legacybal",
         "LA" => "legacyach",
         "LN" => "legacynode",
+        "LE" => "legacytext",
         "LO" => "lootsrc",
         "LW" => "peerloot",
         "PR" => "api",
@@ -1624,6 +1625,18 @@ fn details(code: &str, f: &[String], names: &HashMap<String, String>) -> String 
                 )
             }
         }
+        "LE" => format!(
+            "{}: {}: rank {} of {}: {}",
+            legacy_tree(g(0)),
+            if g(3).is_empty() {
+                format!("node {}", g(1))
+            } else {
+                spell(3)
+            },
+            g(4),
+            g(5),
+            g(6)
+        ),
         "LO" => {
             let slots = g(2);
             let from = match g(0) {

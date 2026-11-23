@@ -11,6 +11,7 @@ import * as sessions from "./views/sessions.js";
 import * as map from "./views/map.js";
 import * as loot from "./views/loot.js";
 import * as character from "./views/character.js";
+import * as legacy from "./views/legacy.js";
 import * as items from "./views/items.js";
 import * as data from "./views/data.js";
 import * as settings from "./views/settings.js";
@@ -25,6 +26,7 @@ const VIEWS = {
   stats: ["Stats", stats],
   map: ["Map", map],
   loot: ["Loot", loot],
+  legacy: ["Legacy", legacy],
   characters: ["Characters", roster],
   items: ["Items", items],
   activity: ["Activity", activity],
@@ -36,7 +38,7 @@ const VIEWS = {
 
 const NAV_GROUPS = [
   ["Play", ["sessions", "feats"]],
-  ["Character", ["character", "stats", "map", "loot"]],
+  ["Character", ["character", "legacy", "stats", "map", "loot"]],
   ["Account", ["characters", "items", "activity", "log"]],
   ["System", ["data", "settings"]],
 ];
@@ -48,6 +50,7 @@ const NAV_ICONS = {
   stats: '<path d="M4 19.5h16M7 16v-5m5 5V6m5 10v-8"/>',
   activity: '<rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 9.5h17M9 9.5v10M15 9.5v10"/>',
   log: '<path d="M5 7h14M5 12h10M5 17h14"/>',
+  legacy: '<path d="M4.5 17.5 3.5 7.5l4.8 3.6L12 4.5l3.7 6.6 4.8-3.6-1 10z"/><path d="M5 20h14"/>',
   sessions: '<circle cx="12" cy="12" r="8.6"/><path d="M12 7v5.2l3.4 2"/>',
   map: '<circle cx="12" cy="12" r="8.6"/><path d="m15.6 8.4-2.1 5.1-5.1 2.1 2.1-5.1z"/>',
   loot: '<path d="M8 8.6h8l2.2 9.1a2 2 0 0 1-2 2.5H7.8a2 2 0 0 1-2-2.5z"/><path d="M9 8.6 7.9 4.8h8.2L15 8.6"/>',
