@@ -303,6 +303,7 @@ pub fn export_new_all(wows: &[PathBuf], out: &Path) -> Result<bool, Box<dyn Erro
             eprintln!("scarlet: {name}: overview: {e}");
         }
         write_inventory(&dir, name, &evs);
+        write_recaps(&dir, name, &evs);
         if let Some(rows) = addon.get(name) {
             crosscheck(name, &ov, rows);
         }
