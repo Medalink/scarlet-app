@@ -312,7 +312,7 @@ pub fn build_stats(
             ],
         ),
         section(
-            "Travel",
+            "Travel and time",
             vec![
                 ("Distance", a.distance(), format_yd(a.distance())),
                 card("Steps", n(a.steps() as i64)),
@@ -365,7 +365,7 @@ pub fn build_stats(
             ],
         ),
         section(
-            "Social",
+            "People",
             vec![
                 card("Players grouped with", n(a.mates.len() as i64)),
                 t("Time in a group", a.group_s),

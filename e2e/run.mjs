@@ -35,7 +35,7 @@ const VIEWS = [
   },
   { key: "characters", shows: /^(?=.*Level target)(?=.*Testa Fixture)(?=.*Probe Lane)/, never: /No characters recorded yet/ },
   { key: "feats", shows: FEATS_LOCAL, never: /No feats counted|Could not|refused/ },
-  { key: "stats", shows: /1,605 Experience .* 2 Kills/, never: /No recorded time yet/ },
+  { key: "stats", shows: /^(?=.*1,605 Experience .* 2 Kills)(?=.*Travel and time)(?=.*Experience over time)(?=.*Top spells cast Heroic Strike 1)(?=.*Moving and standing)(?=.*Zones by time)/, never: /No recorded time yet/ },
   { key: "heatmap", shows: /Peak: [1-9]\d* events in an hour/, never: /Peak: 0 events|No events yet/ },
   { key: "timeline", shows: /kill Stonetusk Boar \(113\) by you/, never: /No events|Nothing recorded/ },
   { key: "sessions", shows: /^(?=.*2m in Westfall)(?=.*Level 5 to 6 in Elwynn Forest)(?=.*2m 10s · 2 kills · 1 quest · 1,605 XP)/, never: /No sessions yet\./ },
