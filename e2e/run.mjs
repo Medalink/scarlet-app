@@ -355,6 +355,7 @@ const CHECKS = [
     async run(ctx) {
       const app = running(ctx);
       const summary = await app.evaluate(`(async () => (await import("/bridge.js")).invoke("run_summary", { from: 1795000000000, to: 1795000130000 }))()`);
+      expectEqual("the summary fields", Object.keys(summary).sort(), ["chars", "from", "played", "recaps", "sessions", "to"]);
       expectEqual("recaps in the run", summary.recaps.map((r) => r.character), ["Testa-Fixture"]);
       const recap = summary.recaps[0];
       expectEqual("the recap title", recap.title, { rule: "level", text: "Level 5 to 6 in Elwynn Forest" });

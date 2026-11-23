@@ -5,7 +5,6 @@ use crate::commands;
 use crate::launch;
 use crate::recap::{self, SessionRecap};
 use crate::store::Store;
-use scarlet::events::{Ev, event_parts};
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -23,8 +22,6 @@ pub struct Run {
 static PENDING: Mutex<Option<Run>> = Mutex::new(None);
 
 const SLACK_MS: i64 = 60_000;
-
-const HIGHLIGHTS: [&str; 6] = ["L", "Q", "AC", "D", "LV", "PK"];
 
 const POLL: Duration = Duration::from_secs(3);
 
@@ -72,43 +69,20 @@ pub struct RunSession {
 }
 
 #[derive(Serialize)]
-pub struct Highlight {
-    ms: i64,
-    char_name: String,
-    word: String,
-    text: String,
-}
-
-#[derive(Serialize)]
 pub struct RunSummary {
     from: i64,
     to: i64,
     sessions: Vec<RunSession>,
     played: i64,
     chars: Vec<String>,
-    stats: commands::Stats,
-    highlights: Vec<Highlight>,
     recaps: Vec<SessionRecap>,
 }
 
 /// The summary of the run `[from, to]`, computed from the current store so a view
 /// re-rendering on `store-changed` picks up a late export. A run covers every
-/// character: an event belongs to it when its character's picked session holds its
-/// time, and never clipped to the process times, since a run holds several sessions.
+/// character, one recap each, and is never clipped to the process times, since a run holds several sessions.
 pub fn summary(st: &Store, from: i64, to: i64) -> RunSummary {
     let picked = pick(st, from, to);
-    let spans: Vec<(u32, i64, i64)> = picked
-        .iter()
-        .map(|i| {
-            let s = &st.sessions[*i];
-            (s.ch, s.start, s.end)
-        })
-        .collect();
-    let in_span = |ms: i64, ch: u32| {
-        spans
-            .iter()
-            .any(|(c, start, end)| *c == ch && *start <= ms && ms <= *end)
-    };
     let mut order = picked.clone();
     order.sort_by_key(|i| (st.sessions[*i].start, st.sessions[*i].end));
     let mut sessions: Vec<RunSession> = Vec::new();
@@ -132,34 +106,6 @@ pub fn summary(st: &Store, from: i64, to: i64) -> RunSummary {
         .iter()
         .map(|i| (st.sessions[*i].end - st.sessions[*i].start).max(0) / 1000)
         .sum();
-    let highlights = st
-        .events
-        .iter()
-        .filter(|r| HIGHLIGHTS.contains(&r.code.as_str()) && in_span(r.ms, r.ch))
-        .map(|r| {
-            let ev = Ev {
-                cs: r.ms / 10,
-                code: r.code.clone(),
-                fields: r.fields.clone(),
-            };
-            let (word, text) = event_parts(&ev, &st.names);
-            Highlight {
-                ms: r.ms,
-                char_name: st.chars.get(r.ch as usize).cloned().unwrap_or_default(),
-                word,
-                text,
-            }
-        })
-        .collect();
-    let stats = commands::build_stats(
-        st,
-        |r| in_span(r.ms, r.ch),
-        |s| {
-            spans
-                .iter()
-                .any(|(c, start, _)| *c == s.ch && *start == s.start)
-        },
-    );
     let recaps = chars
         .iter()
         .filter_map(|name| {
@@ -177,8 +123,6 @@ pub fn summary(st: &Store, from: i64, to: i64) -> RunSummary {
         sessions,
         played,
         chars,
-        stats,
-        highlights,
         recaps,
     }
 }
