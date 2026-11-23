@@ -1180,13 +1180,26 @@ pub fn build(f: &Facts, spans: &[(i64, i64)]) -> Option<SessionRecap> {
 
 /// The same recap without its route, its comparison with earlier sessions and its top lists: what a card of the
 /// sessions list draws.
-pub fn lite(f: &Facts, span: (i64, i64)) -> Option<SessionRecap> {
-    build_with(f, &[span], false)
+pub fn lite(f: &Facts, spans: &[(i64, i64)]) -> Option<SessionRecap> {
+    build_with(f, spans, false)
+}
+
+/// The spans sorted and joined where they overlap or touch; an empty or reversed span is dropped.
+pub fn union_spans(spans: &[(i64, i64)]) -> Vec<(i64, i64)> {
+    let mut sorted: Vec<(i64, i64)> = spans.iter().copied().filter(|s| s.1 >= s.0).collect();
+    sorted.sort();
+    let mut out: Vec<(i64, i64)> = Vec::with_capacity(sorted.len());
+    for s in sorted {
+        match out.last_mut() {
+            Some(last) if s.0 <= last.1 => last.1 = last.1.max(s.1),
+            _ => out.push(s),
+        }
+    }
+    out
 }
 
 fn build_with(f: &Facts, spans: &[(i64, i64)], full: bool) -> Option<SessionRecap> {
-    let mut spans = spans.to_vec();
-    spans.sort();
+    let spans = union_spans(spans);
     let start = spans.first()?.0;
     let end = spans.iter().map(|s| s.1).max().unwrap_or(start);
     let (s, done) = scan(f, &spans, full);

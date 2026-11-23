@@ -10,6 +10,7 @@
 //!   (the folder Tauri's `app_config_dir` returns), WebView2 in its default
 //!   `%LOCALAPPDATA%` profile, the data folder under Documents.
 
+use crate::session_groups::{Mark, SessionMode};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -66,6 +67,12 @@ pub struct Settings {
     /// before setup existed counts as done, so only a new install opens it.
     #[serde(default = "default_setup_done")]
     pub setup_done: bool,
+    /// What the sessions list calls a session: a WoW run, a local day or what the player marked by hand.
+    #[serde(default)]
+    pub session_mode: SessionMode,
+    /// The stretches the player started and stopped in Manual mode; at most one is open.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub session_marks: Vec<Mark>,
 }
 
 fn default_keep_addon() -> bool {
@@ -299,6 +306,8 @@ fn fallback() -> Settings {
             keep_addon: true,
             group_by_account: false,
             setup_done: true,
+            session_mode: SessionMode::Auto,
+            session_marks: Vec::new(),
         };
     }
     let wow = detect_wow();
@@ -316,6 +325,8 @@ fn fallback() -> Settings {
         keep_addon: true,
         group_by_account: false,
         setup_done: false,
+        session_mode: SessionMode::Auto,
+        session_marks: Vec::new(),
     }
 }
 

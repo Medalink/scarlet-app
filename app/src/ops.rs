@@ -1,6 +1,7 @@
 //! Compress actions: export, logs, sizes, watch thread, settings I/O.
 
 use crate::commands::{blocking, reload, state};
+use crate::session_groups::{Mark, SessionMode};
 use crate::settings::{self, Settings};
 use crate::watch::{WATCH_ON, set_watch, wake};
 use serde::Serialize;
@@ -206,6 +207,55 @@ pub fn set_group_by_account(app: AppHandle, on: bool) -> Result<bool, String> {
     *state(&app).settings.lock().unwrap() = cur.clone();
     scarlet::export::set_group_by_account(&cur.folders(), &cur.data, on);
     Ok(on)
+}
+
+#[derive(Serialize)]
+pub struct SessionPrefs {
+    mode: SessionMode,
+    marks: Vec<Mark>,
+}
+
+fn store_prefs(app: &AppHandle, cur: Settings) -> SessionPrefs {
+    let prefs = SessionPrefs {
+        mode: cur.session_mode,
+        marks: cur.session_marks.clone(),
+    };
+    *state(app).settings.lock().unwrap() = cur;
+    prefs
+}
+
+/// What the sessions list calls a session: `auto` (a WoW run), `day` or `manual`.
+#[tauri::command(async)]
+pub fn set_session_mode(app: AppHandle, mode: SessionMode) -> Result<SessionPrefs, String> {
+    let cur = settings::update(|c| c.session_mode = mode)?;
+    Ok(store_prefs(&app, cur))
+}
+
+/// Starts a manual session now; does nothing while one is open.
+#[tauri::command(async)]
+pub fn session_start(app: AppHandle) -> Result<SessionPrefs, String> {
+    let now = crate::run::now_ms();
+    let cur = settings::update(|c| {
+        if c.session_marks.iter().all(|m| m.to.is_some()) {
+            c.session_marks.push(Mark {
+                from: now,
+                to: None,
+            });
+        }
+    })?;
+    Ok(store_prefs(&app, cur))
+}
+
+/// Ends the open manual session; does nothing when none is open.
+#[tauri::command(async)]
+pub fn session_stop(app: AppHandle) -> Result<SessionPrefs, String> {
+    let now = crate::run::now_ms();
+    let cur = settings::update(|c| {
+        for m in c.session_marks.iter_mut().filter(|m| m.to.is_none()) {
+            m.to = Some(now.max(m.from));
+        }
+    })?;
+    Ok(store_prefs(&app, cur))
 }
 
 fn view_to_store(view: &str) -> String {

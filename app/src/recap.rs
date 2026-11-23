@@ -94,11 +94,21 @@ pub fn build(st: &Store, sessions: &[usize]) -> Option<SessionRecap> {
     Some(recap)
 }
 
+/// The recap of character `ch` over `spans` (ms), merged into one; the time played counts an overlap once.
+pub fn build_spans(st: &Store, ch: u32, spans: &[(i64, i64)]) -> Option<SessionRecap> {
+    let mut recap = with_facts(st, ch, true, true, |f| scarlet::recap::build(f, spans))?;
+    scarlet::featscore::fill(&mut recap, &tallies(st, ch));
+    Some(recap)
+}
+
+/// The recap a card of the sessions list draws, of character `ch` over `spans` (ms).
+pub fn lite_spans(st: &Store, ch: u32, spans: &[(i64, i64)]) -> Option<SessionRecap> {
+    with_facts(st, ch, false, false, |f| scarlet::recap::lite(f, spans))
+}
+
 /// The recap a card of the sessions list draws.
 pub fn lite(st: &Store, session: usize) -> Option<SessionRecap> {
-    with_facts(st, st.sessions[session].ch, false, false, |f| {
-        scarlet::recap::lite(f, span(st, session))
-    })
+    lite_spans(st, st.sessions[session].ch, &[span(st, session)])
 }
 
 pub fn title_of(st: &Store, session: usize) -> Title {

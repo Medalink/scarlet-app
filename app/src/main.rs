@@ -23,6 +23,7 @@ mod ops;
 mod recap;
 mod roster;
 mod run;
+mod session_groups;
 mod settings;
 mod store;
 mod talents;
@@ -144,6 +145,9 @@ fn main() {
             ops::save_view,
             ops::set_open_with_wow,
             ops::set_group_by_account,
+            ops::set_session_mode,
+            ops::session_start,
+            ops::session_stop,
             updater::update_info,
             updater::update_check,
             updater::update_install,
