@@ -9,7 +9,7 @@ const PAGE = 40;
 export async function render(body, sub) {
   if (/^\d+-\d+$/.test(sub ?? "")) return renderRun(body, sub);
   wireTips();
-  const cards = (await invoke("session_cards", { ch: state.ch })).filter((c) => c.recap).reverse();
+  const cards = (await invoke("session_cards", { ch: state.ch })).filter((c) => c.recap);
   body.innerHTML = "";
   if (!cards.length) {
     body.appendChild(el("div", "empty", "No sessions yet."));

@@ -679,13 +679,16 @@ pub fn sessions(app: AppHandle, ch: Option<String>) -> Vec<SessionRow> {
 
 #[derive(Serialize)]
 pub struct SessionCard {
-    index: u32,
     from: i64,
     to: i64,
+    live: bool,
+    played: i64,
+    chars: Vec<String>,
     recap: Option<crate::recap::SessionRecap>,
 }
 
-/// One lite recap for each session, for the cards of the sessions list; with `limit`, only the newest that many.
+/// One card for each session of the chosen mode, newest first, each with the lite recap of its main character; with
+/// `limit`, only the newest that many that have a recap.
 #[tauri::command]
 pub async fn session_cards(
     app: AppHandle,
@@ -693,24 +696,38 @@ pub async fn session_cards(
     limit: Option<usize>,
 ) -> Vec<SessionCard> {
     blocking(move || {
+        let (mode, marks) = {
+            let s = state(&app).settings.lock().unwrap();
+            (s.session_mode, s.session_marks.clone())
+        };
         with_store(&app, |st| {
             let c = ch.and_then(|n| st.char_index(&n));
-            let mine: Vec<(usize, &crate::store::Session)> = st
-                .sessions
-                .iter()
-                .enumerate()
-                .filter(|(_, s)| c.is_none_or(|cc| s.ch == cc))
-                .collect();
-            let skip = limit.map_or(0, |n| mine.len().saturating_sub(n));
-            mine.into_iter()
-                .skip(skip)
-                .map(|(i, s)| SessionCard {
-                    index: i as u32,
-                    from: s.start,
-                    to: s.end,
-                    recap: crate::recap::lite(st, i),
-                })
-                .collect()
+            let now = crate::run::now_ms();
+            let mut cards = Vec::new();
+            for g in crate::session_groups::groups(st, mode, &marks, c, now) {
+                let chars = g.chars();
+                let recap = chars
+                    .first()
+                    .and_then(|main| crate::recap::lite_spans(st, *main, &g.spans_of(*main)));
+                if limit.is_some() && recap.is_none() {
+                    continue;
+                }
+                cards.push(SessionCard {
+                    from: g.from,
+                    to: g.to,
+                    live: g.live,
+                    played: g.played(),
+                    chars: chars
+                        .iter()
+                        .map(|c| st.chars.get(*c as usize).cloned().unwrap_or_default())
+                        .collect(),
+                    recap,
+                });
+                if limit.is_some_and(|n| cards.len() >= n) {
+                    break;
+                }
+            }
+            cards
         })
     })
     .await

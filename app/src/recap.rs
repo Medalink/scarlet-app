@@ -61,10 +61,6 @@ impl Events for Source<'_> {
     }
 }
 
-fn span(st: &Store, session: usize) -> (i64, i64) {
-    (st.sessions[session].start, st.sessions[session].end)
-}
-
 fn with_facts<T>(st: &Store, ch: u32, all: bool, paths: bool, f: impl FnOnce(&Facts) -> T) -> T {
     let sessions: Vec<(i64, i64)> = if all {
         st.sessions
@@ -85,15 +81,6 @@ fn with_facts<T>(st: &Store, ch: u32, all: bool, paths: bool, f: impl FnOnce(&Fa
     })
 }
 
-/// The recap of one character over the store sessions `sessions` (indices into `st.sessions`), merged into one.
-pub fn build(st: &Store, sessions: &[usize]) -> Option<SessionRecap> {
-    let ch = st.sessions[*sessions.first()?].ch;
-    let spans: Vec<(i64, i64)> = sessions.iter().map(|i| span(st, *i)).collect();
-    let mut recap = with_facts(st, ch, true, true, |f| scarlet::recap::build(f, &spans))?;
-    scarlet::featscore::fill(&mut recap, &tallies(st, ch));
-    Some(recap)
-}
-
 /// The recap of character `ch` over `spans` (ms), merged into one; the time played counts an overlap once.
 pub fn build_spans(st: &Store, ch: u32, spans: &[(i64, i64)]) -> Option<SessionRecap> {
     let mut recap = with_facts(st, ch, true, true, |f| scarlet::recap::build(f, spans))?;
@@ -106,15 +93,8 @@ pub fn lite_spans(st: &Store, ch: u32, spans: &[(i64, i64)]) -> Option<SessionRe
     with_facts(st, ch, false, false, |f| scarlet::recap::lite(f, spans))
 }
 
-/// The recap a card of the sessions list draws.
-pub fn lite(st: &Store, session: usize) -> Option<SessionRecap> {
-    lite_spans(st, st.sessions[session].ch, &[span(st, session)])
-}
-
-pub fn title_of(st: &Store, session: usize) -> Title {
-    with_facts(st, st.sessions[session].ch, false, false, |f| {
-        scarlet::recap::title_of(f, span(st, session))
-    })
+pub fn title_of(st: &Store, ch: u32, span: (i64, i64)) -> Title {
+    with_facts(st, ch, false, false, |f| scarlet::recap::title_of(f, span))
 }
 
 /// The sessions of one character as tallies, for counting its feats.

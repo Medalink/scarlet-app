@@ -80,41 +80,58 @@ pub struct RunSummary {
 
 /// The summary of the run `[from, to]`, computed from the current store so a view
 /// re-rendering on `store-changed` picks up a late export. A run covers every
-/// character, one recap each, and is never clipped to the process times, since a run holds several sessions.
-pub fn summary(st: &Store, from: i64, to: i64) -> RunSummary {
-    let picked = pick(st, from, to);
-    let mut order = picked.clone();
-    order.sort_by_key(|i| (st.sessions[*i].start, st.sessions[*i].end));
-    let mut sessions: Vec<RunSession> = Vec::new();
-    let mut chars: Vec<String> = Vec::new();
-    for i in order {
-        let s = &st.sessions[i];
-        let name = st.chars.get(s.ch as usize).cloned().unwrap_or_default();
-        if !chars.contains(&name) {
-            chars.push(name.clone());
+/// character, one recap each. With `clip` the recaps and rows hold only what happened inside `[from, to]`, for
+/// `ch` alone when given; without it a run is never clipped to the process times, since a run holds several sessions.
+pub fn summary(st: &Store, from: i64, to: i64, ch: Option<u32>, clip: bool) -> RunSummary {
+    let mut rows: Vec<(u32, i64, i64, &[String])> = if clip {
+        st.sessions
+            .iter()
+            .filter(|s| s.start <= to && s.end >= from && ch.is_none_or(|c| s.ch == c))
+            .map(|s| (s.ch, s.start.max(from), s.end.min(to), s.zones.as_slice()))
+            .collect()
+    } else {
+        pick(st, from, to)
+            .into_iter()
+            .map(|i| {
+                let s = &st.sessions[i];
+                (s.ch, s.start, s.end, s.zones.as_slice())
+            })
+            .collect()
+    };
+    rows.sort_by_key(|r| (r.1, r.2, r.0));
+    rows.dedup_by_key(|r| (r.0, r.1, r.2));
+    let mut chars: Vec<u32> = Vec::new();
+    for r in &rows {
+        if !chars.contains(&r.0) {
+            chars.push(r.0);
         }
-        sessions.push(RunSession {
-            char_name: name,
-            start: s.start,
-            end: s.end,
-            duration: (s.end - s.start).max(0) / 1000,
-            zones: s.zones.clone(),
-            title: recap::title_of(st, i).text,
-        });
     }
-    let played = picked
+    let name_of = |c: u32| st.chars.get(c as usize).cloned().unwrap_or_default();
+    let sessions = rows
         .iter()
-        .map(|i| (st.sessions[*i].end - st.sessions[*i].start).max(0) / 1000)
+        .map(|&(c, start, end, zones)| RunSession {
+            char_name: name_of(c),
+            start,
+            end,
+            duration: (end - start).max(0) / 1000,
+            zones: zones.to_vec(),
+            title: recap::title_of(st, c, (start, end)).text,
+        })
+        .collect();
+    let all: Vec<(i64, i64)> = rows.iter().map(|r| (r.1, r.2)).collect();
+    let played = scarlet::recap::union_spans(&all)
+        .iter()
+        .map(|s| (s.1 - s.0) / 1000)
         .sum();
     let recaps = chars
         .iter()
-        .filter_map(|name| {
-            let mine: Vec<usize> = picked
+        .filter_map(|&c| {
+            let mine: Vec<(i64, i64)> = rows
                 .iter()
-                .copied()
-                .filter(|i| st.chars.get(st.sessions[*i].ch as usize) == Some(name))
+                .filter(|r| r.0 == c)
+                .map(|r| (r.1, r.2))
                 .collect();
-            recap::build(st, &mine)
+            recap::build_spans(st, c, &mine)
         })
         .collect();
     RunSummary {
@@ -122,15 +139,27 @@ pub fn summary(st: &Store, from: i64, to: i64) -> RunSummary {
         to,
         sessions,
         played,
-        chars,
+        chars: chars.into_iter().map(name_of).collect(),
         recaps,
     }
 }
 
-/// The summary of a run, computed on demand.
+/// The summary of a run, computed on demand. `ch` limits it to one character and `clip` cuts it to `[from, to]`.
 #[tauri::command]
-pub async fn run_summary(app: AppHandle, from: i64, to: i64) -> RunSummary {
-    commands::blocking(move || commands::with_store(&app, |st| summary(st, from, to))).await
+pub async fn run_summary(
+    app: AppHandle,
+    from: i64,
+    to: i64,
+    ch: Option<String>,
+    clip: Option<bool>,
+) -> RunSummary {
+    commands::blocking(move || {
+        commands::with_store(&app, |st| {
+            let c = ch.and_then(|n| st.char_index(&n));
+            summary(st, from, to, c, clip.unwrap_or(false))
+        })
+    })
+    .await
 }
 
 /// Returns and clears the pending run.
