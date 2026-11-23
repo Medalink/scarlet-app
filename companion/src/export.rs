@@ -478,6 +478,9 @@ pub fn feats_seen_unsent(wows: &[PathBuf], out: &Path) -> Vec<(String, BTreeMap<
         for (name, kept) in read_kept(wow) {
             let entry = shown.entry(name).or_default();
             for (key, tier) in kept.seen.unwrap_or_default() {
+                if !crate::feats_catalog::FEATS.iter().any(|f| f.key == key) {
+                    continue;
+                }
                 let tier = tier.clamp(0, 5) as u8;
                 let at = entry.entry(key).or_insert(0);
                 *at = (*at).max(tier);

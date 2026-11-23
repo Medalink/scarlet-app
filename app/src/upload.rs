@@ -10,6 +10,7 @@ use scarlet::upload::keys;
 use scarlet::upload::session::{self, Session};
 use scarlet::upload::state as ustate;
 use serde::Serialize;
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -319,12 +320,25 @@ fn send_feats_seen(sess: &mut Session, s: &Settings) {
         return;
     }
     for (character, shown) in scarlet::export::feats_seen_unsent(&s.folders(), &s.data) {
-        if !s.upload.character_on(&character) {
-            continue;
+        if s.upload.character_on(&character) {
+            send_shown(sess, &s.data, &character, &shown);
         }
-        if sess.feats_seen(&character, &shown).is_ok() {
-            scarlet::export::feats_seen_sent(&s.data, &character, &shown);
+    }
+}
+
+fn send_shown(sess: &mut Session, data: &Path, character: &str, shown: &BTreeMap<String, u8>) {
+    match sess.feats_seen(character, shown) {
+        Ok(()) => scarlet::export::feats_seen_sent(data, character, shown),
+        Err(scarlet::upload::Error::Api { status: 422, .. }) if shown.len() > 1 => {
+            for (key, tier) in shown {
+                let one = BTreeMap::from([(key.clone(), *tier)]);
+                send_shown(sess, data, character, &one);
+            }
         }
+        Err(scarlet::upload::Error::Api { status: 422, .. }) => {
+            scarlet::export::feats_seen_sent(data, character, shown);
+        }
+        Err(_) => {}
     }
 }
 
