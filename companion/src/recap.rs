@@ -542,7 +542,7 @@ impl<'a> Scan<'a> {
             "AC" => self.achievements += 1,
             "C" => {
                 if let Some(name) = self.f.names.get(&name_key('s', field(f, 0))) {
-                    *self.casts_by_spell.entry(name.clone()).or_default() += 1;
+                    *self.casts_by_spell.entry(name.to_lowercase()).or_default() += 1;
                 }
             }
             "TG" if self.spec.is_empty() => self.spec = self.spec_of(f),
@@ -1251,6 +1251,7 @@ pub struct Tally {
     pub start: i64,
     pub played: i64,
     pub counters: BTreeMap<&'static str, i64>,
+    /// Casts by spell name in lower case.
     pub casts: HashMap<String, i64>,
     pub spec: String,
     pub class: String,

@@ -5,7 +5,7 @@
 use crate::feats_catalog::{CatalogFeat, FEATS, ROLE_CLASSES, SPEC_ROLES};
 use crate::recap::{FeatChange, FeatNear, Feats, SessionRecap, Tally};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 const COUNTER_KEYS: [&str; 46] = [
     "kills",
@@ -124,33 +124,59 @@ fn sum(t: &Tally, keys: &[&str]) -> i64 {
         .sum()
 }
 
+fn glob(pattern: &str, name: &str) -> bool {
+    let mut parts = pattern.split('*');
+    let Some(mut rest) = name.strip_prefix(parts.next().unwrap_or("")) else {
+        return false;
+    };
+    let mut parts: Vec<&str> = parts.collect();
+    let Some(last) = parts.pop() else {
+        return rest.is_empty();
+    };
+    for part in parts {
+        let Some(at) = rest.find(part) else {
+            return false;
+        };
+        rest = &rest[at + part.len()..];
+    }
+    rest.ends_with(last)
+}
+
+fn cast_count(spells: &[String], casts: &HashMap<String, i64>) -> i64 {
+    let (wild, exact): (Vec<&String>, Vec<&String>) = spells.iter().partition(|s| s.contains('*'));
+    let named: i64 = exact.iter().filter_map(|s| casts.get(*s)).sum();
+    if wild.is_empty() {
+        return named;
+    }
+    let matched: i64 = casts
+        .iter()
+        .filter(|(name, _)| !exact.contains(name) && wild.iter().any(|pattern| glob(pattern, name)))
+        .map(|(_, n)| n)
+        .sum();
+    named + matched
+}
+
 fn value(feat: &CatalogFeat, class: &str, tallies: &[Tally]) -> f64 {
     let live = feat.live.as_ref().expect("computable feats are live");
     let per = live.per.unwrap_or(1.0);
-    match live.kind {
-        "counter" => tallies.iter().map(|t| sum(t, live.keys)).sum::<i64>() as f64 / per,
-        "session" => tallies.iter().map(|t| sum(t, live.keys)).max().unwrap_or(0) as f64 / per,
-        "level" if feat.key == "unbroken" => unbroken(tallies),
-        "level" => tallies.iter().map(|t| t.level[1]).max().unwrap_or(0) as f64,
-        "clock" => {
-            let held = tallies
-                .iter()
-                .filter(|t| gate_holds(feat, live.gate, class, t));
-            match live.once_at {
-                Some(at) => held.filter(|t| t.played as f64 >= at).count() as f64,
-                None => held.map(|t| t.played).sum::<i64>() as f64 / per,
-            }
-        }
-        "cast" => tallies
+    let held = || {
+        tallies
             .iter()
             .filter(|t| gate_holds(feat, live.gate, class, t))
-            .map(|t| {
-                feat.spells
-                    .iter()
-                    .map(|s| t.casts.get(*s).copied().unwrap_or(0))
-                    .sum::<i64>()
-            })
-            .sum::<i64>() as f64,
+    };
+    match live.kind {
+        "counter" => held().map(|t| sum(t, live.keys)).sum::<i64>() as f64 / per,
+        "session" => held().map(|t| sum(t, live.keys)).max().unwrap_or(0) as f64 / per,
+        "level" if feat.key == "unbroken" => unbroken(tallies),
+        "level" => tallies.iter().map(|t| t.level[1]).max().unwrap_or(0) as f64,
+        "clock" => match live.once_at {
+            Some(at) => held().filter(|t| t.played as f64 >= at).count() as f64,
+            None => held().map(|t| t.played).sum::<i64>() as f64 / per,
+        },
+        "cast" => {
+            let spells: Vec<String> = feat.spells.iter().map(|s| s.to_lowercase()).collect();
+            held().map(|t| cast_count(&spells, &t.casts)).sum::<i64>() as f64
+        }
         _ => 0.0,
     }
 }
