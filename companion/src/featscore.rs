@@ -4,6 +4,7 @@
 
 use crate::feats_catalog::{CatalogFeat, FEATS, ROLE_CLASSES, SPEC_ROLES};
 use crate::recap::{FeatChange, FeatNear, Feats, SessionRecap, Tally};
+use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 const COUNTER_KEYS: [&str; 46] = [
@@ -154,8 +155,6 @@ fn value(feat: &CatalogFeat, class: &str, tallies: &[Tally]) -> f64 {
     }
 }
 
-/// The highest level reached before the first death: the level a session with a death began at counts, not the one it
-/// ended at.
 fn unbroken(tallies: &[Tally]) -> f64 {
     let mut best = 0;
     for t in tallies {
@@ -262,8 +261,6 @@ impl Scored {
     }
 }
 
-/// The class token of the newest session that names one, and the talent tree it began with once the character is level
-/// 10 or more.
 fn identity(tallies: &[Tally]) -> (String, String) {
     let class = tallies
         .iter()
@@ -364,4 +361,118 @@ pub fn fill(recap: &mut SessionRecap, tallies: &[Tally]) {
         })
         .collect();
     recap.feats = Feats { earned, near };
+}
+
+/// What a character's counts come to, kept beside its overview so Feats.lua can be written without its events.
+#[derive(Serialize, Deserialize, Default, Clone)]
+pub struct Saved {
+    pub through: i64,
+    pub spec: String,
+    pub values: BTreeMap<String, f64>,
+}
+
+pub fn saved(scored: &Scored) -> Saved {
+    Saved {
+        through: scored.through,
+        spec: scored.spec.clone(),
+        values: scored
+            .counted
+            .iter()
+            .map(|c| (c.feat.key.to_string(), c.v))
+            .collect(),
+    }
+}
+
+/// What the addon's own file says about one character: its lifetime counters and the tier of each feat it has toasted.
+#[derive(Default, Clone)]
+pub struct Kept {
+    pub lifetime: BTreeMap<String, i64>,
+    pub seen: Option<BTreeMap<String, i64>>,
+}
+
+fn lua_num(v: f64) -> String {
+    if v.fract() == 0.0 {
+        format!("{}", v as i64)
+    } else {
+        format!("{:.3}", v)
+            .trim_end_matches('0')
+            .trim_end_matches('.')
+            .to_string()
+    }
+}
+
+/// The text of Feats.lua, `source = "local"`. A counter feat is written only for a character whose lifetime counters
+/// are in the addon's file, since `b` is read from them; `s` is the tier the addon has toasted, or the current tier
+/// for a character whose addon has toasted nothing yet.
+pub fn feats_lua(chars: &[(String, Saved, Kept)], made: i64) -> String {
+    let mut out = format!(
+        "ScarletFeats = {{\n  v = 1, made = {made},\n  catalog = {},\n  source = \"local\",\n  chars = {{\n",
+        crate::feats_catalog::VERSION
+    );
+    for (name, saved, kept) in chars {
+        let rows: Vec<(&CatalogFeat, f64, u8, Option<i64>)> = FEATS
+            .iter()
+            .filter_map(|f| {
+                let v = *saved.values.get(f.key)?;
+                let b = lifetime_base(f, &kept.lifetime);
+                let is_counter = f.live.as_ref().is_some_and(|l| l.kind == "counter");
+                if is_counter && (kept.lifetime.is_empty() || b.is_none()) {
+                    return None;
+                }
+                Some((f, v, tier_of(f, v), b))
+            })
+            .collect();
+        let held = rows.iter().filter(|r| r.2 > 0).count();
+        let score: u32 = rows
+            .iter()
+            .filter(|r| r.0.scope == SCORE_SCOPE && !r.0.economy)
+            .map(|r| r.2 as u32)
+            .sum();
+        out.push_str(&format!("    [{}] = {{\n", lua_quote(name)));
+        out.push_str(&format!("      through = {},\n", saved.through));
+        if !saved.spec.is_empty() {
+            out.push_str(&format!("      spec = {},\n", lua_quote(&saved.spec)));
+        }
+        out.push_str(&format!(
+            "      held = {held}, total = {}, score = {score},\n      pins = {{}},\n      f = {{\n",
+            rows.len()
+        ));
+        let seen_of = |f: &CatalogFeat, tier: u8| -> u8 {
+            match &kept.seen {
+                Some(seen) => seen.get(f.key).copied().unwrap_or(0).clamp(0, 5) as u8,
+                None => tier,
+            }
+        };
+        for (f, v, tier, b) in &rows {
+            let s = seen_of(f, *tier);
+            let base = b.map_or(String::new(), |b| format!(", b = {b}"));
+            out.push_str(&format!(
+                "        [{}] = {{ v = {}, s = {s}{base} }},\n",
+                lua_quote(f.key),
+                lua_num(*v)
+            ));
+        }
+        out.push_str("      },\n      new = {");
+        let news: Vec<String> = rows
+            .iter()
+            .filter(|(f, _, tier, _)| *tier > seen_of(f, *tier))
+            .map(|(f, _, tier, _)| {
+                format!(
+                    "{{ k = {}, from = {}, to = {tier} }}",
+                    lua_quote(f.key),
+                    seen_of(f, *tier)
+                )
+            })
+            .collect();
+        out.push_str(&news.join(", "));
+        out.push_str("},\n    },\n");
+    }
+    out.push_str("  },\n}\n");
+    out
+}
+
+fn lua_quote(s: &str) -> String {
+    let mut out = String::new();
+    crate::overview::lua_write(&serde_json::Value::String(s.to_string()), 1, &mut out);
+    out
 }

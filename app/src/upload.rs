@@ -82,6 +82,40 @@ pub struct UploadView {
 }
 
 static LINK_CODE: Mutex<Option<String>> = Mutex::new(None);
+static LINKED: AtomicBool = AtomicBool::new(false);
+
+fn web_digest(s: &Settings) -> scarlet::overview::WebDigest {
+    let cfg = &s.upload;
+    let on = cfg.enabled && cfg.server_problem().is_none();
+    let site = config::site(&cfg.server);
+    let host = site
+        .strip_prefix("https://")
+        .or_else(|| site.strip_prefix("http://"))
+        .unwrap_or(&site)
+        .to_string();
+    scarlet::overview::WebDigest {
+        upload: on,
+        linked: on && LINKED.load(Ordering::Relaxed),
+        host,
+        shared: session::list_characters(&s.data)
+            .into_iter()
+            .map(|name| {
+                let shared = cfg.character_on(&name);
+                (name, shared)
+            })
+            .collect(),
+        ..Default::default()
+    }
+}
+
+/// Tells the digest what uploading is, before the first export of a launch.
+pub fn init_web() {
+    scarlet::overview::set_web(Some(web_digest(&settings::load())));
+}
+
+fn publish_web(s: &Settings) {
+    scarlet::export::set_web(&s.folders(), &s.data, Some(web_digest(s)));
+}
 
 fn view() -> UploadView {
     let s = settings::load();
@@ -265,6 +299,7 @@ fn run_once(app: &AppHandle) -> bool {
     }
     let failed = reports.iter().find(|r| r.failed);
     set_error(failed.and_then(|r| r.note.clone()));
+    publish_web(&settings::load());
     reports.iter().any(|r| r.retry)
 }
 
@@ -279,9 +314,10 @@ pub async fn upload_set_enabled(app: AppHandle, on: bool) -> Result<UploadView, 
         if on && let Some(p) = settings::load().upload.server_problem() {
             return Err(format!("{p} Uploading cannot be turned on."));
         }
-        change(&app, |c| c.enabled = on)?;
+        let cur = change(&app, |c| c.enabled = on)?;
         set_error(None);
         set_note(None);
+        publish_web(&cur);
         if on {
             start_if_on(&app);
         }
@@ -300,8 +336,9 @@ pub async fn upload_set_server(app: AppHandle, server: String) -> Result<UploadV
         if let Some(p) = config::server_problem(&server) {
             return Err(p);
         }
-        change(&app, |c| c.server = server)?;
+        let cur = change(&app, |c| c.server = server)?;
         set_error(None);
+        publish_web(&cur);
         Ok(view())
     })
     .await
@@ -364,9 +401,10 @@ pub async fn upload_set_character(
     on: bool,
 ) -> Result<UploadView, String> {
     blocking(move || {
-        change(&app, |c| {
+        let cur = change(&app, |c| {
             c.characters.insert(name, on);
         })?;
+        publish_web(&cur);
         Ok(view())
     })
     .await
@@ -428,12 +466,17 @@ pub async fn upload_linked() -> Result<bool, String> {
         if !s.upload.enabled || s.upload.server_problem().is_some() {
             return Ok(false);
         }
-        match open_session_locked(&s.upload, &s.data, keys::system_store().as_ref(), false)
-            .map_err(|e| e.to_string())?
-        {
-            Some(mut sess) => sess.me().map(|m| m.linked).map_err(|e| e.to_string()),
-            None => Ok(false),
+        let linked =
+            match open_session_locked(&s.upload, &s.data, keys::system_store().as_ref(), false)
+                .map_err(|e| e.to_string())?
+            {
+                Some(mut sess) => sess.me().map(|m| m.linked).map_err(|e| e.to_string())?,
+                None => false,
+            };
+        if LINKED.swap(linked, Ordering::AcqRel) != linked {
+            publish_web(&s);
         }
+        Ok(linked)
     })
     .await
 }
@@ -452,6 +495,9 @@ pub async fn upload_link() -> Result<LinkView, String> {
             .map_err(|e| e.to_string())?
             .ok_or("This install is not set up for uploading yet.")?;
         if sess.me().map_err(|e| e.to_string())?.linked {
+            if !LINKED.swap(true, Ordering::AcqRel) {
+                publish_web(&s);
+            }
             return Ok(LinkView { linked: true });
         }
         let link = sess.link().map_err(|e| e.to_string())?;

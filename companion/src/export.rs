@@ -6,6 +6,7 @@ use crate::archive;
 use crate::counts;
 use crate::dungeonjournal;
 use crate::events;
+use crate::featscore;
 use crate::fishing;
 use crate::foreverfishing;
 use crate::import;
@@ -395,7 +396,7 @@ fn roster(out: &Path) -> Vec<String> {
     names
 }
 
-const OVERVIEW_REV: &str = "7";
+const OVERVIEW_REV: &str = "8";
 
 fn overview_rev_stale(out: &Path) -> bool {
     let file = out.join("overview.rev");
@@ -412,12 +413,73 @@ fn write_recaps(dir: &Path, name: &str, evs: &[archive::Event]) {
         code: e.code.as_str(),
         fields: e.fields.as_slice(),
     }));
-    let recaps = recap::for_character(name, &log);
-    let written = serde_json::to_string(&recaps)
-        .map_err(|e| e.to_string())
-        .and_then(|text| write_atomic(&dir.join("recaps.json"), &text).map_err(|e| e.to_string()));
-    if let Err(e) = written {
-        eprintln!("scarlet: {name}: recaps: {e}");
+    let (recaps, tallies) = recap::for_character(name, &log);
+    let saved = featscore::saved(&featscore::score(&tallies));
+    for (file, text) in [
+        ("recaps.json", serde_json::to_string(&recaps)),
+        ("feats.json", serde_json::to_string(&saved)),
+    ] {
+        let written = text
+            .map_err(|e| e.to_string())
+            .and_then(|text| write_atomic(&dir.join(file), &text).map_err(|e| e.to_string()));
+        if let Err(e) = written {
+            eprintln!("scarlet: {name}: {file}: {e}");
+        }
+    }
+}
+
+fn read_feats(dir: &Path) -> Option<featscore::Saved> {
+    serde_json::from_str(&fs::read_to_string(dir.join("feats.json")).ok()?).ok()
+}
+
+fn read_kept(wow: &Path) -> BTreeMap<String, featscore::Kept> {
+    let mut kept = BTreeMap::new();
+    for sv in find_sv_all(&[wow.to_path_buf()]).unwrap_or_default() {
+        let Ok(text) = fs::read_to_string(&sv) else {
+            continue;
+        };
+        let Ok(db) = lua::parse_main(&text) else {
+            continue;
+        };
+        for (name, ch) in db.get("chars").and_then(Lua::items).unwrap_or_default() {
+            let lifetime = ch
+                .items()
+                .unwrap_or_default()
+                .iter()
+                .filter_map(|(k, v)| Some((k.clone(), v.as_int()?)))
+                .collect();
+            let seen = ch.get("featSeen").and_then(Lua::items).map(|rows| {
+                rows.iter()
+                    .filter_map(|(k, v)| Some((k.clone(), v.as_int()?)))
+                    .collect()
+            });
+            kept.insert(name.clone(), featscore::Kept { lifetime, seen });
+        }
+    }
+    kept
+}
+
+fn refresh_web_sync(out: &Path) {
+    let Some(mut web) = overview::web() else {
+        return;
+    };
+    let state = crate::upload::state::load(out);
+    web.synced = state
+        .characters
+        .iter()
+        .map(|(name, c)| (name.clone(), c.last_sync as i64))
+        .collect();
+    web.sync = web.synced.values().copied().max().unwrap_or(0);
+    overview::set_web(Some(web));
+}
+
+/// Sets what the digest says about the website and writes it again at once, as `set_group_by_account` does.
+pub fn set_web(wows: &[PathBuf], out: &Path, web: Option<overview::WebDigest>) {
+    let _one = EXPORT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    overview::set_web(web);
+    let accounts = save_accounts(wows, out);
+    for wow in wows {
+        write_digest(wow, out, &accounts);
     }
 }
 
@@ -1012,7 +1074,7 @@ fn save_accounts(wows: &[PathBuf], out: &Path) -> BTreeMap<String, Vec<String>> 
 }
 
 const DATA_ADDON: &str = "ScarletData";
-const DATA_FILES: [&str; 3] = ["Digest.lua", "Items.lua", "Recaps.lua"];
+const DATA_FILES: [&str; 4] = ["Digest.lua", "Items.lua", "Recaps.lua", "Feats.lua"];
 const FALLBACK_INTERFACE: &str = "16001";
 
 fn write_digest(wow: &Path, out: &Path, accounts: &BTreeMap<String, Vec<String>>) {
@@ -1035,6 +1097,7 @@ fn write_digest(wow: &Path, out: &Path, accounts: &BTreeMap<String, Vec<String>>
     let rebuild = overview_rev_stale(out);
     let mut chars: Vec<(String, Overview)> = Vec::new();
     let mut recaps: Vec<(String, Vec<serde_json::Value>)> = Vec::new();
+    let mut saved: BTreeMap<String, featscore::Saved> = BTreeMap::new();
     for d in dirs {
         let Some(name) = d.file_name().map(|n| n.to_string_lossy().to_string()) else {
             continue;
@@ -1044,6 +1107,7 @@ fn write_digest(wow: &Path, out: &Path, accounts: &BTreeMap<String, Vec<String>>
             || !file.is_file()
             || !d.join("inventory.json").is_file()
             || !d.join("recaps.json").is_file()
+            || !d.join("feats.json").is_file()
             || overview_is_stale(&d, &file)
         {
             match load_events(&d, &name) {
@@ -1063,6 +1127,9 @@ fn write_digest(wow: &Path, out: &Path, accounts: &BTreeMap<String, Vec<String>>
         match ov {
             Some(ov) if !ov.sessions.is_empty() => {
                 recaps.push((name.clone(), read_recaps(&d)));
+                if let Some(s) = read_feats(&d) {
+                    saved.insert(name.clone(), s);
+                }
                 chars.push((name, ov));
             }
             Some(_) => {}
@@ -1102,6 +1169,8 @@ fn write_digest(wow: &Path, out: &Path, accounts: &BTreeMap<String, Vec<String>>
     }
     write_items(&data, &chars, out, made);
     write_recap_file(&data, &recaps, made);
+    write_feats_file(&data, wow, &chars, saved, made);
+    refresh_web_sync(out);
     let text = overview::digest_lua_with(&chars, made, &accounts);
     let dest = data.join("Digest.lua");
     match write_atomic(&dest, &text) {
@@ -1224,6 +1293,32 @@ fn write_recap_file(data: &Path, recaps: &[(String, Vec<serde_json::Value>)], ma
     match write_atomic(&dest, &text) {
         Ok(()) => println!("recaps: {} bytes -> {}", text.len(), dest.display()),
         Err(e) => println!("recaps: could not write {}: {e}", dest.display()),
+    }
+}
+
+fn write_feats_file(
+    data: &Path,
+    wow: &Path,
+    chars: &[(String, Overview)],
+    mut saved: BTreeMap<String, featscore::Saved>,
+    made: i64,
+) {
+    let mut kept = read_kept(wow);
+    let rows: Vec<(String, featscore::Saved, featscore::Kept)> = chars
+        .iter()
+        .filter_map(|(name, _)| {
+            Some((
+                name.clone(),
+                saved.remove(name)?,
+                kept.remove(name).unwrap_or_default(),
+            ))
+        })
+        .collect();
+    let text = featscore::feats_lua(&rows, made);
+    let dest = data.join("Feats.lua");
+    match write_atomic(&dest, &text) {
+        Ok(()) => println!("feats: {} bytes -> {}", text.len(), dest.display()),
+        Err(e) => println!("feats: could not write {}: {e}", dest.display()),
     }
 }
 

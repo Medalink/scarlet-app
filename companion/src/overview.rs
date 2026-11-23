@@ -1862,6 +1862,27 @@ pub fn alts_of(me: &str, ov: &Overview, all: &[(String, Overview)]) -> Vec<AltRo
     rows
 }
 
+/// What Digest.lua says about the website: uploading, the link, the address and when each character last uploaded.
+#[derive(Clone, Default)]
+pub struct WebDigest {
+    pub upload: bool,
+    pub linked: bool,
+    pub host: String,
+    pub shared: BTreeMap<String, bool>,
+    pub sync: i64,
+    pub synced: BTreeMap<String, i64>,
+}
+
+static WEB: std::sync::Mutex<Option<WebDigest>> = std::sync::Mutex::new(None);
+
+pub fn set_web(web: Option<WebDigest>) {
+    *WEB.lock().unwrap_or_else(|e| e.into_inner()) = web;
+}
+
+pub fn web() -> Option<WebDigest> {
+    WEB.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
 static GROUP_BY_ACCOUNT: AtomicBool = AtomicBool::new(false);
 
 /// Whether the digest asks the addon to list characters by game account. Off by default: the
@@ -1876,6 +1897,7 @@ fn render_digest(
     sessions: Option<usize>,
     accounts: &BTreeMap<String, Vec<String>>,
 ) -> String {
+    let shown = web().filter(|w| w.upload);
     let mut root = serde_json::Map::new();
     for (name, ov) in chars {
         let mut view = ov.clone();
@@ -1901,6 +1923,16 @@ fn render_digest(
         view.sessions.truncate(keep);
         if let Ok(mut v) = serde_json::to_value(&view) {
             if let Some(m) = v.as_object_mut() {
+                if let Some(w) = shown.as_ref().filter(|w| w.shared.get(name) == Some(&true)) {
+                    m.insert(
+                        "web".into(),
+                        serde_json::json!({
+                            "page": format!("{}/c/{name}", w.host),
+                            "public": true,
+                            "sync": w.synced.get(name).copied().unwrap_or(0),
+                        }),
+                    );
+                }
                 m.insert("first".into(), Value::from(first));
                 if let Ok(r) = serde_json::to_value(&recent) {
                     m.insert("recent".into(), r);
@@ -1920,6 +1952,15 @@ fn render_digest(
         }
     }
     let mut out = format!("ScarletDigest = {{\n  v = 1, made = {made},\n");
+    if let Some(w) = web() {
+        let host = serde_json::to_value(&w.host).unwrap_or_default();
+        out.push_str(&format!(
+            "  web = {{ upload = {}, linked = {}, host = ",
+            w.upload, w.linked
+        ));
+        lua_write(&host, 1, &mut out);
+        out.push_str(&format!(", sync = {} }},\n", w.sync));
+    }
     if GROUP_BY_ACCOUNT.load(Ordering::Relaxed) {
         out.push_str("  groupByAccount = true,\n");
     }

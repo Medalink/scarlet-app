@@ -198,6 +198,7 @@ fn main() {
                 .unwrap()
                 .clone();
             scarlet::overview::set_group_by_account(s.group_by_account);
+            upload::init_web();
             if s.watch {
                 watch::set_watch(app.handle(), true);
             }

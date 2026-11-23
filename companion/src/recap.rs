@@ -1184,7 +1184,7 @@ fn for_addon(mut r: SessionRecap) -> SessionRecap {
 
 /// The recaps the addon keeps for one character, newest first: its eight newest sessions of a minute or more, each
 /// without `route.legs` and `own`, and with the lists of `top` cut to five.
-pub fn for_character(character: &str, log: &Log) -> Vec<SessionRecap> {
+pub fn for_character(character: &str, log: &Log) -> (Vec<SessionRecap>, Vec<Tally>) {
     let names = log.names();
     let sessions = log.sessions();
     let facts = Facts {
@@ -1200,7 +1200,7 @@ pub fn for_character(character: &str, log: &Log) -> Vec<SessionRecap> {
         .filter(|s| s.1 - s.0 >= ADDON_MIN_MS)
         .collect();
     spans.sort();
-    spans
+    let recaps = spans
         .iter()
         .rev()
         .take(ADDON_SESSIONS)
@@ -1209,7 +1209,8 @@ pub fn for_character(character: &str, log: &Log) -> Vec<SessionRecap> {
             crate::featscore::fill(&mut r, &all);
             for_addon(r)
         })
-        .collect()
+        .collect();
+    (recaps, all)
 }
 
 fn render_recaps(chars: &[(String, Vec<serde_json::Value>)], made: i64) -> String {

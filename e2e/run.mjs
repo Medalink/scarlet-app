@@ -246,7 +246,7 @@ const CHECKS = [
     name: "the addon files are written",
     run(ctx) {
       const dir = path.join(ctx.site.cli.wow, "_forever_", "Interface", "AddOns", "ScarletData");
-      for (const file of ["Digest.lua", "Items.lua", "Recaps.lua", "ScarletData.toc"]) {
+      for (const file of ["Digest.lua", "Items.lua", "Recaps.lua", "Feats.lua", "ScarletData.toc"]) {
         if (!fs.existsSync(path.join(dir, file))) throw mismatch("a file the export writes for the addon", file, "missing");
       }
       const digest = read(path.join(dir, "Digest.lua"));
@@ -254,6 +254,12 @@ const CHECKS = [
       const recaps = read(path.join(dir, "Recaps.lua"));
       expectMatch("Recaps.lua holds the fixture sessions", recaps, /^ScarletRecaps = \{[\s\S]*\["Testa-Fixture"\][\s\S]*Level 5 to 6 in Elwynn Forest/);
       expectMatch("the toc lists Recaps.lua", read(path.join(dir, "ScarletData.toc")), /^Recaps\.lua$/m);
+      const feats = read(path.join(dir, "Feats.lua"));
+      expectMatch("Feats.lua is counted locally for the fixture character", feats, /^ScarletFeats = \{[\s\S]*source = "local"[\s\S]*\["Testa-Fixture"\] = \{[\s\S]*held = \d+, total = \d+, score = \d+/);
+      expectMatch("Feats.lua gives a counter feat the addon's own count as b", feats, /\["slayer"\] = \{ v = \d+, s = \d+, b = \d+ \}/);
+      expectNoMatch("Feats.lua gives a feat that is not a counter no b", feats, /\["veteran"\] = \{[^}]*\bb = /);
+      expectMatch("the toc lists Feats.lua", read(path.join(dir, "ScarletData.toc")), /^Feats\.lua$/m);
+      expectNoMatch("Digest.lua says nothing of the website when the CLI wrote it", digest, /\bweb = /);
     },
   },
   {
@@ -536,6 +542,10 @@ const CHECKS = [
       await app.until(`(async () => (await import("/bridge.js")).invoke("app_state"))().then((s) => s.sessions === 4)`, "app_state reports 4 sessions after Export now", 5000);
       const events = await app.until(`(() => { const n = Number(/([\\d,]+) events/.exec(document.querySelector("#head-stats").textContent)?.[1].replace(/,/g, "")); return n > ${before} ? n : 0; })()`, `the events in the header rise above ${before}`, 5000);
       expectEqual("events the header gained", events - before, LATER.lines.length);
+      const data = path.join(ctx.site.app.wow, "_forever_", "Interface", "AddOns", "ScarletData");
+      const host = ctx.website.url.replace(/^https?:\/\//, "").replace(/\./g, "\\.");
+      expectMatch("Digest.lua says uploading is off and no character has a page", read(path.join(data, "Digest.lua")), new RegExp(`^  web = \\{ upload = false, linked = false, host = "${host}", sync = 0 \\},$`, "m"));
+      expectNoMatch("Digest.lua gives no character a web page while uploading is off", read(path.join(data, "Digest.lua")), /page = /);
     },
   },
   {
