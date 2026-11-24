@@ -248,8 +248,9 @@ pub fn read_payloads(char_dir: &Path) -> Vec<AddonEv> {
         .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("scl"))
         .collect();
     files.sort();
-    let mut out = Vec::new();
+    let mut per_file = Vec::new();
     for p in files {
+        let mut out = Vec::new();
         let Ok(raw) = fs::read(&p) else { continue };
         let Ok(mut dec) = zstd::stream::Decoder::new(&raw[..]) else {
             continue;
@@ -279,7 +280,11 @@ pub fn read_payloads(char_dir: &Path) -> Vec<AddonEv> {
                 fields,
             });
         }
+        per_file.push(out);
     }
+    let mut out = crate::archive::merge_by(per_file, |e, h| {
+        std::hash::Hash::hash(&(e.cs, &e.key, &e.code, &e.fields), h)
+    });
     out.sort_by_key(|e| e.cs);
     out
 }

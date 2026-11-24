@@ -63,24 +63,29 @@ pub fn parse_payload_text(text: &str) -> Payload {
     Payload { character, events }
 }
 
-fn event_key(e: &Event) -> u64 {
-    let mut h = DefaultHasher::new();
-    e.ms.hash(&mut h);
-    e.code.hash(&mut h);
-    e.fields.hash(&mut h);
-    h.finish()
-}
-
 /// The events of `payloads` in the order given, leaving out each event a payload holds again from an earlier one: an
 /// export that lost its state reads the whole recording a second time and writes it as one more payload. An event that
 /// repeats inside one payload stays; it is only a repeat when an earlier payload held it as often.
 pub fn merge(payloads: impl IntoIterator<Item = Vec<Event>>) -> Vec<Event> {
+    merge_by(payloads, |e, h| (e.ms, &e.code, &e.fields).hash(h))
+}
+
+/// `merge` for any line type, with `identity` hashing what makes two lines the same line.
+pub fn merge_by<T>(
+    payloads: impl IntoIterator<Item = Vec<T>>,
+    identity: impl Fn(&T, &mut DefaultHasher),
+) -> Vec<T> {
+    let hashed = |e: &T| {
+        let mut h = DefaultHasher::new();
+        identity(e, &mut h);
+        h.finish()
+    };
     let mut held: HashMap<u64, usize> = HashMap::new();
     let mut out = Vec::new();
     for events in payloads {
         let mut here: HashMap<u64, usize> = HashMap::new();
         for e in events {
-            let key = event_key(&e);
+            let key = hashed(&e);
             let n = here.entry(key).or_insert(0);
             *n += 1;
             if *n > held.get(&key).copied().unwrap_or(0) {
