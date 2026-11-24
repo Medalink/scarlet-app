@@ -1,6 +1,6 @@
 // #system: every component of DESIGN.md drawn from invented data. Reachable by its hash only.
 
-import { el, elText, tile, tiles, progressRing, spark, stack, bars, compare, strip, routeCard, sessionCard, collectionRow, linkRow, wireTips } from "../lib.js";
+import { el, elText, num, money, moneyHtml, tile, tiles, progressRing, spark, stack, bars, compare, goal, pace, record, strip, routeCard, sessionCard, collectionRow, linkRow, wireTips } from "../lib.js";
 import { crest, card, tierChip } from "../featcard.js";
 import { TIER_NAMES } from "../glyphs.js";
 
@@ -177,6 +177,35 @@ export async function render(body) {
   const three = el("div", "recap-grid two");
   three.append(stateCell(cmp, caption("Thin band: 10th to 90th percentile. Thick band: the middle half. Tick: the median. Diamond: you.")), stateCell(barsDemo, caption("Label left, value right, a 4 px bar under both.")));
   root.append(section("Compare strip, bar list", three));
+
+  const goals = el("div", "sc-panel");
+  goals.style.cssText = "display:grid;gap:16px";
+  goals.append(
+    goal(42, 60, { label: "Level", size: "lg", eta: "Level 60 in 3d 4h" }),
+    goal(131, 150, { label: "Mining", eta: "about 2h" }),
+    goal(300, 300, { label: "Fishing" }),
+    goal(17400, 42000, { label: "Orgrimmar", note: "Honored" }),
+  );
+  const paces = tiles(
+    [
+      pace(12404, { p10: 6200, p25: 8100, p50: 10400, p75: 14000, p90: 16800 }, { label: "Experience", best: true, newBest: true, peak: { value: 12404, from: 1795400000000 } }),
+      pace(-3100, { p10: -9000, p25: -4200, p50: 1200, p75: 5400, p90: 11000 }, { label: "Gold", format: moneyHtml, text: money, peak: { value: 11000, from: 1795300000000 } }),
+      pace(42, null, { label: "Kills", peers: 2 }),
+      pace(9, null, { label: "Gathers", qualifies: false }),
+    ],
+    4,
+  );
+  const records = tiles(
+    [
+      record("Best XP an hour", num(69658), "21 Nov · level 41", "#sessions", { count: [69658, num] }),
+      record("Most kills", num(744), "21 Nov · level 42", "#sessions", { count: [744, num] }),
+      record("Highest balance", moneyHtml(724903), "20 Nov", ""),
+    ],
+    3,
+  );
+  root.append(
+    section("Goal, pace and record", goals, paces, records, caption("A goal fills toward its ceiling and says how long it takes. A pace is the rate over the strip of the character's own history. A record links to the session that set it.")),
+  );
 
   const card1 = sessionCard(recap, { onOpen: () => {} });
   const routePanel = el("div", "sc-panel recap-route");

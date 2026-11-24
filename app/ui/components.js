@@ -183,6 +183,74 @@ export function compare(spread, { lo = 0, hi, name = "You", text } = {}) {
   return host;
 }
 
+export const shortDate = (ms) => new Date(ms).toLocaleDateString([], { day: "numeric", month: "short" });
+
+/**
+ * Progress to a ceiling: the name and `value / cap` over a bar that fills, and under it the share and `eta` when given.
+ * `size: "lg"` makes the figure a headline. A bar at its cap reads "Max". `count` is off for a list of many.
+ */
+export function goal(value, cap, { label = "", eta = "", size = "", color = "", note = "", count = true } = {}) {
+  const share = cap > 0 ? Math.max(0, Math.min(1, value / cap)) : 0;
+  const done = cap > 0 && value >= cap;
+  const box = el("div", `sc-goal${size ? ` ${size}` : ""}${done ? " done" : ""}`);
+  const head = el("div", "sg-h");
+  const figure = el("span", "sg-n");
+  const now = el("b", "", num(value));
+  if (count) counted(now, value, num);
+  figure.append(now, elText("em", "", ` / ${num(cap)}`));
+  head.append(elText("span", "sg-l", label), figure);
+  const track = el("div", "sg-t");
+  const fill = el("i");
+  fill.style.setProperty("--w", `${share * 100}%`);
+  if (color) fill.style.setProperty("--c", color);
+  track.append(fill);
+  const foot = el("div", "sg-f");
+  foot.append(elText("span", "", done ? "Max" : `${Math.floor(share * 100)}%`), elText("span", "", [note, eta].filter(Boolean).join(" · ")));
+  box.append(head, track, foot);
+  return box;
+}
+
+/**
+ * A rate per hour played as a headline over the compare strip of the character's own history. `spread` is
+ * `{ p10, p25, p50, p75, p90 }` or null: with null the strip is replaced by why there is none (`qualifies` false: the
+ * session is under 15 minutes; else `peers` of the 3 needed). `peak` is the best of the history, `{ value, from }`.
+ * `format(v)` gives HTML, `text(v)` plain text for the strip's hover.
+ */
+export function pace(rate, spread, { label, unit = "an hour", format = num, text = (v) => num(v), best = false, newBest = false, peak = null, peers = 0, qualifies = true } = {}) {
+  const t = el("div", "sc-tile sc-pace");
+  const head = el("div", "sg-h");
+  head.append(elText("span", "sc-label", label));
+  const flag = best && newBest ? "New best" : newBest ? "Best when set" : best ? "Best" : "";
+  if (flag) head.append(elText("span", `best${best && newBest ? " new" : ""}`, flag));
+  const number = el("span", "sc-num sc-num-xl", `${format(rate)}<small>${unit}</small>`);
+  counted(number, rate, (v) => `${format(v)}<small>${unit}</small>`);
+  t.append(head, number);
+  if (spread) {
+    const tenth = (v) => Math.round(v * 10) / 10;
+    const you = tenth(rate);
+    const rounded = Object.fromEntries(Object.entries(spread).map(([k, v]) => [k, tenth(v)]));
+    const lo = Math.min(0, rounded.p10, you);
+    const top = Math.max(rounded.p90, you, 0);
+    t.append(compare({ ...rounded, you }, { lo, hi: lo + (top - lo) * 1.08 || 1, name: label, text: text(rate) }));
+    t.append(elText("span", "sc-sub", `Middle half ${text(spread.p25)} to ${text(spread.p75)} · median ${text(spread.p50)}`));
+  } else {
+    t.append(elText("span", "sc-sub", qualifies ? `${peers} of 3 sessions to compare` : "Under 15 minutes"));
+  }
+  if (peak && !best) t.append(elText("span", "sc-sub", `Best ${text(peak.value)} on ${shortDate(peak.from)}`));
+  return t;
+}
+
+/** The show-off tile: the label, the value, the date it was set, and a link to that session. */
+export function record(label, value, when, href, { count = null, note = "", onOpen = null } = {}) {
+  const t = tile(label, value, [when, note].filter(Boolean).join(" · "), { size: "xl", count });
+  if (!href) return t;
+  const a = el("a", "sc-tile sc-record");
+  a.href = href;
+  if (onOpen) a.onclick = onOpen;
+  a.append(...t.childNodes);
+  return a;
+}
+
 const clockOf = (sec) => {
   const d = new Date(sec * 1000);
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;

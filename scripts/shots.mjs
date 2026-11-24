@@ -1,5 +1,6 @@
 // A full-page screenshot of each view, from the real exe on a hidden desktop, for comparing with the design's renders.
 //   node scripts/shots.mjs --out <dir> [--fixture | --home <dir>] [--views a,b,c] [--char Name-Surname] [--mode auto|day|manual] [--run <from>-<to>] [--delay <ms>] [--width <css px>] [--upload]
+// --clip <selector> [--nth n] cuts each shot to the nth element the selector matches, with 12 px around it.
 // --delay takes the run view that many ms after its entrance began, for a frame in the middle of it; every other shot
 // is taken with reduced motion, so the numbers and bars are final. --width lays the page out that many CSS px wide.
 // --fixture builds the e2e fixture and exports it; --home copies a Scarlet home (settings.json and its data folder) to
@@ -25,6 +26,8 @@ const { values } = parseArgs({
     mode: { type: "string" },
     delay: { type: "string" },
     width: { type: "string" },
+    clip: { type: "string" },
+    nth: { type: "string" },
   },
 });
 if (!values.out || (!values.fixture && !values.home)) {
@@ -86,7 +89,8 @@ try {
       await sleep(values.upload ? 5000 : 300);
     }
     const file = path.join(values.out, `${name.replace(/\//g, "-")}${timed ? `-at-${values.delay}ms` : ""}.png`);
-    await app.screenshot(file, { full: true });
+    const rect = values.clip ? await app.evaluate(`(() => { const e = [...document.querySelectorAll(${JSON.stringify(values.clip)})].at(${Number(values.nth ?? 0)}); if (!e) return null; const r = e.getBoundingClientRect(); return { x: Math.max(0, r.left + scrollX - 12), y: Math.max(0, r.top + scrollY - 12), width: r.width + 24, height: r.height + 24 }; })()`) : null;
+    await app.screenshot(file, rect ? { clip: rect } : { full: true });
     console.log(`${name}: ${file} (drawn in ${drawnMs} ms)`);
   }
   if (app.problems.length) {

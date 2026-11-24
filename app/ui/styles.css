@@ -946,6 +946,27 @@ main:has(.cv-banner) #pagetitle { display: none; }
 .sc-rule { height: 1px; background: var(--line); border: 0; margin: 16px 0; }
 .best { display: inline-flex; align-items: center; gap: 6px; font: 600 12px/1 var(--body); color: var(--soft); }
 .best::before { content: ""; width: 6px; height: 6px; background: var(--accent); rotate: 45deg; }
+.best.new { color: var(--fg); }
+.sg-h { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; min-width: 0; }
+.sc-goal { display: grid; gap: 6px; min-width: 0; }
+.sg-l { color: var(--text); font-size: 13.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sg-n { font-size: 13.5px; color: var(--muted); white-space: nowrap; }
+.sg-n b { font-weight: 650; color: var(--fg); }
+.sg-n em { font-style: normal; }
+.sg-t { position: relative; height: 6px; background: var(--line2); border-radius: 1px; overflow: hidden; }
+.sg-t > i { position: absolute; inset: 0 auto 0 0; width: var(--w); background: var(--c, var(--accent)); }
+.sg-f { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; color: var(--muted); }
+.sc-goal.done .sg-t > i { background: var(--fg); }
+.sc-goal.lg { gap: 10px; }
+.sc-goal.lg .sg-h { align-items: flex-end; }
+.sc-goal.lg .sg-l { font: 750 24px/1 var(--display); color: var(--fg); }
+.sc-goal.lg .sg-n b { font: 800 64px/0.85 var(--display); }
+.sc-goal.lg .sg-n em { font: 600 22px/1 var(--display); }
+.sc-goal.lg .sg-t { height: 10px; }
+.sc-goal.lg .sg-f { font-size: 14px; color: var(--text); }
+.sc-pace { gap: 8px; }
+.sc-record { color: inherit; text-decoration: none; }
+.sc-grid > .sc-record:hover { background: var(--panel); }
 
 .sc-btn { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px; border: 1px solid var(--accent); border-radius: 3px; background: var(--accent); color: var(--ink); font: 700 14px/1 var(--body); cursor: pointer; text-decoration: none; white-space: nowrap; transition: background-color 120ms linear; }
 .sc-btn:hover { background: var(--soft); border-color: var(--soft); color: var(--ink); }
@@ -1108,6 +1129,7 @@ a.sc-session:hover { border-color: var(--line2); }
   .play .rt-reveal { animation: rc-draw 1200ms cubic-bezier(0.4, 0, 0.2, 1) both; }
   .play .rt-level { animation: rc-fade 300ms linear calc(var(--at, 0) * 1200ms) both; }
   .play .rt-end { animation: rc-fade 300ms linear 1100ms both; }
+  .play .sg-t > i { transform-origin: 0 50%; animation: rc-grow 700ms var(--ease-out) calc(120ms + var(--n, 0) * 50ms) both; }
 }
 @keyframes rc-grow { from { transform: scaleX(0); } }
 @keyframes rc-rise { from { transform: scaleY(0); } }

@@ -30,7 +30,8 @@ const ownEnvironment = (home, port, reducedMotion) => {
 /**
  * Starts `exe` on a desktop of its own with `home` as its SCARLET_HOME (`reducedMotion` skips the entrances, so numbers
  * are final when a check reads them) and returns the page's handle:
- * `evaluate(expression)`, `until(expression, what, ms)`, `screenshot(file, { full })`, `viewport(width, height)` (the page
+ * `evaluate(expression)`, `until(expression, what, ms)`, `screenshot(file, { full, clip })` (`clip` is a `{ x, y, width,
+ * height }` of the page, the rest of it left out), `viewport(width, height)` (the page
  * lays out at that size, for a narrow-window check), `problems`, `close()`, `pid` and
  * `exitCode()` (the launcher's, null while it runs; 3 means a window of the app was found on the desktop in use).
  * `close()` clicks the window's close button and returns the launcher's exit code, or null when the app had not
@@ -158,9 +159,11 @@ export async function launch({ exe, home, reducedMotion = false }) {
     }
   };
 
-  const screenshot = async (file, { full = false } = {}) => {
+  const screenshot = async (file, { full = false, clip = null } = {}) => {
     let params = { format: "png" };
-    if (full) {
+    if (clip) {
+      params = { format: "png", captureBeyondViewport: true, clip: { ...clip, scale: 1 } };
+    } else if (full) {
       const { result: metrics } = await send("Page.getLayoutMetrics");
       const { width, height } = metrics.cssContentSize ?? metrics.contentSize;
       params = { format: "png", captureBeyondViewport: true, clip: { x: 0, y: 0, width, height: Math.min(height, 16000), scale: 1 } };
