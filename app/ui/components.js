@@ -249,7 +249,7 @@ export function pace(rate, spread, { label, unit = "an hour", total = "", format
   } else {
     t.append(elText("span", "sc-sub", qualifies ? `${peers} of 3 sessions to compare` : "Under 15 minutes"));
   }
-  if (peak && !best) t.append(elText("span", "sc-sub", `Best${levels ? ` at ${levels}` : ""}: ${text(peak.value)} · ${shortDate(peak.from)}`));
+  if (peak && !best && (spread || peak.value > rate)) t.append(elText("span", "sc-sub", `Best${levels ? ` at ${levels}` : ""}: ${text(peak.value)} · ${shortDate(peak.from)}`));
   if (record) {
     const line = elText(record.href ? "a" : "span", "sc-sub sc-pace-record", `Record ${text(record.value)} · level ${record.level}`);
     if (record.href) line.href = record.href;
