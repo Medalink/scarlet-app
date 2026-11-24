@@ -9,15 +9,15 @@ const REPS_SHOWN = 6;
 export const FALLBACK_CAP = 60;
 const EXALTED = 8;
 
-function mod(cls, title, ...kids) {
+export function mod(cls, title, ...kids) {
   const s = el("section", `mod ${cls}`);
   s.append(elText("h2", "", title), ...kids);
   return s;
 }
 
-const label = (text) => elText("p", "sc-label", text);
+export const label = (text) => elText("p", "sc-label", text);
 
-function goalList(goals) {
+export function goalList(goals) {
   const list = el("div", "goal-list");
   goals.forEach((g, n) => {
     g.querySelector(".sg-t > i").style.setProperty("--n", String(n));
@@ -112,17 +112,20 @@ export const RECORDS = [
   ["kills", "Most kills in a session", num],
   ["gathers", "Most gathers in a session", num],
   ["item", "Most of one item", num],
+  ["quests", "Most quests in a session", num],
+  ["loot", "Most items looted in a session", num],
   ["played", "Longest session", dur],
   ["balance", "Highest balance", moneyHtml],
 ];
 
 /**
  * The record tiles for `records`, in the order of RECORDS, null when there are none. `open(r)` gives the handler that
- * runs when a tile's run is opened; `owner(r)` the character's name shown in a tile's note.
+ * runs when a tile's run is opened; `owner(r)` the character's name shown in a tile's note; `keys` limits the tiles.
  */
-export function recordTiles(records, { open, owner = null }) {
+export function recordTiles(records, { open, owner = null, keys = null }) {
   const list = [];
   for (const [key, name, show] of RECORDS) {
+    if (keys && !keys.includes(key)) continue;
     const r = records.find((x) => x.key === key);
     if (!r) continue;
     const when = key === "balance" ? shortDate(r.at) : `${shortDate(r.at)} · level ${r.level}`;

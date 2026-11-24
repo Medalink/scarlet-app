@@ -224,9 +224,9 @@ export function goal(value, cap, { label = "", eta = "", size = "", color = "", 
  * session is under 15 minutes; else `peers` of the 3 needed). `peak` is the best of the history, `{ value, from }`;
  * `total` is the line under the rate. `band` is `[low, high]`, the levels the history was drawn from, which every
  * mention of a best then names; `record` is the all-time best when it is higher, `{ value, level, href }`.
- * `format(v)` gives HTML, `text(v)` plain text for the strip's hover.
+ * `format(v)` gives HTML, `text(v)` plain text for the strip's hover. `noun` names what is compared when there are too few.
  */
-export function pace(rate, spread, { label, unit = "an hour", total = "", format = num, text = (v) => num(v), best = false, newBest = false, peak = null, peers = 0, qualifies = true, band = null, record = null, onOpen = null } = {}) {
+export function pace(rate, spread, { label, unit = "an hour", total = "", format = num, text = (v) => num(v), best = false, newBest = false, peak = null, peers = 0, qualifies = true, band = null, record = null, onOpen = null, noun = "sessions" } = {}) {
   const t = el("div", "sc-tile sc-pace");
   const head = el("div", "sg-h");
   head.append(elText("span", "sc-label", label));
@@ -247,7 +247,7 @@ export function pace(rate, spread, { label, unit = "an hour", total = "", format
     t.append(compare({ ...rounded, you }, { lo, hi: lo + (top - lo) * 1.08 || 1, name: label, text: text(rate) }));
     t.append(elText("span", "sc-sub", `Middle half ${text(spread.p25)} to ${text(spread.p75)} · median ${text(spread.p50)}`));
   } else {
-    t.append(elText("span", "sc-sub", qualifies ? `${peers} of 3 sessions to compare` : "Under 15 minutes"));
+    t.append(elText("span", "sc-sub", qualifies ? `${peers} of 3 ${noun} to compare` : "Under 15 minutes"));
   }
   if (peak && !best && (spread || peak.value > rate)) t.append(elText("span", "sc-sub", `Best${levels ? ` at ${levels}` : ""}: ${text(peak.value)} · ${shortDate(peak.from)}`));
   if (record) {
