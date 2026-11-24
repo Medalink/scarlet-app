@@ -11,14 +11,15 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { launch } from "./cdp.mjs";
 import zlib from "node:zlib";
-import { CHARACTERS, ELWYNN, FISHING, GRIND, GUILD, LATER, WESTFALL, lineCount, savedVariablesPath, writeGrind, writeWow } from "./scenario.mjs";
+import { ALT, CHARACTERS, ELWYNN, FISHING, GRIND, GUILD, LATER, WESTFALL, lineCount, savedVariablesPath, writeGrind, writeWow } from "./scenario.mjs";
 
 const REPO = path.resolve(import.meta.dirname, "..");
 const WINDOWS = process.platform === "win32";
 const USAGE = "usage: node e2e/run.mjs [--only cli|app] [--no-build] [--exe <scarlet-app.exe>] [--cli <scarlet>] [--keep <dir>]";
 const TESTA = CHARACTERS[0].name;
 const PROBE = CHARACTERS[1].name;
-const SHOWN = { testa: TESTA.replace("-", " "), probe: PROBE.replace("-", " ") };
+const SHOWN = { testa: TESTA.replace("-", " "), probe: PROBE.replace("-", " "), grind: GRIND.name.replace("-", " ") };
+const OTHER_GRIND = new RegExp(ALT.name.replace("-", " "));
 const OTHER_CHARACTER = new RegExp(`${SHOWN.probe}|Kobold Vermin`);
 const OTHER_CHARACTER_ONLY = new Set(["character", "sessions", "log", "map", "loot", "data"]);
 
@@ -209,7 +210,7 @@ async function grindApp(ctx) {
   if (ctx.grind) return ctx.grind;
   const s = ctx.site.grind;
   fs.mkdirSync(s.home, { recursive: true });
-  writeGrind(s.wow);
+  writeGrind(s.wow, { alt: true });
   expectEqual("exporting the grind fixture", exportSite(ctx, s).code, 0);
   fs.writeFileSync(path.join(s.home, "settings.json"), JSON.stringify({ wow: s.wow, data: s.out, watch: false, last_view: "overview", keep_addon: false, open_with_wow: false, upload: { enabled: false, server: ctx.website.url } }));
   ctx.grind = await launch({ exe: ctx.exe, home: s.home, reducedMotion: true });
@@ -558,12 +559,23 @@ const CHECKS = [
       for (const want of [/^Longest day 25m 0s /, /^Most played week 1h 15m /, /^Longest streak 6 days Nov \d+ to Nov \d+/]) {
         if (!records.some((r) => want.test(r))) throw mismatch("a record tile", String(want), JSON.stringify(records));
       }
-      const week = (await text(app, "#body .goals-sheet .sc-pace"))[0] ?? "";
-      if (!/^Played this week, first \d days? .* (of 3 weeks to compare|Middle half)/.test(week)) throw mismatch("this week's pace tile", "Played this week ... weeks to compare or Middle half", week);
+      const pace = (await text(app, "#body .goals-sheet .sc-pace"))[0] ?? "";
+      if (new Date().getDay() === 1) expectEqual("this week's pace tile on a Monday", pace, "");
+      else if (!/^Played this week through yesterday .* (\d of 3 weeks to compare|Middle half)/.test(pace)) throw mismatch("this week's pace tile", "Played this week through yesterday ... weeks to compare or Middle half", pace);
       const streak = (await text(app, "#body .goals-sheet .sc-goal"))[0] ?? "";
       if (!/^Current streak \d+ days? \/ 6 days?/.test(streak)) throw mismatch("the current streak goal", "Current streak N days / 6 days", streak);
       await app.evaluate(`[...document.querySelectorAll("#body .goals-sheet .sc-record")].find((r) => /Longest day/.test(r.innerText)).click()`);
       await app.until(`/25m 0s/.test(${BODY}) && location.hash.startsWith("#sessions/")`, "the longest day opens its run");
+      await open(app, "activity", /Records/);
+      const week = (await text(app, "#body .goals-sheet .sc-record")).find((r) => /^Most played week /.test(r));
+      const played = week?.match(/^Most played week (\d+h \d+m) /)?.[1];
+      if (!played) throw mismatch("the tile of the most played week", "Most played week 1h 15m", String(week));
+      await app.evaluate(`[...document.querySelectorAll("#body .goals-sheet .sc-record")].find((r) => /Most played week/.test(r.innerText)).click()`);
+      await app.until(`/-days$/.test(location.hash) && document.querySelector("#body .recap")`, "the most played week opens its days");
+      const opened = await app.evaluate(BODY);
+      expectMatch("the opened week's played time", opened, new RegExp(`${SHOWN.grind} · .* · ${played} played`));
+      if (OTHER_GRIND.test(opened)) throw mismatch("the opened week's characters", `only ${SHOWN.grind}`, excerpt(opened));
+      expectEqual("the characters of the opened week", await text(app, "#body .recap .sc-seg button"), []);
     },
   },
   {

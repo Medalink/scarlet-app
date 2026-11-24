@@ -4,7 +4,7 @@
 use crate::commands;
 use crate::launch;
 use crate::recap::{self, SessionRecap};
-use crate::session_groups::{Part, SessionMode, groups};
+use crate::session_groups::{Part, SessionMode, groups, parts_between};
 use crate::store::Store;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
@@ -167,7 +167,8 @@ pub fn summary(
 /// The summary of a run, computed on demand. `ch` limits it to one character. `clip` cuts it to the session of the
 /// chosen mode that starts at `from`; when the chosen mode has no session starting there, such as after the mode
 /// changed, the summary is empty and never the whole run. `wow_run` cuts it to the WoW run of `ch` that is exactly
-/// `[from, to]`, whatever the chosen mode, when there is one: the span a record of `scarlet::goals` names.
+/// `[from, to]`, whatever the chosen mode, when there is one: the span a record of `scarlet::goals` names. `span` cuts
+/// it to the sessions of `ch` that start inside `[from, to]`, the days a play time record names.
 #[tauri::command]
 pub async fn run_summary(
     app: AppHandle,
@@ -176,6 +177,7 @@ pub async fn run_summary(
     ch: Option<String>,
     clip: Option<bool>,
     wow_run: Option<bool>,
+    span: Option<bool>,
 ) -> RunSummary {
     commands::blocking(move || {
         let (mode, marks) = {
@@ -198,7 +200,10 @@ pub async fn run_summary(
                     })
                 })
                 .flatten();
-            let clipped = own_run.or_else(|| {
+            let spanned = span
+                .unwrap_or(false)
+                .then(|| parts_between(st, c, from, to));
+            let clipped = own_run.or(spanned).or_else(|| {
                 clip.unwrap_or(false).then(|| {
                     groups(st, mode, &marks, c, now_ms())
                         .into_iter()

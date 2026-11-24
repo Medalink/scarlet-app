@@ -3,6 +3,7 @@
 import { invoke, el, elText, num, dur, state, tiles, fillRow, record, pace, goal, shortDate } from "../lib.js";
 import { play } from "../motion.js";
 import { mod } from "./goals-section.js";
+import { openAs } from "./paces.js";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -18,11 +19,11 @@ const dateOf = (ms) => new Date(ms).toLocaleDateString([], LONG_DATE);
 const timeHtml = (secs) => dur(secs);
 const dayCount = (n) => `${num(n)} ${n === 1 ? "day" : "days"}`;
 const dayDate = (day) => shortDate(Date.parse(`${day}T12:00`));
-const spanHash = (r) => `#sessions/${r.from}-${r.to}`;
+const spanHash = (r) => `#sessions/${r.from}-${r.to}-days`;
 
 function recordTiles(p) {
   const list = [];
-  const add = (label, value, format, when, span) => list.push(record(label, format(value), when, spanHash(span), { count: [value, format] }));
+  const add = (label, value, format, when, span) => list.push(record(label, format(value), when, spanHash(span), { count: [value, format], onOpen: state.ch ? openAs(state.ch) : null }));
   if (p.longest_day) add("Longest day", p.longest_day.seconds, timeHtml, dateOf(p.longest_day.from), p.longest_day);
   if (p.longest_week) add("Most played week", p.longest_week.seconds, timeHtml, `Week of ${dayDate(p.longest_week.day)}`, p.longest_week);
   if (p.best_streak) add("Longest streak", p.best_streak.days, dayCount, `${dayDate(p.best_streak.from_day)} to ${dayDate(p.best_streak.to_day)}`, p.best_streak);
@@ -33,7 +34,7 @@ function recordTiles(p) {
 function weekPace(w) {
   const spread = w.spread;
   const best = w.best ? { value: w.best.seconds, from: w.best.from } : null;
-  return pace(w.seconds, spread, { label: `Played this week, first ${w.elapsed_days} ${w.elapsed_days === 1 ? "day" : "days"}`, unit: "", format: timeHtml, text: dur, best: w.is_best, peak: best, peers: w.peers, noun: "weeks" });
+  return pace(w.seconds, spread, { label: "Played this week through yesterday", unit: "", format: timeHtml, text: dur, best: w.is_best, peak: best, peers: w.peers, noun: "weeks" });
 }
 
 function streakGoal(p) {

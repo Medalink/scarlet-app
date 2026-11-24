@@ -206,24 +206,29 @@ export const CHARACTERS = [
   },
 ];
 
-const GRIND_START = 1794600000;
+const GRIND_START = new Date(2026, 10, 13, 12).getTime() / 1000;
 const GRIND_DAY = 86400;
 const GRIND_RUN = 1500;
+const ALT_RUN = 1200;
+const ALT_OFFSET = 7200;
 
-const grindSession = (n) => {
+const grindSession = (n, { offset = 0, run = GRIND_RUN } = {}) => {
   const kills = Array.from({ length: 10 }, (_, k) => [100 * (k + 1), [["K", 6, 1], ["X", 50 * (n + 1), 360, 1400, "k", 6]]]).flatMap(([at, rows]) => rows.map((row) => [at, ...row]));
   const death = n % 2 ? [[200, "D"], [200, "DL", ELWYNN, 4990, 4060], [210, "R"]] : [];
-  return session(GRIND_START + n * GRIND_DAY, [
+  return session(GRIND_START + offset + n * GRIND_DAY, [
     [0, "S", "1.15.8", "WARRIOR", "Human", 20, "Alliance", "0.9.0", 1, "Forever", 1, 11508, 5, 3600, 3843, 60],
     [1, "Z", ELWYNN, 0, "none", 0, "Elwynn Forest", "Goldshire"],
     ...kills,
     ...death,
-    [GRIND_RUN, "ES"],
+    [run, "ES"],
   ]);
 };
 
 /** A character that played six runs of 25 minutes on six days, each earning more experience an hour than the last. */
 export const GRIND = { name: "Grind-Lane", account: "E2EGRIND", sessions: Array.from({ length: 6 }, (_, n) => grindSession(n)) };
+
+/** A second character that played 20 minutes on each of the same six days, two hours after `GRIND`. */
+export const ALT = { name: "Alt-Lane", account: "E2EALT", sessions: Array.from({ length: 6 }, (_, n) => grindSession(n, { offset: ALT_OFFSET, run: ALT_RUN })) };
 
 const ADDON_LINES = [[20, "gm", "N", ELWYNN, 4390, 6700, 2447]];
 
@@ -378,11 +383,13 @@ export function writeWow(wow, { later = false } = {}) {
   return wow;
 }
 
-/** Writes a World of Warcraft folder that holds only `GRIND`. */
-export function writeGrind(wow) {
-  const file = savedVariablesPath(wow, GRIND);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, savedVariables(GRIND, null));
+/** Writes a World of Warcraft folder that holds `GRIND`, and `ALT` with `alt`. */
+export function writeGrind(wow, { alt = false } = {}) {
+  for (const character of alt ? [GRIND, ALT] : [GRIND]) {
+    const file = savedVariablesPath(wow, character);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, savedVariables(character, null));
+  }
   fs.mkdirSync(path.join(wow, "_forever_", "Interface", "AddOns", "Scarlet"), { recursive: true });
   return wow;
 }

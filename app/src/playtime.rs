@@ -1,6 +1,6 @@
-//! How much the player plays: their longest day, most played week and longest streak of days, and this week so far
-//! against the same days of every earlier week. A day is the group of `SessionMode::Day`, so a record opens the page of
-//! the same time that the Sessions list shows in Day mode.
+//! How much the player plays: their longest day, most played week and longest streak of days, and this week through
+//! yesterday against the same days of every earlier week since the first recorded day. A day is the group of
+//! `SessionMode::Day`, so a record opens the page of the same time that the Sessions list shows in Day mode.
 
 use crate::commands::{blocking, with_store};
 use crate::session_groups::{SessionMode, groups};
@@ -32,7 +32,6 @@ pub struct Streak {
 #[derive(Serialize)]
 pub struct WeekPace {
     day: String,
-    elapsed_days: i64,
     seconds: i64,
     peers: usize,
     spread: Option<Spread>,
@@ -129,14 +128,14 @@ fn compute(days: &[Day], today: NaiveDate) -> Playtime {
         .filter(|r| r[r.len() - 1].date + Duration::days(1) >= today)
         .map(|r| streak_of(r));
     let this_week = monday(today);
-    let elapsed = today.signed_duration_since(this_week).num_days();
+    let through = today.signed_duration_since(this_week).num_days();
     let so_far = |start: NaiveDate| -> (i64, i64, i64) {
         let inside: Vec<&Day> = weeks
             .get(&start)
             .map(|w| {
                 w.iter()
                     .copied()
-                    .filter(|d| d.date.signed_duration_since(start).num_days() <= elapsed)
+                    .filter(|d| d.date.signed_duration_since(start).num_days() < through)
                     .collect()
             })
             .unwrap_or_default();
@@ -146,9 +145,12 @@ fn compute(days: &[Day], today: NaiveDate) -> Playtime {
             inside.iter().map(|d| d.to).max().unwrap_or(0),
         )
     };
-    let week = weeks.keys().next().map(|first| {
+    let week = days.first().filter(|_| through > 0).map(|first| {
         let mut peers: Vec<(NaiveDate, i64, i64, i64)> = Vec::new();
-        let mut at = *first;
+        let mut at = monday(first.date);
+        if at < first.date {
+            at += Duration::days(7);
+        }
         while at < this_week {
             let (s, from, to) = so_far(at);
             peers.push((at, s, from, to));
@@ -158,7 +160,6 @@ fn compute(days: &[Day], today: NaiveDate) -> Playtime {
         let enough = peers.len() >= MIN_PEERS;
         WeekPace {
             day: this_week.format("%Y-%m-%d").to_string(),
-            elapsed_days: elapsed + 1,
             seconds: now,
             peers: peers.len(),
             spread: enough

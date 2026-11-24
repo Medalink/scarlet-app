@@ -106,7 +106,7 @@ async function draw(body, hash) {
 }
 
 export async function render(body, sub) {
-  if (/^\d+-\d+$/.test(sub ?? "")) return renderRun(body, sub);
+  if (/^\d+-\d+(-days)?$/.test(sub ?? "")) return renderRun(body, sub);
   wireTips();
   await draw(body, location.hash);
 }
@@ -115,10 +115,11 @@ const overlap = (c, from, to) => Math.min(c.to, to) - Math.max(c.from, from);
 
 async function renderRun(body, sub) {
   const [from, to] = sub.split("-").map(Number);
+  const span = sub.endsWith("-days");
   const { prefs, sessions: cards } = await invoke("session_list", { ch: state.ch });
-  const exact = cards.find((c) => c.from === from && (c.to === to || c.live));
+  const exact = span ? null : cards.find((c) => c.from === from && (c.to === to || c.live));
   const current = exact ?? cards.filter((c) => overlap(c, from, to) > 0).sort((a, b) => overlap(b, from, to) - overlap(a, from, to))[0] ?? null;
-  const run = exact ? await invoke("run_summary", { from: exact.from, to: exact.to, ch: state.ch, clip: true }) : await invoke("run_summary", { from, to, ch: state.ch, wowRun: true });
+  const run = exact ? await invoke("run_summary", { from: exact.from, to: exact.to, ch: state.ch, clip: true }) : await invoke("run_summary", { from, to, ch: state.ch, ...(span ? { span: true } : { wowRun: true }) });
   if (!run.recaps.length) {
     body.innerHTML = "";
     body.appendChild(el("div", "empty", exact?.live ? "Nothing recorded yet." : "Nothing was recorded while WoW ran."));

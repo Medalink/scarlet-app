@@ -87,6 +87,13 @@ fn parts_of(st: &Store, ch: Option<u32>) -> Vec<Part> {
     parts
 }
 
+/// The sessions of `ch` (every character when None) that start inside `[from, to]`: what a record over several days names.
+pub fn parts_between(st: &Store, ch: Option<u32>, from: i64, to: i64) -> Vec<Part> {
+    let mut parts = parts_of(st, ch);
+    parts.retain(|p| p.start >= from && p.start <= to);
+    parts
+}
+
 fn auto(parts: Vec<Part>) -> Vec<Group> {
     let mut out: Vec<Group> = Vec::new();
     for p in parts {
