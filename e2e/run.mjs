@@ -41,7 +41,7 @@ const VIEWS = [
   { key: "log", shows: /kill Stonetusk Boar \(113\) by you/, never: /No events|Nothing recorded/ },
   { key: "sessions", shows: /^(?=.*2m in Westfall)(?=.*Level 5 to 6 in Elwynn Forest)(?=.*2m 10s · 2 kills · 1 quest · 1,605 XP)/, never: /No sessions yet\./ },
   { key: "map", shows: /Elwynn Forest 12 points Westfall 10 points/, never: /No path points yet/ },
-  { key: "loot", shows: /Drop rates .* Solo Stonetusk Boar .* Chunk of Boar Meat 100% 1\/1 .* Testa Fixture Solo 3 /, never: /No creature loot with an item list|No loot recorded yet/ },
+  { key: "loot", shows: /^(?=.*Drop rates .* Stonetusk Boar 1 corpse Linen Cloth 100% 1\/1 Chunk of Boar Meat 100% 1\/1)(?=.*Items received and rolls Common 3 Uncommon 1 Rare 1 Won 1 .* Fixture Stranger Solo 2 .* Testa Fixture Solo 3 1)/, never: /No creature loot with an item list|No loot recorded yet/ },
   { key: "character", hash: "character/class", shows: /Spells cast most Heroic Strike 1/, never: /Select a character|Loading the class section/ },
   { key: "character", hash: "character/talents", shows: /Arms · 3 points, 2 available .* Improved Heroic Strike 2\/3 Deflection 2\/2 .* Picked 1→2\/3/, never: /No talent lines recorded|Select a character/ },
   { key: "legacy", shows: /Progression Gourmand · rank 1 of 3 .* Well Fed duration .* 0 1 15\.0 min — — .* 1 1 20\.0 min \+33% 33% /, never: /No Legacy lines recorded|Select a character/ },

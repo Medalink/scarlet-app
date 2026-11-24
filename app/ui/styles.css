@@ -71,6 +71,12 @@
   --alt-6: #2fb3b3;
   --alt-7: #e07a3a;
   --alt-8: #a3a3b0;
+  --q-poor: #9d9d9d;
+  --q-common: #ffffff;
+  --q-uncommon: #1eff00;
+  --q-rare: #0070dd;
+  --q-epic: #a335ee;
+  --q-legendary: #ff8000;
   --gold: #d9b25f;
   --silver: #c3c7cf;
   --copper: #c58a63;
@@ -1130,3 +1136,24 @@ a.sc-session:hover { border-color: var(--line2); }
 .char-extra .sc-h:first-child { margin-top: 0; }
 .weblink { display: block; width: 100%; margin: 0 0 8px; padding: 0; background: none; border: 0; color: var(--muted); font: inherit; text-align: left; cursor: pointer; }
 .weblink:hover { color: var(--fg); }
+.lt-keys { display: flex; flex-wrap: wrap; gap: 8px 36px; margin: 0 0 14px; }
+.lt-keys .sc-key { margin: 0; }
+.lt-rows { display: grid; }
+.lt-row { display: grid; grid-template-columns: 150px 200px 44px minmax(0, 1fr) 150px; column-gap: 16px; align-items: center; min-height: 40px; padding: 8px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.lt-row:first-child { border-top: 0; }
+.lt-who { color: var(--fg); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lt-rule { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lt-track { min-width: 0; }
+.lt-none { display: block; height: 2px; background: var(--line2); }
+.lt-n { text-align: right; color: var(--fg); font-weight: 600; font-size: 16px; }
+.lt-rolls { display: flex; align-items: center; gap: 10px; }
+.lt-roll { display: inline-flex; align-items: center; gap: 5px; color: var(--text); font-size: 13px; }
+.lt-roll::before { content: ""; width: 7px; height: 7px; background: var(--c); }
+.lt-rollbar { width: 44px; flex: none; }
+.lt-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 22px 32px; margin-top: 14px; }
+.lt-creature { min-width: 0; }
+.lt-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding-bottom: 7px; margin-bottom: 10px; border-bottom: 1px solid var(--line2); }
+.lt-creature h4 { font: 700 20px/1.1 var(--display); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lt-head span { color: var(--muted); font-size: 13px; white-space: nowrap; }
+.lt-creature .dim { font-size: 12.5px; margin-top: 8px; }
+.sc-bars .row > b small { font: 400 12px/1 var(--body); color: var(--muted); margin-left: 6px; }

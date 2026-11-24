@@ -1,7 +1,8 @@
-// Loot: drop rates per creature and item, one column per loot rule, and what
-// each player received and rolled under each rule.
+// Loot: what each player received as a quality-coloured bar per loot rule, with their rolls, and drop rates per
+// creature as chance bars.
 
-import { invoke, el, state, esc, displayName, num } from "../lib.js";
+import { invoke, el, elText, state, esc, displayName, num, stack } from "../lib.js";
+import { counted, play } from "../motion.js";
 
 const METHOD = {
   solo: "Solo",
@@ -15,7 +16,22 @@ const METHOD = {
   unknown: "Unknown rule",
 };
 const QUALITY = ["poor", "common", "uncommon", "rare", "epic", "legendary"];
-const ROW_LIMIT = 300;
+const SHADES = [
+  ["Poor", "--q-poor"],
+  ["Common", "--q-common"],
+  ["Uncommon", "--q-uncommon"],
+  ["Rare", "--q-rare"],
+  ["Epic", "--q-epic"],
+  ["Legendary", "--q-legendary"],
+  ["Unknown", "--s-0"],
+];
+const ROLLS = [
+  ["Won", "--alt-4", "rolls_won"],
+  ["Lost", "--alt-1", "rolls_lost"],
+  ["Passed", "--s-0", "rolls_passed"],
+];
+const CREATURE_LIMIT = 48;
+const ITEMS_PER_CREATURE = 8;
 
 function ruleLabel(r) {
   if (r.method === "solo") return "Solo";
@@ -26,8 +42,9 @@ function ruleLabel(r) {
   return bits.length ? `${name} · ${bits.join(", ")}` : name;
 }
 
-function pct(drops, looted) {
-  const v = (drops / looted) * 100;
+const pctOf = (drops, looted) => (looted ? (drops / looted) * 100 : 0);
+
+function pctText(v) {
   return `${v >= 10 || v === 0 ? Math.round(v) : v.toFixed(1)}%`;
 }
 
@@ -37,99 +54,141 @@ function panel(title) {
   return p;
 }
 
-function dropTable(view) {
-  const p = panel("Drop rates");
-  const byItem = new Map();
-  for (const d of view.drops) {
-    const key = `${d.npc}:${d.item}`;
-    let row = byItem.get(key);
-    if (!row) {
-      row = { d, cells: new Map(), looted: 0 };
-      byItem.set(key, row);
-    }
-    row.cells.set(d.rule, d);
-    row.looted += d.looted;
+function key(rows) {
+  const k = el("div", "sc-key");
+  for (const [label, value, c] of rows) {
+    const s = el("span");
+    s.style.setProperty("--c", `var(${c})`);
+    s.append(`${label} `, counted(elText("b", "", num(value)), value, num));
+    k.append(s);
   }
-  const rows = [...byItem.values()].sort((a, b) => b.looted - a.looted);
-  if (!rows.length) {
+  return k;
+}
+
+function creatures(view) {
+  const byNpc = new Map();
+  for (const d of view.drops) {
+    let c = byNpc.get(d.npc);
+    if (!c) {
+      c = { name: d.npc_name || `Creature ${d.npc}`, rules: new Map(), items: new Map() };
+      byNpc.set(d.npc, c);
+    }
+    c.rules.set(d.rule, Math.max(c.rules.get(d.rule) ?? 0, d.looted));
+    let it = c.items.get(d.item);
+    if (!it) {
+      it = { name: d.item_name || `Item ${d.item}`, drops: 0, looted: 0, byRule: [] };
+      c.items.set(d.item, it);
+    }
+    it.drops += d.drops;
+    it.looted += d.looted;
+    it.byRule.push(d);
+  }
+  return [...byNpc.values()]
+    .map((c) => {
+      const corpses = [...c.rules.values()].reduce((a, n) => a + n, 0);
+      const items = [...c.items.values()].sort((a, b) => pctOf(b.drops, b.looted) - pctOf(a.drops, a.looted) || b.drops - a.drops);
+      return { name: c.name, corpses, items, search: `${c.name} ${items.map((i) => i.name).join(" ")}`.toLowerCase() };
+    })
+    .sort((a, b) => b.corpses - a.corpses || a.name.localeCompare(b.name));
+}
+
+function creatureCard(c, view) {
+  const shown = c.items.slice(0, ITEMS_PER_CREATURE);
+  const rows = shown
+    .map((it, n) => {
+      const v = pctOf(it.drops, it.looted);
+      const tip = view.rules.length > 1
+        ? ` data-tip="${esc(it.name)}|${esc(it.byRule.map((d) => `${ruleLabel(view.rules[d.rule])} ${d.drops}/${d.looted}`).join(" · "))}"`
+        : "";
+      return `<div class="row"${tip}><span>${esc(it.name)}</span><b>${pctText(v)} <small>${num(it.drops)}/${num(it.looted)}</small></b><i style="--w:${v.toFixed(1)}%;--n:${n}"></i></div>`;
+    })
+    .join("");
+  const more = c.items.length - shown.length;
+  return `<section class="lt-creature"><div class="lt-head"><h4>${esc(c.name)}</h4><span>${num(c.corpses)} ${c.corpses === 1 ? "corpse" : "corpses"}</span></div><div class="sc-bars">${rows}</div>${more > 0 ? `<p class="dim">${num(more)} more ${more === 1 ? "item" : "items"}</p>` : ""}</section>`;
+}
+
+function dropRates(view) {
+  const p = panel("Drop rates");
+  const list = creatures(view);
+  if (!list.length) {
     p.appendChild(el("div", "empty", "No creature loot with an item list recorded yet."));
     return p;
   }
-
   const q = el("input");
   q.placeholder = "Filter creature or item…";
   q.style.width = "260px";
+  const grid = el("div", "lt-grid");
   const note = el("div", "dim");
-  const t = el("table");
-  t.innerHTML = `<thead><tr><th>Creature</th><th>Item</th>${view.rules
-    .map((r) => `<th class="num">${esc(ruleLabel(r))}</th>`)
-    .join("")}</tr></thead><tbody></tbody>`;
-  const tb = t.querySelector("tbody");
-
   const draw = () => {
     const f = q.value.trim().toLowerCase();
-    const hit = f
-      ? rows.filter((r) => `${r.d.npc_name} ${r.d.item_name} ${r.d.npc} ${r.d.item}`.toLowerCase().includes(f))
-      : rows;
-    tb.innerHTML = hit
-      .slice(0, ROW_LIMIT)
-      .map(({ d, cells }) => {
-        const tds = view.rules
-          .map((_, i) => {
-            const c = cells.get(i);
-            // A rule with no corpse of this creature has no rate.
-            return c
-              ? `<td class="num">${pct(c.drops, c.looted)} <span class="dim">${c.drops}/${c.looted}</span></td>`
-              : `<td class="num dim">—</td>`;
-          })
-          .join("");
-        return `<tr><td>${esc(d.npc_name || `Creature ${d.npc}`)}</td><td>${esc(d.item_name || `Item ${d.item}`)}</td>${tds}</tr>`;
-      })
-      .join("");
-    note.textContent = hit.length > ROW_LIMIT ? `Showing ${ROW_LIMIT} of ${num(hit.length)}.` : "";
+    const hit = f ? list.filter((c) => c.search.includes(f)) : list;
+    grid.innerHTML = hit.slice(0, CREATURE_LIMIT).map((c) => creatureCard(c, view)).join("");
+    note.textContent = hit.length > CREATURE_LIMIT ? `Showing ${CREATURE_LIMIT} of ${num(hit.length)}.` : "";
   };
   let deb;
   q.oninput = () => { clearTimeout(deb); deb = setTimeout(draw, 120); };
   draw();
-  const wrap = el("div", "scroll-x");
-  wrap.appendChild(t);
-  p.append(q, wrap, note);
+  p.append(q, grid, note);
   return p;
 }
 
-function attributionTable(view) {
+function received(view) {
   const p = panel("Items received and rolls");
   if (!view.attribution.length) {
     p.appendChild(el("div", "empty", "No loot recorded yet."));
     return p;
   }
-  const rows = view.attribution
-    .slice()
-    .sort((a, b) => a.who.localeCompare(b.who) || a.rule - b.rule)
-    .map((a) => {
-      const q = a.quality;
-      return `<tr><td>${esc(displayName(a.who))}</td><td>${esc(ruleLabel(view.rules[a.rule]))}</td>
-        <td class="num">${num(a.items)}</td>
-        <td class="num">${num(q[0])}</td><td class="num">${num(q[1])}</td><td class="num">${num(q[2])}</td>
-        <td class="num">${num(q[3])}</td><td class="num">${num(q[4] + q[5])}</td><td class="num">${num(q[6])}</td>
-        <td class="num">${num(a.rolls_won)}</td><td class="num">${num(a.rolls_lost)}</td>
-        <td class="num">${num(a.rolls_passed)}</td></tr>`;
-    })
-    .join("");
-  const wrap = el("div", "scroll-x");
-  const t = el("table");
-  t.innerHTML = `<thead><tr><th>Player</th><th>Rule</th><th class="num">Items</th>
-    <th class="num">Poor</th><th class="num">Common</th><th class="num">Uncommon</th><th class="num">Rare</th>
-    <th class="num">Epic+</th><th class="num">Unknown</th>
-    <th class="num">Won</th><th class="num">Lost</th><th class="num">Passed</th></tr></thead><tbody>${rows}</tbody>`;
-  wrap.appendChild(t);
-  p.appendChild(wrap);
+  const list = view.attribution.slice().sort((a, b) => a.who.localeCompare(b.who) || a.rule - b.rule);
+  const qTotals = SHADES.map(([label, c], i) => [label, list.reduce((n, a) => n + a.quality[i], 0), c]).filter((r) => r[1] > 0);
+  const rTotals = ROLLS.map(([label, c, field]) => [label, list.reduce((n, a) => n + a[field], 0), c]).filter((r) => r[1] > 0);
+  const keys = el("div", "lt-keys");
+  if (qTotals.length) keys.append(key(qTotals));
+  if (rTotals.length) keys.append(key(rTotals));
+
+  const most = Math.max(...list.map((a) => a.items), 1);
+  const rows = el("div", "lt-rows");
+  let last = null;
+  for (const a of list) {
+    const row = el("div", "lt-row");
+    row.append(elText("span", "lt-who", a.who === last ? "" : displayName(a.who)), elText("span", "lt-rule", ruleLabel(view.rules[a.rule])));
+    last = a.who;
+    const track = el("div", "lt-track");
+    const parts = SHADES.map(([label, c], i) => [label, a.quality[i], c]).filter((r) => r[1] > 0);
+    if (parts.length) {
+      const bar = stack(parts, { key: false, h: 10 });
+      bar.style.width = `${Math.max(6, (a.items / most) * 100)}%`;
+      track.append(bar);
+    } else {
+      track.append(el("i", "lt-none"));
+    }
+    const total = elText("b", "lt-n", num(a.items));
+    counted(total, a.items, num);
+    row.append(total, track);
+    const rolls = el("div", "lt-rolls");
+    const rolled = ROLLS.filter(([, , field]) => a[field] > 0);
+    if (rolled.length) {
+      for (const [label, c, field] of rolled) {
+        const s = elText("span", "lt-roll", num(a[field]));
+        s.style.setProperty("--c", `var(${c})`);
+        s.dataset.tip = `${label}|${num(a[field])} ${a[field] === 1 ? "roll" : "rolls"}`;
+        rolls.append(s);
+      }
+      const bar = stack(rolled.map(([label, c, field]) => [label, a[field], c]), { key: false, h: 6 });
+      bar.classList.add("lt-rollbar");
+      rolls.append(bar);
+    }
+    row.append(rolls);
+    rows.append(row);
+  }
+  p.append(keys, rows);
   return p;
 }
 
 export async function render(body) {
   const view = await invoke("loot", { ch: state.ch });
   body.innerHTML = "";
-  body.appendChild(dropTable(view));
-  body.appendChild(attributionTable(view));
+  const page = el("div", "lt");
+  page.append(dropRates(view), received(view));
+  body.append(page);
+  play(page);
 }
