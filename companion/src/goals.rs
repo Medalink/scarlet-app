@@ -5,7 +5,7 @@ use crate::events::name_key;
 use crate::overview::{Ev, balances};
 use crate::recap::{Activity, Facts, Spread, activity};
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 const MIN_PLAYED: i64 = 900;
 const MIN_PEERS: usize = 3;
@@ -13,6 +13,8 @@ const BAND: u32 = 2;
 const EXALTED: i64 = 42_000;
 const EXALTED_TIER: u8 = 8;
 const RARE: u8 = 3;
+const FARMED_TOP: usize = 3;
+const FARMED_SHARE_PERCENT: i64 = 10;
 const BELOW_NEUTRAL: [(i64, i64); 3] = [(-42_000, -6_000), (-6_000, -3_000), (-3_000, 0)];
 const PROFESSIONS: [&str; 17] = [
     "Alchemy",
@@ -116,6 +118,20 @@ impl Row {
 
     fn overlaps(&self, of: &Row) -> bool {
         self.from < of.to && self.to > of.from
+    }
+
+    fn farmed_items(&self) -> HashSet<i64> {
+        let mut by_count: Vec<(i64, i64)> = self.a.looted.iter().map(|(id, n)| (*id, *n)).collect();
+        by_count.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        let items: i64 = by_count.iter().map(|(_, n)| n).sum();
+        by_count
+            .iter()
+            .enumerate()
+            .filter(|(i, (_, n))| {
+                *n > 0 && (*i < FARMED_TOP || n * 100 >= items * FARMED_SHARE_PERCENT)
+            })
+            .map(|(_, (id, _))| *id)
+            .collect()
     }
 }
 
@@ -241,9 +257,16 @@ pub struct Farmed {
     pub pace: Option<FarmPace>,
 }
 
+struct ItemRun {
+    row: usize,
+    n: i64,
+    farmed: bool,
+}
+
 struct ItemStat {
     total: i64,
     first: [i64; 2],
+    runs: Vec<ItemRun>,
 }
 
 #[derive(Serialize)]
@@ -517,15 +540,22 @@ impl Goals {
             legacy: reading.legacy(),
         };
         let mut items: HashMap<i64, ItemStat> = HashMap::new();
-        for r in &rows {
+        for (at, r) in rows.iter().enumerate() {
+            let farmed = r.farmed_items();
             for (id, n) in &r.a.looted {
-                items
-                    .entry(*id)
-                    .or_insert(ItemStat {
-                        total: 0,
-                        first: [r.from, r.to],
-                    })
-                    .total += n;
+                let stat = items.entry(*id).or_insert(ItemStat {
+                    total: 0,
+                    first: [r.from, r.to],
+                    runs: Vec::new(),
+                });
+                stat.total += n;
+                if r.qualifies() && *n > 0 {
+                    stat.runs.push(ItemRun {
+                        row: at,
+                        n: *n,
+                        farmed: farmed.contains(id),
+                    });
+                }
             }
         }
         let names = items
@@ -557,25 +587,36 @@ impl Goals {
             .filter(|id| self.quality.get(id).is_some_and(|q| *q >= RARE))
     }
 
+    /// An item's total looted and its most in one qualifying run, without its pace.
+    pub fn farmed_record(&self, id: i64) -> Option<(i64, Option<Peak>)> {
+        let stat = self.items.get(&id)?;
+        let record = stat
+            .runs
+            .iter()
+            .max_by(|a, b| {
+                a.n.cmp(&b.n)
+                    .then_with(|| self.rows[b.row].from.cmp(&self.rows[a.row].from))
+            })
+            .map(|r| peak((&self.rows[r.row], r.n as f64)));
+        Some((stat.total, record))
+    }
+
+    /// How much of the item was looted in the runs that farmed it; none when no run did.
+    pub fn farming_count(&self, id: i64) -> Option<i64> {
+        let stat = self.items.get(&id)?;
+        let n: i64 = stat.runs.iter().filter(|r| r.farmed).map(|r| r.n).sum();
+        (n > 0).then_some(n)
+    }
+
     pub fn farmed(&self, id: i64) -> Option<Farmed> {
         let stat = self.items.get(&id)?;
-        let count = |r: &Row| {
-            r.a.looted
-                .iter()
-                .find(|(i, _)| *i == id)
-                .map_or(0, |(_, n)| *n)
-        };
-        let runs: Vec<(&Row, i64)> = self
-            .rows
+        let (total, record) = self.farmed_record(id)?;
+        let runs: Vec<(&Row, i64)> = stat
+            .runs
             .iter()
-            .filter(|r| r.qualifies())
-            .map(|r| (r, count(r)))
-            .filter(|(_, n)| *n > 0)
+            .filter(|r| r.farmed)
+            .map(|r| (&self.rows[r.row], r.n))
             .collect();
-        let record = runs
-            .iter()
-            .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.from.cmp(&a.0.from)))
-            .map(|(r, n)| peak((r, *n as f64)));
         let pace = runs.last().map(|(row, n)| {
             let peers: Vec<(&Row, f64)> = runs
                 .iter()
@@ -604,7 +645,7 @@ impl Goals {
             id,
             name: self.names.get(&id).cloned().unwrap_or_default(),
             quality: self.quality.get(&id).copied(),
-            total: stat.total,
+            total,
             first: stat.first,
             record,
             pace,
