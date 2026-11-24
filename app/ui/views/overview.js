@@ -4,7 +4,8 @@
 // experience by level and gold, dungeons, played with and deaths, play time
 // by day and by zone, play history.
 
-import { invoke, esc, displayName, num, dur, moneyHtml, dateStr, dateTime, SERIES, state } from "../lib.js";
+import { invoke, esc, displayName, num, dur, moneyHtml, dateStr, dateTime, SERIES, state, wireTips } from "../lib.js";
+import { countMarked, play } from "../motion.js";
 
 export const CLASS_COLOR = {
   DEATHKNIGHT: "#E04A64",
@@ -46,6 +47,8 @@ let histAll = false;
 let xpPinned = null;
 let current = null;
 let life = null;
+let groups = null;
+let entering = false;
 
 export const className = (c) => CLASS_NAME[c] || (c ? c[0] + c.slice(1).toLowerCase() : "");
 export const raceName = (r) => RACE_NAME[r] || String(r || "").replace(/([a-z])([A-Z])/g, "$1 $2");
@@ -551,69 +554,112 @@ function zonesMod(ov) {
 
 // Play history ----------------------------------------------------------------------
 
-const th = (label, cls = "") => `<th${cls ? ` class="${cls}"` : ""}>${label}</th>`;
-
 function levelSpan(lo, hi) {
   if (!lo && !hi) return "";
   return lo === hi || !lo ? String(hi) : `${lo} → ${hi}`;
 }
 
-function historyRows(ov) {
-  if (histMode === "levels") {
-    const rows = Object.entries(ov.levels)
-      .map(([lv, l]) => [Number(lv), l])
-      .sort((a, b) => b[0] - a[0]);
-    return {
-      head: [th("Level"), th("Reached"), th("Played", "num"), th("XP", "num"), th("Kills", "num"), th("Quests", "num"), th("Deaths", "num"), th("Main zone")],
-      rows: rows.map(
-        ([lv, l]) => `<td>Level ${lv}</td><td>${l.at ? dateStr(l.at * 1000) : "Before recording"}</td>
-          <td class="num">${l.complete ? playTime(l.p || 0) : `<span class="dim" title="Not recorded for the whole level">–</span>`}</td><td class="num">${num(levelXp(l))}</td><td class="num">${num(l.k || 0)}</td>
-          <td class="num">${num(l.q || 0)}</td><td class="num">${num(l.dd || 0)}</td><td>${esc(l.zone || "")}</td>`
-      ),
-      name: "levels",
-    };
-  }
-  const head = [th(histMode === "days" ? "Day" : "When"), th("Played"), th("Levels"), th("Quests", "num"), th("Gold", "num"), th("Zones", "num")];
-  let rows;
-  if (histMode === "days") {
-    const days = new Map();
-    for (const s of ov.sessions) {
-      const key = dateStr(s.t * 1000);
-      const d = days.get(key) || { t: s.t * 1000, p: 0, lo: 0, hi: 0, q: 0, gold: 0, zones: new Set() };
-      d.p += s.p || 0;
-      d.lo = d.lo ? Math.min(d.lo, s.l0 || d.lo) : s.l0 || 0;
-      d.hi = Math.max(d.hi, s.l1 || 0);
-      d.q += s.q || 0;
-      d.gold += net(s);
-      Object.keys(s.zn || {}).forEach((z) => d.zones.add(z));
-      days.set(key, d);
-    }
-    rows = [...days.values()].map((d) => [day(d.t), d.p, levelSpan(d.lo, d.hi), d.q, d.gold, d.zones.size]);
-  } else {
-    rows = ov.sessions.map((s) => [`${day(s.t * 1000)} ${hm(s.t * 1000)}`, s.p || 0, levelSpan(s.l0 || 0, s.l1 || 0), s.q || 0, net(s), s.z || 0]);
-  }
+function levelChip(lo, hi) {
+  if (!lo && !hi) return `<span class="ph-lv"></span>`;
+  if (lo && hi && lo !== hi) return `<span class="ph-lv"><em class="ph-chip" data-tip="Level ${lo} to level ${hi}">${lo} → ${hi}</em></span>`;
+  return `<span class="ph-lv"><em class="ph-at">Level ${hi || lo}</em></span>`;
+}
+
+function rowFigures(rows) {
+  const zones = new Set(rows.flatMap((s) => Object.keys(s.zn || {})));
+  const lows = rows.map((s) => s.l0 || 0).filter(Boolean);
   return {
-    head,
-    rows: rows.map(
-      ([when, p, lv, q, gold, z]) =>
-        `<td>${esc(when)}</td><td>${playTime(p)}</td><td>${esc(lv)}</td><td class="num">${num(q)}</td><td class="num">${signed(gold)}</td><td class="num">${num(z)}</td>`
-    ),
-    name: histMode,
+    p: rows.reduce((a, s) => a + (s.p || 0), 0),
+    lo: lows.length ? Math.min(...lows) : 0,
+    hi: Math.max(0, ...rows.map((s) => s.l1 || 0)),
+    q: rows.reduce((a, s) => a + (s.q || 0), 0),
+    gold: rows.reduce((a, s) => a + net(s), 0),
+    zones: zones.size || Math.max(0, ...rows.map((s) => s.z || 0)),
+  };
+}
+
+function sessionGroups(ov) {
+  const spans = groups && groups.length
+    ? groups.map((g) => ({ from: g.from, to: g.to, live: g.live, played: g.played, rows: [] }))
+    : ov.sessions.map((s) => ({ from: s.t * 1000, to: (s.t + (s.p || 0)) * 1000, live: false, played: s.p || 0, rows: [s] }));
+  if (groups && groups.length) {
+    let at = 0;
+    for (const s of ov.sessions) {
+      const ms = s.t * 1000;
+      while (at < spans.length - 1 && ms < spans[at].from) at++;
+      while (at > 0 && ms > spans[at].to) at--;
+      const hit = spans[at];
+      if (ms >= hit.from && ms <= hit.to) hit.rows.push(s);
+    }
+  }
+  return spans.map((g) => {
+    const f = rowFigures(g.rows);
+    return { ...g, ...f, p: g.rows.length ? f.p : g.played };
+  });
+}
+
+const figures = (q, gold, zones) =>
+  `<span class="ph-fig${q ? "" : " zero"}"><b>${num(q)}</b> ${q === 1 ? "quest" : "quests"}</span><span class="ph-fig${gold ? "" : " zero"}">${signed(gold)}</span><span class="ph-fig${zones ? "" : " zero"}"><b>${num(zones)}</b> ${zones === 1 ? "zone" : "zones"}</span>`;
+
+const playedBar = (p, most) => `<span class="ph-played"><b>${playTime(p)}</b><i style="--w:${p ? Math.max(1.5, (p / most) * 100) : 0}%"></i></span>`;
+
+function sessionRows(ov) {
+  const all = sessionGroups(ov);
+  const most = Math.max(...all.map((g) => g.p), 1);
+  return {
+    name: "sessions",
+    rows: all.map((g) => {
+      const when = g.live ? "In progress" : `${day(g.from)} <small>${hm(g.from)}</small>`;
+      return `<a class="ph-row" href="#sessions/${g.from}-${g.to}"><span class="ph-when">${when}</span>${playedBar(g.p, most)}${levelChip(g.lo, g.hi)}${figures(g.q, g.gold, g.zones)}</a>`;
+    }),
+  };
+}
+
+function dayRows(ov) {
+  const days = new Map();
+  for (const s of ov.sessions) {
+    const key = dateStr(s.t * 1000);
+    const d = days.get(key) || { t: s.t * 1000, rows: [] };
+    d.rows.push(s);
+    days.set(key, d);
+  }
+  const all = [...days.values()].map((d) => ({ t: d.t, ...rowFigures(d.rows) }));
+  const most = Math.max(...all.map((d) => d.p), 1);
+  return {
+    name: "days",
+    rows: all.map((d) => `<div class="ph-row"><span class="ph-when">${day(d.t)}</span>${playedBar(d.p, most)}${levelChip(d.lo, d.hi)}${figures(d.q, d.gold, d.zones)}</div>`),
+  };
+}
+
+function levelRowsHtml(ov) {
+  const all = Object.entries(ov.levels)
+    .map(([lv, l]) => [Number(lv), l])
+    .sort((a, b) => b[0] - a[0]);
+  const most = Math.max(...all.map(([, l]) => (l.complete ? l.p || 0 : 0)), 1);
+  return {
+    name: "levels",
+    rows: all.map(([lv, l]) => {
+      const bar = l.complete
+        ? playedBar(l.p || 0, most)
+        : `<span class="ph-played part" data-tip="Not recorded for the whole level"><b>–</b><i style="--w:0%"></i></span>`;
+      const bits = [`${num(levelXp(l))} XP`, plural(l.k || 0, "kill", "kills"), plural(l.q || 0, "quest", "quests"), plural(l.dd || 0, "death", "deaths")];
+      const where = [l.zone, l.at ? `reached ${dateStr(l.at * 1000)}` : "before recording"].filter(Boolean);
+      return `<div class="ph-row ph-level"><span class="ph-when">Level ${lv}</span>${bar}<span class="ph-bits">${esc(bits.join(" · "))}</span><span class="ph-where">${esc(where.join(" · "))}</span></div>`;
+    }),
   };
 }
 
 function historyMod(ov) {
   const head = segButtons([["sessions", "Sessions"], ["days", "Days"], ["levels", "Levels"]], histMode, "hist");
   if (!ov.sessions.length && histMode !== "levels") return mod("w12 first last", "Play history", empty("No sessions recorded"), head);
-  const { head: cols, rows, name } = historyRows(ov);
+  const { rows, name } = histMode === "levels" ? levelRowsHtml(ov) : histMode === "days" ? dayRows(ov) : sessionRows(ov);
   if (!rows.length) return mod("w12 first last", "Play history", empty("No levels recorded"), head);
   const cap = histAll ? HISTORY_MAX : HISTORY_ROWS;
-  const body = rows.slice(0, cap).map((r) => `<tr>${r}</tr>`).join("");
   let more = "";
   if (rows.length > HISTORY_ROWS) {
     more = `<button class="linkbtn" id="hist-more" type="button">${histAll ? `Show the latest ${HISTORY_ROWS}` : `Show ${rows.length > HISTORY_MAX ? `the latest ${HISTORY_MAX} of ${num(rows.length)}` : `all ${num(rows.length)}`} ${name}`}</button>`;
   }
-  return mod("w12 first last", "Play history", `<div class="history"><table><thead><tr>${cols.join("")}</tr></thead><tbody>${body}</tbody></table></div>${more}`, head);
+  return mod("w12 first last", "Play history", `<div class="ph-list ph-${name}">${rows.slice(0, cap).join("")}</div>${more}`, head);
 }
 
 
@@ -632,18 +678,45 @@ function importedMod(ov) {
     `<p class="sub">${esc(source)} kept these and Scarlet did not.${seen ? ` ${num(seen)} more matched what Scarlet recorded and are not counted twice.` : ""} Other views and totals leave them out.</p>`,
   ].join("");
   const days = im.days.slice(0, IMPORT_DAYS);
-  const dayTable = days.length
-    ? `<h3>Sales and purchases by day</h3><div class="history"><table><thead><tr>${[th("Day"), th("Sold", "num"), th("Received", "num"), th("Bought", "num"), th("Paid", "num")].join("")}</tr></thead><tbody>${days
-        .map((d) => `<tr><td>${day(d.d * 1000)}</td><td class="num">${num(d.sold)}</td><td class="num">${moneyHtml(d.sold_copper)}</td><td class="num">${num(d.bought)}</td><td class="num">${moneyHtml(d.bought_copper)}</td></tr>`)
-        .join("")}</tbody></table></div>`
+  const peak = Math.max(...days.flatMap((d) => [d.sold_copper, d.bought_copper]), 1);
+  const side = (n, copper, cls, verb) =>
+    `<span class="im-side ${cls}"><span class="im-t"><b>${moneyHtml(copper)}</b> ${verb} ${plural(n, "item", "items")}</span><i style="--w:${copper ? Math.max(1.5, (copper / peak) * 100) : 0}%"></i></span>`;
+  const dayRows = days.length
+    ? `<h3>Sales and purchases by day</h3><ul class="sc-key im-key"><li><i style="background:var(--alt-4)"></i>Received</li><li><i style="background:var(--alt-1)"></i>Paid</li></ul>
+      <div class="im-list">${days
+        .map((d) => `<div class="im-day"><span class="im-when">${day(d.d * 1000)}</span>${side(d.sold, d.sold_copper, "got", "for")}${side(d.bought, d.bought_copper, "paid", "for")}</div>`)
+        .join("")}</div>`
     : "";
   const sold = im.items.filter((i) => i.sold > 0).sort((a, b) => b.sold_copper - a.sold_copper).slice(0, IMPORT_ITEMS);
-  const itemTable = sold.length
-    ? `<h3>Sale prices by item</h3><div class="history"><table><thead><tr>${[th("Item"), th("Sold", "num"), th("Each", "num"), th("Received", "num")].join("")}</tr></thead><tbody>${sold
-        .map((i) => `<tr><td>${esc(i.name || `Item ${i.id}`)}</td><td class="num">${num(i.sold)}</td><td class="num">${i.low === i.high ? moneyHtml(i.low) : `${moneyHtml(i.low)} to ${moneyHtml(i.high)}`}</td><td class="num">${moneyHtml(i.sold_copper)}</td></tr>`)
-        .join("")}</tbody></table></div>`
+  const top = Math.max(...sold.map((i) => i.sold_copper), 1);
+  const itemRows = sold.length
+    ? `<h3>Sale prices by item</h3><div class="im-list">${sold
+        .map(
+          (i) => `<div class="im-item"><span class="im-name">${esc(i.name || `Item ${i.id}`)}</span>
+            <span class="im-side got"><span class="im-t"><b>${moneyHtml(i.sold_copper)}</b> received</span><i style="--w:${Math.max(1.5, (i.sold_copper / top) * 100)}%"></i></span>
+            <span class="im-n"><b>${num(i.sold)}</b> sold</span><span class="im-each">${i.low === i.high ? moneyHtml(i.low) : `${moneyHtml(i.low)} to ${moneyHtml(i.high)}`} each</span></div>`
+        )
+        .join("")}</div>`
     : "";
-  return mod("w12 first last", `Imported from ${source}`, lines + dayTable + itemTable);
+  return mod("w12 first last", `Imported from ${source}`, lines + dayRows + itemRows);
+}
+
+const until = (sec) => {
+  const d = sec - Date.now() / 1000;
+  if (d <= 0) return "reset";
+  const days = Math.floor(d / 86400);
+  const hours = Math.floor((d % 86400) / 3600);
+  return days ? `in ${days}d ${hours}h` : `in ${hours}h ${Math.floor((d % 3600) / 60)}m`;
+};
+
+function lockRow(l) {
+  const known = l.done != null && l.total != null && l.total > 0;
+  const pips = known
+    ? `<span class="lk-pips" data-tip="${l.done} of ${l.total} bosses defeated">${Array.from({ length: l.total }, (_, i) => `<i${i < l.done ? ' class="on"' : ""}></i>`).join("")}</span><b>${l.done}/${l.total}</b>`
+    : `<span class="dim">–</span>`;
+  const difficulty = l.kind === "world boss" ? "World boss" : l.difficulty || "–";
+  return `<div class="lk-row"><span class="lk-name">${esc(l.name)}${l.extended ? ' <em class="ph-at">extended</em>' : ""}</span><span class="lk-diff">${esc(difficulty)}</span>
+    <span class="lk-boss">${pips}</span><span class="lk-reset" data-tip="${dateTime(l.reset_at * 1000)}">Resets ${until(l.reset_at)}</span></div>`;
 }
 
 function lifetimeMod(life) {
@@ -654,21 +727,13 @@ function lifetimeMod(life) {
     ["Zone maps explored", life.explored],
   ].filter(([, c]) => c);
   if (!counts.length && !life.locks.length) return "";
-  const countTable = counts.length
-    ? `<div class="history"><table><thead><tr>${[th("In the character's whole life"), th("Total", "num"), th("Last read")].join("")}</tr></thead><tbody>${counts
-        .map(([label, c]) => `<tr><td>${label}</td><td class="num">${num(c.total)}</td><td>${dateStr(c.at * 1000)}</td></tr>`)
-        .join("")}</tbody></table></div>`
+  const countTiles = counts.length
+    ? `<div class="sc-grid" style="grid-template-columns:repeat(${counts.length},minmax(0,1fr))">${counts
+        .map(([label, c]) => `<div class="sc-tile"><span class="sc-label">${label}</span><span class="sc-num sc-num-xl" data-to="${c.total}" data-as="num">${num(c.total)}</span><span class="sc-sub">Last read ${dateStr(c.at * 1000)}</span></div>`)
+        .join("")}</div>`
     : "";
-  const lockTable = life.locks.length
-    ? `<h3>Instance locks</h3><div class="history"><table><thead><tr>${[th("Instance"), th("Difficulty"), th("Bosses", "num"), th("Resets")].join("")}</tr></thead><tbody>${life.locks
-        .map((l) => {
-          const bosses = l.done == null || l.total == null ? "–" : `${l.done}/${l.total}`;
-          const difficulty = l.kind === "world boss" ? "World boss" : l.difficulty || "–";
-          return `<tr><td>${esc(l.name)}${l.extended ? ' <span class="dim">extended</span>' : ""}</td><td>${esc(difficulty)}</td><td class="num">${bosses}</td><td>${dateTime(l.reset_at * 1000)}</td></tr>`;
-        })
-        .join("")}</tbody></table></div>`
-    : "";
-  return mod("w12 first last", "Whole life", countTable + lockTable);
+  const lockRows = life.locks.length ? `<h3>Instance locks</h3><div class="lk-list">${life.locks.map(lockRow).join("")}</div>` : "";
+  return mod("w12 first last", "Whole life", countTiles + lockRows);
 }
 
 // Page --------------------------------------------------------------------------------
@@ -689,6 +754,7 @@ function draw(body, refocus = null) {
     : `${header(ov, name, eta)}${week(ov)}
     <div class="sheet">${lifetimeMod(life)}${levelsChart(ov)}${goldMod(ov)}${runsMod(ov)}${matesMod(ov)}${deathsMod(ov)}${heatMod(ov)}${zonesMod(ov)}${historyMod(ov)}${importedMod(ov)}</div>`;
   body.insertAdjacentHTML("beforeend", layout);
+  countMarked(body, { num, money: moneyHtml });
   wireLevels(body, ov);
   wireGold(body, ov);
   wireHeat(body, ov);
@@ -716,12 +782,20 @@ function draw(body, refocus = null) {
   }
   body.scrollTop = top;
   if (refocus) body.querySelector(refocus)?.focus({ preventScroll: true });
+  if (entering) {
+    entering = false;
+    play(body);
+    setTimeout(() => body.classList.remove("play"), 1800);
+  }
 }
 
 export const shownName = () => current?.name ?? null;
 
 export async function render(body, ch = state.ch) {
+  wireTips();
   [current, life] = await Promise.all([invoke("overview", { ch }), invoke("lifetime", { ch })]);
+  groups = current ? (await invoke("session_list", { ch: current.name }).catch(() => null))?.sessions ?? null : null;
   xpPinned = null;
+  entering = true;
   draw(body);
 }
