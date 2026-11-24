@@ -2,8 +2,9 @@
 // The model comes from the `roster` command. Section order: totals, characters by game
 // account, gold and transfers, played together, play time by day, time per level, professions.
 
-import { invoke, state, esc, displayName, num, dur, moneyHtml, dateStr } from "../lib.js";
-import { CLASS_COLOR, className, raceName, day, hm, longDur, playTime, signed, empty, mod, mondayOf, axisTime } from "./overview.js";
+import { invoke, state, esc, displayName, num, dur, money, moneyHtml, dateStr, wireTips } from "../lib.js";
+import { countMarked, play } from "../motion.js";
+import { CLASS_COLOR, className, raceName, day, hm, longDur, playTime, signed, empty, mod, mondayOf, axisTime, plural } from "./overview.js";
 
 const DAYS = 30;
 const TRANSFER_ROWS = 8;
@@ -12,6 +13,7 @@ const TONES = 8;
 let data = null;
 let clients = 0;
 let transfersAll = false;
+let entering = false;
 
 const tone = (i) => `var(--alt-${(i % TONES) + 1})`;
 const sum = (rows, f) => rows.reduce((a, r) => a + f(r), 0);
@@ -43,10 +45,17 @@ function totals() {
 }
 
 
-function levelCell(c) {
-  const atCap = c.cap > 0 && c.level >= c.cap;
-  const pct = atCap ? 100 : c.xp_max > 0 ? Math.min(100, Math.floor((c.xp / c.xp_max) * 100)) : 0;
-  return `<span class="lvl-cell">${c.level || "–"}<span class="mini"><i style="width:${pct}%"></i></span></span>`;
+const DAY_S = 86400;
+
+function ago(sec) {
+  const d = Math.max(0, Date.now() / 1000 - sec);
+  const n = (v, unit) => `${v} ${unit}${v === 1 ? "" : "s"} ago`;
+  if (d < 90) return "just now";
+  if (d < 3600) return n(Math.round(d / 60), "minute");
+  if (d < DAY_S) return n(Math.round(d / 3600), "hour");
+  if (d < 14 * DAY_S) return n(Math.floor(d / DAY_S), "day");
+  if (d < 70 * DAY_S) return n(Math.floor(d / (7 * DAY_S)), "week");
+  return n(Math.floor(d / (30 * DAY_S)), "month");
 }
 
 function reachCell(c) {
@@ -54,32 +63,43 @@ function reachCell(c) {
   return c.reach && c.reach.date ? `Level ${c.reach.level} ${esc(c.reach.date)}` : "–";
 }
 
-function charTable(list, withAccount) {
-  const rows = [...list]
-    .sort((a, b) => b.through - a.through)
-    .map(
-      (c) => `<tr class="click" tabindex="0" data-pick="${esc(c.name)}">
-        <td>${named(c)}</td>${withAccount ? `<td>${esc(c.account || "–")}</td>` : ""}<td>${levelCell(c)}</td><td>${esc(raceName(c.race))} ${esc(className(c.class))}</td>
-        <td>${esc(c.zone || "–")}</td><td>${c.played ? longDur(c.played) : c.recorded ? `${longDur(c.recorded)} recorded` : "–"}</td>
-        <td>${c.through ? `${day(c.through * 1000)} ${hm(c.through * 1000)}` : "–"}</td>
-        <td class="num">${c.money == null ? "–" : moneyHtml(c.money)}</td><td class="gap">${reachCell(c)}</td></tr>`
-    )
-    .join("");
-  const head = ["Character", ...(withAccount ? ["Game account"] : []), "Level", "Race and class", "Zone", "Played", "Last session", "Gold", "Level target"];
-  const cols = head.map((h) => `<th${h === "Gold" ? ' class="num"' : h === "Level target" ? ' class="gap"' : ""}>${h}</th>`).join("");
-  return `<div class="history"><table class="alts"><thead><tr>${cols}</tr></thead><tbody>${rows}</tbody></table></div>`;
+function charCard(c, most, withAccount) {
+  const atCap = c.cap > 0 && c.level >= c.cap;
+  const pct = atCap ? 100 : c.xp_max > 0 ? Math.min(100, Math.floor((c.xp / c.xp_max) * 100)) : 0;
+  const bar = atCap ? "At level cap" : c.xp_max > 0 ? `${pct}% to level ${c.level + 1}` : "No experience bar recorded";
+  const time = c.played || c.recorded;
+  const played = time ? `${longDur(time)}${c.played ? "" : " recorded"}` : "–";
+  const last = c.through ? `<b data-tip="${day(c.through * 1000)} ${hm(c.through * 1000)}">${ago(c.through)}</b>` : "<b>–</b>";
+  const account = withAccount && c.account ? `<span class="ch-acct">${esc(c.account)}</span>` : "";
+  return `<div class="ch-card" role="link" tabindex="0" data-pick="${esc(c.name)}" style="--cls:${CLASS_COLOR[c.class] || "var(--accent)"}">
+    <div class="ch-top"><span class="ch-name">${esc(displayName(c.name))}</span><span class="ch-lv"><small>Level</small> ${c.level || "–"}</span></div>
+    <div class="ch-xp" data-tip="${esc(bar)}"><i style="width:${pct}%"></i></div>
+    <p class="ch-id">${esc(raceName(c.race))} ${esc(className(c.class))}${c.zone ? ` · ${esc(c.zone)}` : ""}${account}</p>
+    <div class="ch-played"><span>Played</span><b>${played}</b><i style="--w:${time ? Math.max(2, (time / most) * 100) : 0}%"></i></div>
+    <dl class="ch-facts">
+      <div><dt>Gold</dt><dd>${c.money == null ? "–" : `<span data-to="${c.money}" data-as="money">${moneyHtml(c.money)}</span>`}</dd></div>
+      <div><dt>Last session</dt><dd>${last}</dd></div>
+      <div><dt>Level target</dt><dd>${reachCell(c)}</dd></div>
+    </dl>
+  </div>`;
+}
+
+function charGrid(list, withAccount) {
+  const most = Math.max(...list.map((c) => c.played || c.recorded || 0), 1);
+  const cards = [...list].sort((a, b) => b.through - a.through).map((c) => charCard(c, most, withAccount));
+  return `<div class="ch-grid">${cards.join("")}</div>`;
 }
 
 function groupMod(group) {
   const byName = new Map(data.chars.map((c) => [c.name, c]));
   const list = group.characters.map((n) => byName.get(n)).filter(Boolean);
   const title = group.account ? `Game account ${group.account}` : "Other characters";
-  return mod("w12 first last", title, charTable(list, false));
+  return mod("w12 first last", title, charGrid(list, false));
 }
 
 function charactersMod() {
   const accounts = new Set(data.chars.map((c) => c.account).filter(Boolean));
-  return mod("w12 first last", "Characters", charTable(data.chars, accounts.size > 1));
+  return mod("w12 first last", "Characters", charGrid(data.chars, accounts.size > 1));
 }
 
 
@@ -101,15 +121,25 @@ function goldMod() {
         <div class="gold-axis"><span>${day(pts[0].t * 1000)}</span><span>${day(pts[pts.length - 1].t * 1000)}</span></div></div>
         <p class="readout" id="r-gold-out"></p>`
       : "";
+  const nets = data.chars.map((c) => sum(c.sessions, (x) => x[2] - x[3]));
+  const swing = Math.max(...nets.map(Math.abs), 1);
+  const biggest = Math.max(...data.chars.map((c) => c.money || 0), data.warband, 1);
+  const share = (v) => (total > 0 ? `${Math.round((v / total) * 100)}%` : "");
+  const balance = (v) =>
+    `<div class="gl-bal"><div class="gl-t"><span data-to="${v}" data-as="money">${moneyHtml(v)}</span><b>${share(v)}</b></div><i style="--w:${Math.max(1, (v / biggest) * 100)}%"></i></div>`;
+  const flow = (v, cls, label) => (v ? `<span class="gl-${cls}" data-tip="${label}|${esc(money(v))}">${moneyHtml(v)}</span>` : `<span class="gl-${cls} none">–</span>`);
   const rows = data.chars
-    .map((c) => {
-      const net = sum(c.sessions, (s) => s[2] - s[3]);
-      const flow = (v) => (v ? moneyHtml(v) : "–");
-      return `<tr><td>${named(c)}</td><td class="num">${c.money == null ? "–" : moneyHtml(c.money)}</td><td class="num">${signed(net)}</td><td class="num">${flow(c.sent)}</td><td class="num">${flow(c.received)}</td></tr>`;
+    .map((c, i) => {
+      const n = nets[i];
+      const side = n < 0 ? "neg" : "pos";
+      return `<div class="gl-row"><span class="gl-who">${named(c)}</span>${c.money == null ? `<span class="dim">–</span>` : balance(c.money)}
+        <div class="gl-net"><div class="gl-t">${signed(n)}</div><span class="gl-div"><i class="${side}" style="--w:${(Math.abs(n) / swing) * 50}%"></i></span></div>
+        <div class="gl-io">${flow(c.received, "in", "Received from your other characters")}${flow(c.sent, "out", "Sent to your other characters")}</div></div>`;
     })
     .join("");
-  const warband = data.warband ? `<tr><td>Warband bank</td><td class="num">${moneyHtml(data.warband)}</td><td class="num">–</td><td class="num">–</td><td class="num">–</td></tr>` : "";
-  const table = `<div class="history"><table class="alts"><thead><tr><th>Character</th><th class="num">Balance</th><th class="num">Net without transfers</th><th class="num">Sent</th><th class="num">Received</th></tr></thead><tbody>${rows}${warband}</tbody></table></div>`;
+  const warband = data.warband ? `<div class="gl-row"><span class="who-c">Warband bank</span>${balance(data.warband)}<span class="dim">–</span><span></span></div>` : "";
+  const head = `<div class="gl-row gl-head"><span>Character</span><span>Balance and share</span><span>Net without transfers</span><span>Received and sent</span></div>`;
+  const table = `<div class="gl-list">${head}${rows}${warband}</div>`;
   return mod("w8 first", "Gold", `<p class="big">${moneyHtml(total)}</p>${plot}${table}`);
 }
 
@@ -163,18 +193,18 @@ function transfersMod() {
 
 function pairsMod() {
   if (!data.pairs.length) return mod("w12 first last", "Played together", empty("None of your characters were online or grouped together."));
+  const longest = Math.max(...data.pairs.map((p) => p.together), 1);
   const rows = data.pairs
-    .map(
-      (p) => `<tr><td>${nameOf(p.a)} and ${nameOf(p.b)}</td><td class="num">${p.together ? longDur(p.together) : "–"}</td>
-        <td class="num">${p.grouped ? longDur(p.grouped) : "–"}</td><td class="num">${num(p.sessions)}</td>
-        <td class="num">${p.last ? `${day(p.last * 1000)} ${hm(p.last * 1000)}` : "–"}</td></tr>`
-    )
+    .map((p) => {
+      const lead = p.together ? `${longDur(p.together)} online together` : "No time online together";
+      const group = p.grouped ? `, ${longDur(p.grouped)} grouped` : "";
+      return `<div class="pt-row"><span class="pt-who">${nameOf(p.a)}<small>and</small>${nameOf(p.b)}</span>
+        <div class="pt-bar"><span class="pt-t"><b>${lead}</b>${group}</span><i style="--w:${(p.together / longest) * 100}%;--g:${p.together ? Math.min(100, (p.grouped / p.together) * 100) : 0}%"></i></div>
+        <span class="pt-n">${plural(p.sessions, "session", "sessions")}</span><span class="pt-last">${p.last ? ago(p.last) : "–"}</span></div>`;
+    })
     .join("");
-  return mod(
-    "w12 first last",
-    "Played together",
-    `<div class="history"><table class="alts"><thead><tr><th>Characters</th><th class="num">Online together</th><th class="num">Grouped</th><th class="num">Sessions</th><th class="num">Last time</th></tr></thead><tbody>${rows}</tbody></table></div>`
-  );
+  const key = `<ul class="key"><li><i style="background:var(--text)"></i>Online together</li><li><i style="background:var(--accent)"></i>Grouped</li></ul>`;
+  return mod("w12 first last", "Played together", `${key}<div class="pt-list">${rows}</div>`);
 }
 
 
@@ -315,20 +345,22 @@ function professionsMod() {
   for (const c of data.chars) for (const s of c.professions) counts.set(s.name, (counts.get(s.name) || 0) + 1);
   const names = [...counts.keys()].sort((a, b) => counts.get(b) - counts.get(a) || a.localeCompare(b));
   if (!names.length) return mod("w12 first last", "Professions", empty("No professions recorded"));
-  const rows = data.chars
-    .map((c) => {
-      const cells = names
-        .map((n) => {
-          const s = c.professions.find((p) => p.name === n);
-          if (!s) return `<td class="dim">–</td>`;
-          return `<td><span class="skill">${num(s.rank)}<span class="dim">/${num(s.max)}</span><span class="mini"><i style="width:${Math.min(100, (s.rank / (s.max || 1)) * 100)}%"></i></span></span></td>`;
+  const cards = names
+    .map((n) => {
+      const skills = data.chars
+        .map((c) => [c, c.professions.find((p) => p.name === n)])
+        .filter(([, p]) => p)
+        .sort((a, b) => b[1].rank / (b[1].max || 1) - a[1].rank / (a[1].max || 1));
+      const rows = skills
+        .map(([c, p]) => {
+          const full = p.max > 0 && p.rank >= p.max;
+          return `<div class="pf-row${full ? " full" : ""}"><span>${named(c)}</span><b>${num(p.rank)}<small>/${num(p.max)}</small></b><i style="--w:${Math.min(100, (p.rank / (p.max || 1)) * 100)}%"></i></div>`;
         })
         .join("");
-      return `<tr><td>${named(c)}</td>${cells}</tr>`;
+      return `<div class="pf-card"><h3>${esc(n)}</h3>${rows}</div>`;
     })
     .join("");
-  const cols = names.map((n) => `<th>${esc(n)}</th>`).join("");
-  return mod("w12 first last", "Professions", `<div class="history"><table class="alts"><thead><tr><th>Character</th>${cols}</tr></thead><tbody>${rows}</tbody></table></div>`);
+  return mod("w12 first last", "Professions", `<div class="pf-grid">${cards}</div>`);
 }
 
 
@@ -343,10 +375,11 @@ function draw(body) {
     "beforeend",
     `${totals()}<div class="sheet">${data.group_by_account ? data.groups.map(groupMod).join("") : charactersMod()}${goldMod()}${transfersMod()}${pairsMod()}${daysMod()}${levelsMod()}${professionsMod()}</div>`
   );
+  countMarked(body, { money: moneyHtml, num });
   wireGold(body);
   wireDays(body);
   wireLevels(body);
-  body.querySelectorAll("tr[data-pick]").forEach((row) => {
+  body.querySelectorAll("[data-pick]").forEach((row) => {
     const go = () => pick(row.dataset.pick);
     row.onclick = go;
     row.onkeydown = (e) => {
@@ -364,9 +397,16 @@ function draw(body) {
     };
   }
   body.scrollTop = top;
+  if (entering) {
+    entering = false;
+    play(body);
+    setTimeout(() => body.classList.remove("play"), 1800);
+  }
 }
 
 export async function render(body) {
+  wireTips();
   [data, clients] = await Promise.all([invoke("roster"), invoke("wow_clients").catch(() => 0)]);
+  entering = true;
   draw(body);
 }

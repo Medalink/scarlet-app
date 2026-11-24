@@ -3,6 +3,7 @@
 const DURATION = 900;
 const MIN_COUNT = 10;
 const formats = new WeakMap();
+const queued = new WeakSet();
 
 export const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -16,6 +17,11 @@ export function counted(node, value, format) {
     formats.set(node, format);
   }
   return node;
+}
+
+/** Marks every node under `root` carrying `data-to` (the number) and `data-as` (a key of `byName`) with `counted`. */
+export function countMarked(root, byName) {
+  for (const node of root.querySelectorAll("[data-to]")) counted(node, Number(node.dataset.to), byName[node.dataset.as]);
 }
 
 function countUp(node, now) {
@@ -37,8 +43,10 @@ function countUp(node, now) {
  */
 export function play(root) {
   root.classList.remove("play");
-  if (reducedMotion()) return;
+  if (reducedMotion() || queued.has(root)) return;
+  queued.add(root);
   requestAnimationFrame((now) => {
+    queued.delete(root);
     root.classList.add("play");
     for (const node of root.querySelectorAll("[data-count]")) countUp(node, now);
   });
