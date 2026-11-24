@@ -132,7 +132,7 @@ export function recordTiles(records, { open, owner = null, keys = null }) {
     const note = [owner?.(r), r.item?.name].filter(Boolean).join(" · ");
     list.push(record(name, show(r.value), when, r.span ? `#sessions/${r.span[0]}-${r.span[1]}` : "", { count: [r.value, show], note, onOpen: open(r) }));
   }
-  const cols = Math.min(4, list.length);
+  const cols = list.length % 4 && list.length % 3 === 0 ? 3 : Math.min(4, list.length);
   return list.length ? tiles(fillRow(list, cols), cols) : null;
 }
 
