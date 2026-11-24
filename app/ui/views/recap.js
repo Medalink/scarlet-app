@@ -163,7 +163,7 @@ function tileGrid(recap, paces) {
     list.push(tile("Distance", distanceHtml(yards), note, { size: "xl", count: [yards, distanceHtml], extra: stack(modes.map(([n, v, k]) => [n, v, k, distanceText(v)]), { key: false, h: 8 }) }));
   }
   if (list.length % 2) list[list.length - 1].style.gridColumn = "span 2";
-  return tiles(list, 2);
+  return list.length ? tiles(list, 2) : null;
 }
 
 function moneyText(copper) {
@@ -408,7 +408,10 @@ function draw(into, recap, paces, run, nav, onAll, onWeb) {
     into.append(rates);
   }
   const lead = el("div", "recap-lead");
-  lead.append(routePanel(recap), tileGrid(recap, paces));
+  const grid = tileGrid(recap, paces);
+  lead.append(routePanel(recap));
+  if (grid) lead.append(grid);
+  else lead.classList.add("solo");
   into.append(lead);
   if (totalXp(recap) || recap.levels.length) {
     const bar = stripPanel(recap);

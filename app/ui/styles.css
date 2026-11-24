@@ -1092,6 +1092,7 @@ a.sc-session:hover { border-color: var(--line2); }
 .recap-grid.two { grid-template-columns: 1fr 1fr; }
 .recap-grid.three { grid-template-columns: 1fr 1fr 1fr; }
 .recap-lead { display: grid; grid-template-columns: minmax(0, 1fr) 420px; gap: 16px; margin-top: 18px; }
+.recap-lead.solo { grid-template-columns: minmax(0, 1fr); }
 .recap-head { display: flex; align-items: flex-start; gap: 24px; }
 .recap-actions { margin-left: auto; display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 8px; padding-top: 4px; max-width: 70%; }
 .recap-actions select { height: 28px; padding: 0 8px; font-size: 13px; max-width: 300px; }
