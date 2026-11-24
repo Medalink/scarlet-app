@@ -1,6 +1,8 @@
 // Activity: events per weekday x hour, or per calendar day.
 
-import { invoke, el, num, state } from "../lib.js";
+import { invoke, el, elText, num, dur, state, tiles, fillRow, record, pace, goal, shortDate } from "../lib.js";
+import { play } from "../motion.js";
+import { mod } from "./goals-section.js";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
@@ -11,12 +13,55 @@ function shade(count, max) {
   return `background:${step}`;
 }
 
+const LONG_DATE = { weekday: "short", day: "numeric", month: "short" };
+const dateOf = (ms) => new Date(ms).toLocaleDateString([], LONG_DATE);
+const timeHtml = (secs) => dur(secs);
+const dayCount = (n) => `${num(n)} ${n === 1 ? "day" : "days"}`;
+const dayDate = (day) => shortDate(Date.parse(`${day}T12:00`));
+const spanHash = (r) => `#sessions/${r.from}-${r.to}`;
+
+function recordTiles(p) {
+  const list = [];
+  const add = (label, value, format, when, span) => list.push(record(label, format(value), when, spanHash(span), { count: [value, format] }));
+  if (p.longest_day) add("Longest day", p.longest_day.seconds, timeHtml, dateOf(p.longest_day.from), p.longest_day);
+  if (p.longest_week) add("Most played week", p.longest_week.seconds, timeHtml, `Week of ${dayDate(p.longest_week.day)}`, p.longest_week);
+  if (p.best_streak) add("Longest streak", p.best_streak.days, dayCount, `${dayDate(p.best_streak.from_day)} to ${dayDate(p.best_streak.to_day)}`, p.best_streak);
+  const cols = Math.min(3, list.length);
+  return list.length ? tiles(fillRow(list, cols), cols) : null;
+}
+
+function weekPace(w) {
+  const spread = w.spread;
+  const best = w.best ? { value: w.best.seconds, from: w.best.from } : null;
+  return pace(w.seconds, spread, { label: `Played this week, first ${w.elapsed_days} ${w.elapsed_days === 1 ? "day" : "days"}`, unit: "", format: timeHtml, text: dur, best: w.is_best, peak: best, peers: w.peers, noun: "weeks" });
+}
+
+function streakGoal(p) {
+  const best = p.best_streak?.days ?? 0;
+  const now = p.streak?.days ?? 0;
+  return goal(now, Math.max(best, now, 1), { label: "Current streak", format: dayCount, doneText: "Best streak", eta: best ? `Best ${dayCount(best)}` : "" });
+}
+
+function playSheet(p) {
+  if (!p.longest_day) return null;
+  const sheet = el("div", "sheet goals-sheet");
+  const records = recordTiles(p);
+  const now = el("div", "goal-stack");
+  if (p.week) now.append(tiles([weekPace(p.week)], 1));
+  now.append(streakGoal(p));
+  sheet.append(mod("w7 first", "Records", records), mod("w5 last", "This week", now));
+  return sheet;
+}
+
 export async function render(body) {
-  const data = await invoke("heatmap", { ch: state.ch });
+  const [data, played] = await Promise.all([invoke("heatmap", { ch: state.ch }), invoke("playtime", { ch: state.ch })]);
   body.innerHTML = "";
+  const sheet = playSheet(played);
+  if (sheet) body.appendChild(sheet);
   let mode = sessionStorage.getItem("hm-mode") || "week";
 
   const bar = el("div", "row");
+  bar.style.marginTop = "18px";
   const bw = el("button", "btn" + (mode === "week" ? " on" : ""), "Weekday × hour");
   bw.type = "button";
   bw.setAttribute("aria-pressed", String(mode === "week"));
@@ -70,4 +115,5 @@ export async function render(body) {
   bw.onclick = () => { mode = "week"; sessionStorage.setItem("hm-mode", mode); bw.classList.add("on"); bd.classList.remove("on"); bw.setAttribute("aria-pressed", "true"); bd.setAttribute("aria-pressed", "false"); draw(); };
   bd.onclick = () => { mode = "day"; sessionStorage.setItem("hm-mode", mode); bd.classList.add("on"); bw.classList.remove("on"); bd.setAttribute("aria-pressed", "true"); bw.setAttribute("aria-pressed", "false"); draw(); };
   draw();
+  play(body);
 }
