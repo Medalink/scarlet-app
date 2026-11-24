@@ -205,6 +205,7 @@ pub struct Caps {
 pub struct Latest {
     from: i64,
     to: i64,
+    played: i64,
     paces: Vec<Pace>,
 }
 
@@ -552,6 +553,7 @@ impl Goals {
                 .map(|r| Latest {
                     from: r.from,
                     to: r.to,
+                    played: r.a.played,
                     paces: self.paces(r),
                 }),
         }

@@ -6,6 +6,7 @@
 
 import { invoke, esc, displayName, num, dur, moneyHtml, dateStr, dateTime, SERIES, state, wireTips } from "../lib.js";
 import { countMarked, play } from "../motion.js";
+import { goalsSheet } from "./goals-section.js";
 
 export const CLASS_COLOR = {
   DEATHKNIGHT: "#E04A64",
@@ -48,6 +49,7 @@ let histAll = false;
 let xpPinned = null;
 let current = null;
 let life = null;
+let goals = null;
 let groups = null;
 let sessionMode = "auto";
 let renders = 0;
@@ -104,27 +106,12 @@ function rank(rows) {
 
 // Header ------------------------------------------------------------------
 
-// Time to the next level, the next tens level and level 60, as the companion
-// worked them out (docs/OVERVIEW.md, "Level estimates").
-function etaRows(eta) {
-  if (!eta || (!eta.targets.length && !eta.basis)) return "";
-  const rows = eta.targets
-    .map((t) => `<li><span class="eta-lv">Level ${t.level}</span><b>${esc(t.time)}</b><span>${esc(t.date)}</span></li>`)
-    .join("");
-  return `<div class="eta">${rows ? `<ul>${rows}</ul>` : ""}${eta.basis ? `<p class="eta-basis">${esc(eta.basis)}</p>` : ""}</div>`;
-}
+const atLevelCap = (ov) => Boolean(ov.cap && ov.cap.level > 0 && ov.level >= ov.cap.level);
 
-function header(ov, name, eta) {
+function header(ov, name) {
   const color = CLASS_COLOR[ov.class] || "#ff2d55";
   const identity = [ov.level ? `Level ${ov.level}` : "", raceName(ov.race), className(ov.class)].filter(Boolean).join(" ");
   const bits = [identity, ov.faction, ov.zone ? `in ${ov.zone}` : "", ov.played ? `${longDur(ov.played)} played` : ""].filter(Boolean);
-  const atCap = ov.cap && ov.cap.level > 0 && ov.level >= ov.cap.level;
-  let bar = atCap ? "" : `<p class="ch-note" style="text-align:left;margin-top:14px">No experience bar recorded</p>`;
-  if (ov.xpMax > 0 && !atCap) {
-    const pct = Math.min(100, Math.floor((ov.xp / ov.xpMax) * 100));
-    bar = `<div class="lvl"><div class="lvl-bar"><i style="width:${pct}%"></i></div>
-      <p>${pct}% to level ${ov.level + 1} · ${num(Math.max(0, ov.xpMax - ov.xp))} XP to go</p>${etaRows(eta)}</div>`;
-  }
   const first = ov.sessions.length ? ov.sessions[ov.sessions.length - 1].t : 0;
   const since = first
     ? `Recorded since ${day(first * 1000)}${ov.firstLevel > 1 ? `, from level ${ov.firstLevel}` : ""}`
@@ -138,7 +125,6 @@ function header(ov, name, eta) {
     <div>
       <h1 class="ch-name">${esc(displayName(name))}</h1>
       <p class="ch-sub"><i class="dot"></i>${bits.map((b) => `<span>${esc(b)}</span>`).join("")}</p>
-      ${bar}
     </div>
     <div>${notes.join("")}${last}</div>
   </section>`;
@@ -584,7 +570,6 @@ function rowFigures(rows) {
 const secs = (ms) => Math.floor(ms / 1000);
 
 function inGroup(s, g) {
-  if (sessionMode === "manual") return s.t <= Math.ceil(g.to / 1000) && s.t + (s.p || 0) >= secs(g.from);
   return s.t >= secs(g.from) && s.t * 1000 <= g.to;
 }
 
@@ -745,7 +730,7 @@ function lifetimeMod(life) {
 
 // Page --------------------------------------------------------------------------------
 
-function followShown() {
+function selectShownCharacter() {
   if (state.ch || !current) return;
   const select = document.querySelector("#char");
   if (select) select.value = current.name;
@@ -763,11 +748,12 @@ function draw(body, refocus = null) {
   // An hour at the cap: max level data first, the levelling content in its own section below.
   const sawLevelling = !(ov.firstLevel && ov.cap && ov.firstLevel >= ov.cap.level);
   const layout = focus
-    ? `${header(ov, name, eta)}${capStrip(ov)}
+    ? `${header(ov, name)}${capStrip(ov)}
     <div class="sheet">${lifetimeMod(life)}${goldMod(ov, "first", true)}${capRunsMod(ov)}${capDeathsMod(ov)}${capRepMod(ov)}${capLegacyMod(ov)}${matesMod(ov, "last")}${heatMod(ov)}${zonesMod(ov)}${sawLevelling ? levelsChart(ov, true) : ""}${historyMod(ov)}${importedMod(ov)}</div>`
-    : `${header(ov, name, eta)}${week(ov)}
+    : `${header(ov, name)}${week(ov)}
     <div class="sheet">${lifetimeMod(life)}${levelsChart(ov)}${goldMod(ov)}${runsMod(ov)}${matesMod(ov)}${deathsMod(ov)}${heatMod(ov)}${zonesMod(ov)}${historyMod(ov)}${importedMod(ov)}</div>`;
   body.insertAdjacentHTML("beforeend", layout);
+  if (goals) body.querySelector(".ch-head").after(goalsSheet(goals, ov, eta, { atCap: atLevelCap(ov), onOpen: selectShownCharacter }));
   countMarked(body, { num, money: moneyHtml });
   wireLevels(body, ov);
   wireGold(body, ov);
@@ -781,7 +767,7 @@ function draw(body, refocus = null) {
     };
   });
   body.querySelectorAll("a.ph-row").forEach((link) => {
-    link.onclick = followShown;
+    link.onclick = selectShownCharacter;
   });
   body.querySelectorAll("[data-hist]").forEach((n) => {
     n.onclick = () => {
@@ -810,21 +796,23 @@ export const shownName = () => current?.name ?? null;
 async function load(ch) {
   const first = ch ? null : await invoke("overview", { ch });
   const name = ch ?? first?.name ?? null;
-  const [overview, lifetime, listed] = await Promise.all([
+  const [overview, lifetime, listed, reached] = await Promise.all([
     first ?? invoke("overview", { ch }),
     name ? invoke("lifetime", { ch: name }) : null,
     name ? invoke("session_list", { ch: name }).catch(() => null) : null,
+    name ? invoke("goals", { ch: name }).catch(() => null) : null,
   ]);
-  return { overview, lifetime, listed };
+  return { overview, lifetime, listed, reached };
 }
 
 export async function render(body, ch = state.ch) {
   wireTips();
   const mine = ++renders;
-  const { overview, lifetime, listed } = await load(ch);
+  const { overview, lifetime, listed, reached } = await load(ch);
   if (mine !== renders) return;
   current = overview;
   life = lifetime;
+  goals = reached;
   groups = listed?.sessions ?? null;
   sessionMode = listed?.prefs.mode ?? "auto";
   xpPinned = null;
