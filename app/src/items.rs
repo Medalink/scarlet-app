@@ -69,7 +69,7 @@ pub struct ItemRow {
     farmed: Option<RowFarm>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct Worth {
     value: i64,
     priced: usize,
@@ -77,7 +77,7 @@ pub struct Worth {
     record: Option<WorthRecord>,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct WorthRecord {
     value: i64,
     at: i64,
@@ -522,10 +522,14 @@ fn carried_worth(st: &Store, chars: &[u32]) -> Worth {
         .collect();
     let mut total = 0i64;
     let mut best: Option<WorthRecord> = None;
+    let mut read_this_login: HashMap<u32, [bool; 2]> = HashMap::new();
     for r in &st.events {
         let Some((lists, last)) = state.get_mut(&r.ch) else {
             continue;
         };
+        if r.code == "S" {
+            read_this_login.insert(r.ch, [false; 2]);
+        }
         if r.code != "BC" {
             if r.code != "IN" {
                 *last = None;
@@ -550,7 +554,16 @@ fn carried_worth(st: &Store, chars: &[u32]) -> Worth {
             *lists[kind].entry(id).or_default() += n;
             total = total.saturating_add(worth(id, n));
         }
-        if kind == 0 && best.as_ref().is_none_or(|b| total > b.value) {
+        let read = read_this_login.entry(r.ch).or_default();
+        if kind >= 2 {
+            read[kind - 2] = true;
+        }
+        let fresh = |list: usize, read: bool| read || lists[list].is_empty();
+        if kind == 0
+            && fresh(2, read[0])
+            && fresh(3, read[1])
+            && best.as_ref().is_none_or(|b| total > b.value)
+        {
             best = Some(WorthRecord {
                 value: total,
                 at: r.ms.div_euclid(1000),
@@ -571,7 +584,8 @@ fn carried_worth(st: &Store, chars: &[u32]) -> Worth {
 }
 
 fn decorate(st: &Store, view: &mut Items, ch: Option<&str>, with_worth: bool) {
-    let chars: Vec<u32> = match ch.and_then(|n| st.char_index(n)) {
+    let scope = ch.and_then(|n| st.char_index(n));
+    let chars: Vec<u32> = match scope {
         Some(c) => vec![c],
         None => (0..st.chars.len() as u32).collect(),
     };
@@ -583,9 +597,11 @@ fn decorate(st: &Store, view: &mut Items, ch: Option<&str>, with_worth: bool) {
         let mut total = 0;
         let mut record: Option<RowRecord> = None;
         for (c, g) in &all {
-            let Some(f) = g.farmed(row.id) else { continue };
-            total += f.total;
-            if let Some(r) = f.record
+            let Some((held, best)) = g.farmed_record(row.id) else {
+                continue;
+            };
+            total += held;
+            if let Some(r) = best
                 && record.as_ref().is_none_or(|b| r.value > b.best)
             {
                 record = Some(RowRecord {
@@ -599,6 +615,12 @@ fn decorate(st: &Store, view: &mut Items, ch: Option<&str>, with_worth: bool) {
         row.farmed = (total > 0).then_some(RowFarm { total, record });
     }
     if with_worth {
-        view.worth = Some(carried_worth(st, &chars));
+        let cached = st.worth().get(&scope).cloned();
+        let worth = cached.unwrap_or_else(|| {
+            let made = carried_worth(st, &chars);
+            st.worth().insert(scope, made.clone());
+            made
+        });
+        view.worth = Some(worth);
     }
 }

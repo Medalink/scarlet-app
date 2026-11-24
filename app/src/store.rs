@@ -59,6 +59,7 @@ pub struct Store {
     pub paths: Vec<Row>,
     tallies: Mutex<HashMap<u32, Arc<Vec<Tally>>>>,
     goals: Mutex<HashMap<u32, Arc<Goals>>>,
+    worth: Mutex<HashMap<Option<u32>, crate::items::Worth>>,
     pub lifetimes: Vec<Lifetime>,
     /// Formatted timeline rows, built lazily on first Timeline access.
     lines: OnceLock<Vec<TLine>>,
@@ -331,6 +332,7 @@ impl Store {
             paths,
             tallies: Mutex::default(),
             goals: Mutex::default(),
+            worth: Mutex::default(),
             lifetimes,
             lines: OnceLock::new(),
             line_count,
@@ -380,6 +382,7 @@ impl Store {
             paths: vec![],
             tallies: Mutex::default(),
             goals: Mutex::default(),
+            worth: Mutex::default(),
             lifetimes: vec![],
             lines: OnceLock::new(),
             line_count: 0,
@@ -400,6 +403,10 @@ impl Store {
 
     pub fn goals(&self) -> std::sync::MutexGuard<'_, HashMap<u32, Arc<Goals>>> {
         self.goals.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub fn worth(&self) -> std::sync::MutexGuard<'_, HashMap<Option<u32>, crate::items::Worth>> {
+        self.worth.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     pub fn char_index(&self, name: &str) -> Option<u32> {
