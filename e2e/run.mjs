@@ -207,10 +207,12 @@ const ENTRANCE_PAGES = [
 async function entrancePages(ctx, reducedMotion) {
   const app = await launch({ exe: ctx.exe, home: ctx.site.motion.home, reducedMotion });
   const pages = {};
-  let sawPlay = false;
+  const played = {};
   try {
     await booted(app);
     const first = await app.evaluate(`(async () => (await (await import("/bridge.js")).invoke("session_list", { ch: null })).sessions[0])()`);
+    await app.evaluate(`location.hash = "data"`);
+    await app.until(`document.querySelector("#nav .item.active")?.dataset.key === "data" && document.querySelector("#body.play, #body .play") === null`, "the first page draw is over");
     await app.evaluate(`window.__sawPlay = false; new MutationObserver(() => { if (document.querySelector("#body.play, #body .play")) window.__sawPlay = true; }).observe(document.body, { subtree: true, attributes: true, attributeFilter: ["class"] })`);
     for (const [key, hash, shows] of ENTRANCE_PAGES) {
       await app.evaluate(`window.__sawPlay = false`);
@@ -218,12 +220,12 @@ async function entrancePages(ctx, reducedMotion) {
       if (!reducedMotion) await app.until(`window.__sawPlay`, `${key} starts its entrance`, 1500).catch(() => null);
       await app.until(`!document.querySelector("#body.play, #body .play")`, `${key} finishes its entrance`, 6000);
       pages[key] = await app.evaluate(BODY);
-      sawPlay ||= await app.evaluate(`window.__sawPlay`);
+      played[key] = await app.evaluate(`window.__sawPlay`);
     }
   } finally {
     if ((await app.close()) === 3) ctx.breach = true;
   }
-  return { pages, sawPlay };
+  return { pages, played };
 }
 
 const CHECKS = [
@@ -426,6 +428,24 @@ const CHECKS = [
   },
   {
     lane: "app",
+    name: "the Character page leads with progress to the level cap and a Records row, and a session page shows its pace",
+    async run(ctx) {
+      const app = running(ctx);
+      await selectCharacter(app, TESTA);
+      await open(app, "character", /Records/);
+      const drawn = await app.evaluate(`({ levelBar: document.querySelectorAll("#body .goals-sheet .sc-goal.lg .sg-t > i").length, figure: document.querySelector("#body .goals-sheet .sc-goal.lg .sg-h")?.textContent.replace(/\\s+/g, " ").trim() ?? "", records: document.querySelectorAll("#body .goals-sheet .sc-record").length, first: document.querySelector("#body .goals-sheet > section")?.querySelector("h2")?.textContent ?? "" })`);
+      expectEqual("the level goal figure", drawn.figure, "6 / 60");
+      expectEqual("goal bars for the level", drawn.levelBar, 1);
+      expectEqual("the first module of the Character page", drawn.first, "Level");
+      if (drawn.records < 1) throw mismatch("tiles in the Records row", "at least one", String(drawn.records));
+      await app.evaluate(`location.hash = "sessions/1795000000000-1795000130000"`);
+      await app.until(`document.querySelectorAll("#body .sc-pace").length > 0`, "the session page shows its pace tiles");
+      const pace = await app.evaluate(`[...document.querySelectorAll("#body .sc-pace")].map((p) => p.innerText.replace(/\\s+/g, " ").trim())`);
+      if (!pace.some((p) => /Under 15 minutes|of 3 sessions to compare|Middle half/.test(p))) throw mismatch("a pace tile's comparison state", "Under 15 minutes, N of 3 sessions to compare or Middle half", JSON.stringify(pace));
+    },
+  },
+  {
+    lane: "app",
     name: "the run summary carries one titled recap for each character",
     async run(ctx) {
       const app = running(ctx);
@@ -568,9 +588,9 @@ const CHECKS = [
       prepareSite(ctx, ctx.site.motion);
       const moving = await entrancePages(ctx, false);
       const still = await entrancePages(ctx, true);
-      expectEqual("the entrance ran with motion on", moving.sawPlay, true);
-      expectEqual("the entrance never ran under reduced motion", still.sawPlay, false);
       for (const [key] of ENTRANCE_PAGES) {
+        expectEqual(`the ${key} entrance ran with motion on`, moving.played[key], true);
+        expectEqual(`the ${key} entrance never ran under reduced motion`, still.played[key], false);
         if (moving.pages[key] !== still.pages[key]) throw mismatch(`${key} after its entrance`, excerpt(still.pages[key]), excerpt(moving.pages[key]));
       }
     },
