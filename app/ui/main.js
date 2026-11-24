@@ -163,14 +163,16 @@ function setView() {
     });
     $("#pagetitle").textContent = labelOf(current);
     refreshWebLine();
-    const stale = $("#body");
-    const keep = stale.dataset.route === route ? stale.scrollTop : 0;
-    const body = stale.cloneNode(false);
+    let body = $("#body");
+    if (body.dataset.route !== route) {
+      const fresh = body.cloneNode(false);
+      fresh.classList.remove("play");
+      fresh.dataset.route = route;
+      body.replaceWith(fresh);
+      body = fresh;
+    }
     delete body.dataset.ready;
-    body.dataset.route = route;
-    stale.replaceWith(body);
     await activeMod.render(body, VIEWS[key] ? sub : undefined);
-    if (keep && body.isConnected) body.scrollTop = keep;
     body.dataset.ready = "1";
     if (mine === navSeq) invoke("save_view", { view: VIEWS[key] ? route : current });
   });
@@ -217,7 +219,7 @@ async function boot() {
   const [info, , s] = await Promise.all([invoke("update_info"), loadState(), invoke("get_settings")]);
   showVersion(info);
   const resumed = s?.last_view ? resolveRoute(s.last_view) : "";
-  if (!location.hash && VIEWS[routeKey(resumed)]) location.hash = resumed;
+  if (!location.hash && VIEWS[routeKey(resumed)]) history.replaceState(null, "", `#${resumed}`);
   if (s && !s.setup_done) openSetup();
   await refreshCharSelector();
   headStats();
