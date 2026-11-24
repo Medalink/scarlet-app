@@ -272,5 +272,4 @@ export async function render(body) {
   page.append(search, carriers(first), ...(banks ? [banks] : []));
   body.append(page);
   play(page);
-  setTimeout(() => page.classList.remove("play"), 1800);
 }

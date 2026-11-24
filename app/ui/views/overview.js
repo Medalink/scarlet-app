@@ -785,7 +785,6 @@ function draw(body, refocus = null) {
   if (entering) {
     entering = false;
     play(body);
-    setTimeout(() => body.classList.remove("play"), 1800);
   }
 }
 

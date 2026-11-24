@@ -1,9 +1,16 @@
 // The entrance of a page: numbers count up from 0 and the CSS under `.play` draws bars and routes in. Same timing as the website.
 
+import { state } from "./lib.js";
+
 const DURATION = 900;
 const MIN_COUNT = 10;
 const formats = new WeakMap();
 const queued = new WeakSet();
+const timers = new WeakMap();
+const played = new Set();
+const ENTRANCE_MS = 2000;
+
+window.addEventListener("hashchange", () => played.clear());
 
 export const reducedMotion = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 
@@ -39,15 +46,22 @@ function countUp(node, now) {
 
 /**
  * Plays the entrance of everything under `root` on the next frame, before it is painted: `root` gets the class `play`
- * and each node marked with `counted` counts up. Nothing changes under reduced motion.
+ * and each node marked with `counted` counts up, and the class comes off when the entrance is over. A page plays once
+ * each time it is opened: a second call with the same `key` and character, such as a redraw after `store-changed` or
+ * a return to a character tab, leaves the page as drawn. `key` is the hash unless the page names another. Navigation
+ * forgets every key. Nothing changes under reduced motion.
  */
-export function play(root) {
+export function play(root, key = location.hash) {
+  clearTimeout(timers.get(root));
   root.classList.remove("play");
-  if (reducedMotion() || queued.has(root)) return;
+  const id = `${key}|${state.ch ?? ""}`;
+  if (reducedMotion() || queued.has(root) || played.has(id)) return;
+  played.add(id);
   queued.add(root);
   requestAnimationFrame((now) => {
     queued.delete(root);
     root.classList.add("play");
     for (const node of root.querySelectorAll("[data-count]")) countUp(node, now);
+    timers.set(root, setTimeout(() => root.classList.remove("play"), ENTRANCE_MS));
   });
 }

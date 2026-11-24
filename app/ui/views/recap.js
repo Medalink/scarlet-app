@@ -401,12 +401,6 @@ function draw(into, recap, run, nav, onAll, onWeb) {
   for (const r of rows) if (r) into.append(r);
 }
 
-let playedKey = null;
-
-window.addEventListener("hashchange", () => {
-  if (!location.hash.startsWith("#sessions/")) playedKey = null;
-});
-
 export async function renderRecaps(body, run, nav) {
   wireTips();
   body.innerHTML = "";
@@ -419,13 +413,7 @@ export async function renderRecaps(body, run, nav) {
     const onWeb = await onTheWebsite(recap);
     if (mine !== latest) return;
     draw(content, recap, run, nav, onAll, onWeb);
-    const key = `${nav.exact ? nav.current.from : run.from}:${recap.character}`;
-    if (key === playedKey) {
-      page.classList.remove("play");
-      return;
-    }
-    playedKey = key;
-    play(page);
+    play(page, `${location.hash}:${recap.character}`);
   };
   if (run.recaps.length > 1) {
     const seg = el("div", "sc-seg");

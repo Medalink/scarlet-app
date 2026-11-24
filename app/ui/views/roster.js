@@ -400,7 +400,6 @@ function draw(body) {
   if (entering) {
     entering = false;
     play(body);
-    setTimeout(() => body.classList.remove("play"), 1800);
   }
 }
 
