@@ -1,8 +1,9 @@
 // Loot: what each player received as a quality-coloured bar per loot rule, with their rolls, and drop rates per
 // creature as chance bars.
 
-import { invoke, el, elText, state, esc, displayName, num, stack, wireTips } from "../lib.js";
+import { invoke, el, elText, state, esc, displayName, num, dur, stack, tiles, pace, goal, record, shortDate, wireTips } from "../lib.js";
 import { counted, play } from "../motion.js";
+import { openAs } from "./paces.js";
 
 const METHOD = {
   solo: "Solo",
@@ -33,6 +34,11 @@ const ROLLS = [
 const CREATURE_LIMIT = 48;
 const CREATURE_TOP = 12;
 const ITEMS_PER_CREATURE = 8;
+const UNCOMMON = 2;
+const CHASE_PER_CREATURE = 3;
+const FARMED_COLUMNS = 4;
+
+const fixed = (v) => (v >= 10 ? num(v) : String(Math.round(v * 10) / 10));
 
 function ruleLabel(r) {
   if (r.method === "solo") return "Solo";
@@ -68,16 +74,18 @@ function key(rows) {
 
 function creatures(view) {
   const byNpc = new Map();
+  const info = new Map(view.items.map((i) => [i.item, i]));
+  const killed = new Map(view.kills.map((k) => [k.npc, k.kills]));
   for (const d of view.drops) {
     let c = byNpc.get(d.npc);
     if (!c) {
-      c = { name: d.npc_name || `Creature ${d.npc}`, rules: new Map(), items: new Map() };
+      c = { npc: d.npc, name: d.npc_name || `Creature ${d.npc}`, rules: new Map(), items: new Map() };
       byNpc.set(d.npc, c);
     }
     c.rules.set(d.rule, Math.max(c.rules.get(d.rule) ?? 0, d.looted));
     let it = c.items.get(d.item);
     if (!it) {
-      it = { name: d.item_name || `Item ${d.item}`, drops: 0, byRule: [] };
+      it = { id: d.item, name: d.item_name || `Item ${d.item}`, drops: 0, byRule: [] };
       c.items.set(d.item, it);
     }
     it.drops += d.drops;
@@ -87,7 +95,12 @@ function creatures(view) {
     .map((c) => {
       const corpses = [...c.rules.values()].reduce((a, n) => a + n, 0);
       const items = [...c.items.values()].sort((a, b) => b.drops - a.drops || a.name.localeCompare(b.name));
-      return { name: c.name, rules: c.rules, corpses, items, search: `${c.name} ${items.map((i) => i.name).join(" ")}`.toLowerCase() };
+      const kills = Math.max(killed.get(c.npc) ?? 0, corpses);
+      const chase = items
+        .filter((it) => it.drops > 0 && info.get(it.id)?.received === 0 && info.get(it.id)?.quality >= UNCOMMON)
+        .slice(0, CHASE_PER_CREATURE)
+        .map((it) => ({ name: it.name, kills, drops: it.drops, expected: Math.ceil(corpses / it.drops) }));
+      return { npc: c.npc, name: c.name, rules: c.rules, corpses, items, chase, search: `${c.name} ${items.map((i) => i.name).join(" ")}`.toLowerCase() };
     })
     .sort((a, b) => b.corpses - a.corpses || a.name.localeCompare(b.name));
 }
@@ -104,7 +117,7 @@ function creatureCard(c, view) {
     })
     .join("");
   const more = c.items.length - shown.length;
-  return `<section class="lt-creature"><div class="lt-head"><h4>${esc(c.name)}</h4><span>${num(c.corpses)} ${c.corpses === 1 ? "corpse" : "corpses"}</span></div><div class="sc-bars">${rows}</div>${more > 0 ? `<p class="dim">${num(more)} more ${more === 1 ? "item" : "items"}</p>` : ""}</section>`;
+  return `<section class="lt-creature"><div class="lt-head"><h4>${esc(c.name)}</h4><span>${num(c.corpses)} ${c.corpses === 1 ? "corpse" : "corpses"}</span></div><div class="sc-bars">${rows}</div>${c.chase.length ? `<div class="lt-chase" data-npc="${esc(c.npc)}"></div>` : ""}${more > 0 ? `<p class="dim">${num(more)} more ${more === 1 ? "item" : "items"}</p>` : ""}</section>`;
 }
 
 function dropRates(view) {
@@ -127,6 +140,10 @@ function dropRates(view) {
     const hit = f ? list.filter((c) => c.search.includes(f)) : list;
     const shown = hit.slice(0, f || expanded ? CREATURE_LIMIT : CREATURE_TOP);
     grid.innerHTML = shown.map((c) => creatureCard(c, view)).join("");
+    for (const slot of grid.querySelectorAll(".lt-chase")) {
+      const c = shown.find((x) => x.npc === slot.dataset.npc);
+      slot.append(elText("p", "sc-label", "Dropped, not received"), ...c.chase.map((x) => goal(0, x.drops, { label: x.name, note: `${num(x.kills)} ${x.kills === 1 ? "kill" : "kills"} · about 1 in ${num(x.expected)}`, count: false })));
+    }
     note.textContent = shown.length < hit.length && (f || expanded) ? `Showing ${CREATURE_LIMIT} of ${num(hit.length)}.` : "";
     all.hidden = Boolean(f) || expanded || hit.length <= CREATURE_TOP;
     all.textContent = `Show all ${num(hit.length)} creatures`;
@@ -139,6 +156,36 @@ function dropRates(view) {
   q.oninput = () => { clearTimeout(deb); deb = setTimeout(draw, 120); };
   draw();
   p.append(q, grid, note, all);
+  return p;
+}
+
+function farmTile(f) {
+  const p = f.pace;
+  const t = pace(p.rate, p.spread, { label: f.name, total: `${num(p.count)} in ${dur(p.played)}, ${shortDate(p.from)} · ${num(f.total)} looted`, format: fixed, text: fixed, best: p.isBest, peak: p.best, peers: p.peers });
+  if (!state.ch) t.append(elText("span", "sc-sub", displayName(f.character)));
+  if (f.record) {
+    const a = elText("a", "sc-sub sc-pace-record", `Most in a session ${num(f.record.value)} · ${shortDate(f.record.from)}`);
+    a.href = `#sessions/${f.record.from}-${f.record.to}`;
+    a.onclick = openAs(f.character);
+    t.append(a);
+  }
+  return t;
+}
+
+function firstTile(f) {
+  return record(f.name, shortDate(f.first[0]), "First looted", `#sessions/${f.first[0]}-${f.first[1]}`, { note: state.ch ? "" : displayName(f.character), onOpen: openAs(f.character) });
+}
+
+function farming(view) {
+  const { farmed, firsts } = view.farming;
+  if (!farmed.length && !firsts.length) return null;
+  const p = panel("Farming");
+  if (farmed.length) {
+    p.append(elText("p", "sc-label", "Most looted, items an hour"), tiles(farmed.map(farmTile), Math.min(FARMED_COLUMNS, farmed.length)));
+  }
+  if (firsts.length) {
+    p.append(elText("p", "sc-label", "First rare drops"), tiles(firsts.map(firstTile), Math.min(FARMED_COLUMNS, firsts.length)));
+  }
   return p;
 }
 
@@ -267,7 +314,7 @@ export async function render(body) {
   body.innerHTML = "";
   wireTips();
   const page = el("div", "lt");
-  page.append(received(view), dropRates(view));
+  page.append(...[farming(view), received(view), dropRates(view)].filter(Boolean));
   body.append(page);
   play(page);
 }
