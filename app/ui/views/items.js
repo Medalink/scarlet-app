@@ -21,7 +21,9 @@ const READS = [
 ];
 const FRESH_SECS = 12 * 3600;
 const DAY_OLD_SECS = 48 * 3600;
+const FADED_SECS = 7 * 86400;
 const WHO_SHOWN = 3;
+const MIN_WHERE = 8;
 
 function placeText(view, place, scope, accountUnknown) {
   if (accountUnknown) return `${place} (account unknown, ${displayName(scope)})`;
@@ -60,7 +62,7 @@ function holdings(row, view) {
   return parts;
 }
 
-function itemRow(r, view, maxValue) {
+function itemRow(r, view, scale) {
   const parts = holdings(r, view);
   const segs = parts
     .map((h, i) =>
@@ -80,29 +82,30 @@ function itemRow(r, view, maxValue) {
     })
     .join("");
   const more = parts.length - WHO_SHOWN;
+  const width = Math.max(MIN_WHERE, (Math.log1p(r.total) / scale.where) * 100);
   const value = r.price ? r.price.copper * r.total : 0;
-  const price = r.price
-    ? `<span data-tip="Last auction price|${esc(when(r.price.at))}">${moneyHtml(r.price.copper)}</span>`
-    : "–";
   const worth = r.price
-    ? `${moneyHtml(value)}<span class="it-vbar"><i style="--w:${Math.max(2, (value / maxValue) * 100).toFixed(1)}%"></i></span>`
+    ? `<span class="it-v">${moneyHtml(value)}</span><small data-tip="Last auction price|${esc(when(r.price.at))}">${moneyHtml(r.price.copper)} each</small><span class="it-vbar"><i style="--w:${Math.max(2, (value / scale.value) * 100).toFixed(1)}%"></i></span>`
     : "–";
   return `<div class="it-row"><div class="it-name"><b>${esc(r.name || `Item ${r.id}`)}</b> <span class="dim">${r.id}</span></div>
-    <div class="it-where"><div class="sc-stack">${segs}</div><div class="it-who">${who}${more > 0 ? `<span class="dim">+${num(more)} more</span>` : ""}</div></div>
-    <b class="it-total">${num(r.total)}</b><div class="it-price">${price}</div><div class="it-value">${worth}</div></div>`;
+    <div class="it-where"><div class="sc-stack" style="width:${width.toFixed(1)}%">${segs}</div><div class="it-who">${who}${more > 0 ? `<span class="dim">+${num(more)} more</span>` : ""}</div></div>
+    <b class="it-total">${num(r.total)}</b>${scale.priced ? `<div class="it-value">${worth}</div>` : ""}</div>`;
 }
 
 function itemList(view, into) {
-  const valueOf = (r) => (r.price ? r.price.copper * r.total : -1);
   const rows = view.rows;
-  const maxValue = Math.max(...rows.map(valueOf), 1);
+  const scale = {
+    where: Math.log1p(Math.max(...rows.map((r) => r.total), 1)),
+    value: Math.max(...rows.map((r) => (r.price ? r.price.copper * r.total : 0)), 1),
+    priced: rows.some((r) => r.price),
+  };
   const totals = WHERE.map(([label, c, f]) => [label, c, rows.reduce((a, r) => a + r.holders.reduce((n, h) => n + h[f], 0), 0)]);
   const shared = rows.reduce((a, r) => a + r.places.reduce((n, p) => n + p.count, 0), 0);
   const list = el("div", "it-list");
   list.append(key([...totals.filter((t) => t[2] > 0), ...(shared ? [[SHARED[0], SHARED[1], shared]] : [])]));
-  const body = el("div", "it-rows");
-  body.innerHTML = `<div class="it-row it-head"><span>Item</span><span>Where</span><span>Total</span><span>Last price</span><span>Stack value</span></div>${rows
-    .map((r) => itemRow(r, view, maxValue))
+  const body = el("div", `it-rows${scale.priced ? "" : " unpriced"}`);
+  body.innerHTML = `<div class="it-row it-head"><span>Item</span><span>Where</span><span>Total</span>${scale.priced ? "<span>Value</span>" : ""}</div>${rows
+    .map((r) => itemRow(r, view, scale))
     .join("")}`;
   list.append(body);
   into.appendChild(list);
@@ -154,10 +157,11 @@ function results(view, into) {
 }
 
 function age(at, now) {
-  if (!at) return { c: "never", text: "Never" };
+  if (!at) return { c: "never", text: "Never", left: 0 };
   const s = Math.max(0, now - at);
+  const left = Math.max(0, 1 - s / FADED_SECS) * 100;
   const text = s < 3600 ? `${Math.max(1, Math.round(s / 60))} min` : s < 86400 ? `${Math.round(s / 3600)} h` : `${Math.round(s / 86400)} d`;
-  return { c: s < FRESH_SECS ? "fresh" : s < DAY_OLD_SECS ? "day" : "stale", text };
+  return { c: s < FRESH_SECS ? "fresh" : s < DAY_OLD_SECS ? "day" : "stale", text, left };
 }
 
 function carriers(view) {
@@ -174,7 +178,7 @@ function carriers(view) {
     .map((c) => {
       const cells = READS.map(([label, f]) => {
         const a = age(c[f], now);
-        return `<div class="fr-cell ${a.c}" data-tip="${label} read|${esc(when(c[f]))}"><i></i><span>${label}</span><b>${a.text}</b></div>`;
+        return `<div class="fr-cell ${a.c}" data-tip="${label} read|${esc(when(c[f]))}"><i style="--w:${a.left.toFixed(1)}%"></i><span>${label}</span><b>${a.text}</b></div>`;
       }).join("");
       return `<div class="fr-row"><span class="fr-name">${esc(displayName(c.name))}</span><span class="fr-n">${num(c.stacks)} <small>${c.stacks === 1 ? "item" : "items"}</small></span>${cells}</div>`;
     })
@@ -189,14 +193,26 @@ function sharedBanks(view) {
   if (!view.shared.length) return null;
   const p = el("div", "panel");
   p.innerHTML = "<h3>Warband and guild banks</h3>";
-  const list = view.shared.map((s) => {
+  const empty = (s) => s.stacks === 0;
+  const readOn = (s) => (s.at ? new Date(s.at * 1000).toLocaleDateString([], { month: "short", day: "numeric" }) : "");
+  const filled = view.shared.filter((s) => !empty(s));
+  const bare = view.shared.filter(empty).map((s) => {
+    const line = el("p", "it-bank-empty");
+    const bits = [placeText(view, s.place, s.scope, s.account_unknown), "empty"];
+    if (s.money) bits.push(`balance ${moneyHtml(s.money)}`);
+    if (s.at) bits.push(`read ${readOn(s)}`);
+    line.innerHTML = bits.map((b, i) => (i === 0 ? `<b>${esc(b)}</b>` : b)).join(" · ");
+    return line;
+  });
+  const list = filled.map((s) => {
     const note = s.at ? `Last read ${when(s.at)}${s.read_by ? ` by ${displayName(s.read_by)}` : ""}` : "";
     const balance = el("span", "it-balance");
     balance.innerHTML = s.money == null ? "No balance read" : `Balance ${moneyHtml(s.money)}`;
     const held = (n) => `${num(n)}<small>${n === 1 ? "item" : "items"}</small>`;
     return tile(placeText(view, s.place, s.scope, s.account_unknown), held(s.stacks), note, { size: "xl", extra: balance, count: [s.stacks, held] });
   });
-  p.appendChild(tiles(list, Math.min(list.length, 3)));
+  if (list.length) p.appendChild(tiles(list, Math.min(list.length, 3)));
+  p.append(...bare);
   return p;
 }
 
