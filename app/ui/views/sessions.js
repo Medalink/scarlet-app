@@ -116,7 +116,7 @@ const overlap = (c, from, to) => Math.min(c.to, to) - Math.max(c.from, from);
 async function renderRun(body, sub) {
   const [from, to] = sub.split("-").map(Number);
   const { prefs, sessions: cards } = await invoke("session_list", { ch: state.ch });
-  const exact = cards.find((c) => c.from === from && c.to === to);
+  const exact = cards.find((c) => c.from === from && (c.to === to || c.live));
   const current = exact ?? cards.filter((c) => overlap(c, from, to) > 0).sort((a, b) => overlap(b, from, to) - overlap(a, from, to))[0] ?? null;
   const run = exact ? await invoke("run_summary", { from: exact.from, to: exact.to, ch: state.ch, clip: true }) : await invoke("run_summary", { from, to, ch: state.ch, wowRun: true });
   if (!run.recaps.length) {

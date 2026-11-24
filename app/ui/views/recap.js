@@ -1,7 +1,7 @@
 // The session recap of recap-app.html, drawn from `run_summary(...).recaps`: head, route and tiles, strip, feats and
 // comparison, time and experience, counts, moments, quests and loot.
 
-import { invoke, el, elText, num, dur, money, moneyHtml, displayName, distanceHtml, distanceText, tile, tiles, stack, bars, compare, strip, routeCard, wireTips } from "../lib.js";
+import { invoke, el, elText, state, num, dur, money, moneyHtml, displayName, distanceHtml, distanceText, tile, tiles, stack, bars, compare, strip, routeCard, wireTips } from "../lib.js";
 import { levelsOf, paceName, paceTiles } from "./paces.js";
 import { BY_KEY } from "../feats-catalog.js";
 import { GLYPHS, TIER_NAMES, svg } from "../glyphs.js";
@@ -148,10 +148,11 @@ function tileGrid(recap, paces) {
   const c = recap.counters;
   const xp = totalXp(recap);
   const list = [];
-  if (xp) list.push(tile("Experience", num(xp), "", { size: "xl", count: [xp, num] }));
-  if (c.kills) list.push(tile("Kills", num(c.kills), "", { size: "xl", count: [c.kills, num] }));
+  const paced = (key) => paces.some((p) => p.key === key);
+  if (xp && !paced("xp_h")) list.push(tile("Experience", num(xp), "", { size: "xl", count: [xp, num] }));
+  if (c.kills && !paced("kills_h")) list.push(tile("Kills", num(c.kills), "", { size: "xl", count: [c.kills, num] }));
   const net = (c.earned ?? 0) - (c.spent ?? 0);
-  if ((c.earned || c.spent) && !paces.some((p) => p.key === "gold_h")) {
+  if ((c.earned || c.spent) && !paced("gold_h")) {
     list.push(tile("Gold", moneyHtml(net, true), `Earned ${moneyText(c.earned ?? 0)} · spent ${moneyText(c.spent ?? 0)}`, { size: "xl", count: [Math.abs(net), (v) => moneyHtml(Math.sign(net) * v, true)] }));
   }
   const yards = (c.foot ?? 0) + (c.walk ?? 0) + (c.mount ?? 0) + (c.swim ?? 0) + (c.fly ?? 0);
@@ -395,7 +396,13 @@ function draw(into, recap, paces, run, nav, onAll, onWeb) {
   const c = recap.counters;
   const totals = {};
   if (c.earned || c.spent) totals.gold_h = `${money((c.earned ?? 0) - (c.spent ?? 0))} in ${dur(recap.played)} · earned ${moneyText(c.earned ?? 0)} · spent ${moneyText(c.spent ?? 0)}`;
-  const rates = paceTiles(paces, recap.played, { totals });
+  const selectRecordCharacter = () => {
+    if (state.ch) return;
+    const select = document.querySelector("#char");
+    if (select) select.value = recap.character;
+    state.ch = recap.character;
+  };
+  const rates = paceTiles(paces, recap.played, { totals, onOpen: selectRecordCharacter });
   if (rates) {
     rates.style.marginTop = "18px";
     into.append(rates);

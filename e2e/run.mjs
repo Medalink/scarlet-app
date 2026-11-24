@@ -157,7 +157,7 @@ async function open(app, key, shows, gone = null, hash = key) {
   await app.evaluate(`location.hash = ${JSON.stringify(hash)}`);
   const without = gone ? ` && !${patternExpression(gone)}.test(${BODY})` : "";
   await app.until(
-    `document.querySelector("#nav .item.active")?.dataset.key === ${JSON.stringify(key)} && ${patternExpression(shows)}.test(${BODY})${without}`,
+    `document.querySelector("#nav .item.active")?.dataset.key === ${JSON.stringify(key)} && document.querySelector("#body")?.dataset.ready === "1" && ${patternExpression(shows)}.test(${BODY})${without}`,
     `${hash} shows ${shows}${gone ? ` and no longer ${gone}` : ""}`,
   );
 }
@@ -421,7 +421,7 @@ const CHECKS = [
     async run(ctx) {
       const app = running(ctx);
       await selectCharacter(app, PROBE);
-      const shows = /^(?=.*Level 5 to 6 in Elwynn Forest)(?=.*Testa Fixture)(?=.*Experience 1,605)(?=.*Kills 2)(?=.*Experience every 5 minutes)(?=.*Killed most)(?=.*Levels, deaths and feats)(?!.*Probe Lane)/;
+      const shows = /^(?=.*Level 5 to 6 in Elwynn Forest)(?=.*Testa Fixture)(?=.*1,605 XP in)(?=.*2 kills in)(?=.*Experience every 5 minutes)(?=.*Killed most)(?=.*Levels, deaths and feats)(?!.*Probe Lane)/;
       await app.evaluate(`location.hash = "sessions/1795000000000-1795000130000"`);
       await app.until(`${patternExpression(shows)}.test(${BODY})`, `the run summary shows ${shows}`);
     },
@@ -516,7 +516,7 @@ const CHECKS = [
       await cardCount(1, "Manual shows the one marked session");
       expectMatch("the marked session's card", (await cards())[0], /1m /);
       await app.evaluate(`document.querySelector("#body .sc-sessions .sc-session").click()`);
-      await app.until(`/1m 0s played/.test(${BODY}) && /Experience 205 /.test(${BODY}) && !/1,605/.test(${BODY})`, "a marked session's page holds only the minute inside it");
+      await app.until(`/1m 0s played/.test(${BODY}) && /205 XP in/.test(${BODY}) && !/1,605/.test(${BODY})`, "a marked session's page holds only the minute inside it");
       await app.evaluate(`location.hash = "sessions"`);
       await cardCount(1, "the list is back in Manual");
       await press("Start session");
