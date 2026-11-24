@@ -11,7 +11,7 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { launch } from "./cdp.mjs";
 import zlib from "node:zlib";
-import { CHARACTERS, ELWYNN, FISHING, GUILD, LATER, WESTFALL, lineCount, savedVariablesPath, writeWow } from "./scenario.mjs";
+import { CHARACTERS, ELWYNN, FISHING, GRIND, GUILD, LATER, WESTFALL, lineCount, savedVariablesPath, writeGrind, writeWow } from "./scenario.mjs";
 
 const REPO = path.resolve(import.meta.dirname, "..");
 const WINDOWS = process.platform === "win32";
@@ -36,15 +36,15 @@ const VIEWS = [
   },
   { key: "characters", shows: /^(?=.*Last session)(?=.*Testa Fixture)(?=.*Probe Lane)/, never: /No characters recorded yet/ },
   { key: "feats", shows: FEATS_LOCAL, never: /No feats counted|Could not|refused|Copper|Silver|Legend\b|Poor/ },
-  { key: "stats", shows: /^(?=.*1,605 Experience .* 2 Kills)(?=.*Travel and time)(?=.*Experience over time)(?=.*Top spells cast Heroic Strike 1)(?=.*Moving and standing)(?=.*Zones by time)/, never: /No recorded time yet/ },
+  { key: "stats", shows: /^(?=.*Records)(?=.*Experience 1,605)(?=.*Kills 2)(?=.*Travel and time)(?=.*Experience over time)(?=.*Top spells cast Heroic Strike 1)(?=.*Moving and standing)(?=.*Zones by time)/, never: /No recorded time yet/ },
   { key: "activity", shows: /Peak: [1-9]\d* events in an hour/, never: /Peak: 0 events|No events yet/ },
   { key: "log", shows: /kill Stonetusk Boar \(113\) by you/, never: /No events|Nothing recorded/ },
   { key: "sessions", shows: /^(?=.*2m in Westfall)(?=.*Level 5 to 6 in Elwynn Forest)(?=.*2m 10s · 2 kills · 1 quest · 1,605 XP)/, never: /No sessions yet\./ },
   { key: "map", shows: /Elwynn Forest 12 points Westfall 10 points/, never: /No path points yet/ },
   { key: "loot", shows: /^(?=.*Drop rates .* Stonetusk Boar 1 corpse Chunk of Boar Meat 100% 1\/1 Linen Cloth 100% 1\/1)(?=.*Items received and rolls Common 3 Uncommon 1 Rare 1 Won 1 Testa Fixture Solo 3 1 Group members \(1\) 1 player 2)/, never: /No creature loot with an item list|No loot recorded yet/ },
   { key: "character", hash: "character/class", shows: /Spells cast most Heroic Strike 1/, never: /Select a character|Loading the class section/ },
-  { key: "character", hash: "character/talents", shows: /Arms · 3 points, 2 available .* Improved Heroic Strike 2\/3 Deflection 2\/2 .* Picked 1→2\/3/, never: /No talent lines recorded|Select a character/ },
-  { key: "legacy", shows: /Progression Gourmand · rank 1 of 3 .* Well Fed duration .* 0 1 15\.0 min — — .* 1 1 20\.0 min \+33% 33% /, never: /No Legacy lines recorded|Select a character/ },
+  { key: "character", hash: "character/talents", shows: /Points spent 3 \/ 4 .* Unspent 1 0 class · 1 spec Arms 3 \/ 4 75% 3 points Improved Heroic Strike 2 \/ 3 66% Deflection 2 \/ 2 Max .* Picked 1→2\/3/, never: /No talent lines recorded|Select a character/ },
+  { key: "legacy", shows: /^(?=.*Earned 2 \/ 65)(?=.*Spent 0 To spend 2)(?=.*Next ranks Progression: Gourmand 1 \/ 3)(?=.*Progression Gourmand 1 \/ 3 33% Rank Tooltip)(?=.*Well Fed duration .* 0 1 15\.0 min — — .* 1 1 20\.0 min \+33% 33% )/, never: /No Legacy lines recorded|Select a character/ },
   {
     key: "items",
     shows: /^(?=.*Linen Cloth 2589 3 looted Testa Fixture 3 Warband bank \(E2EONE\) 20 Warband bank \(E2ETWO\) 5 28 42s ?00c 1s ?50c each Wool Cloth 2592 Guild bank 7 7 –)(?=.*Recipes 2× Linen Cloth 1× Bolt of Linen Cloth Testa Fixture)(?=.*Warband and guild banks Warband bank \(E2EONE\) 1 ?item Last read \d{4}-\d\d-\d\d \d\d:\d\d by Testa Fixture Balance 12g ?34s Warband bank \(E2ETWO\) 1 ?item Last read .* by Probe Lane Balance 5g ?00s Guild bank 1 ?item Last read .* by Probe Lane Balance 98g ?76s)(?!.*1s ?25c)/,
@@ -203,6 +203,28 @@ const ENTRANCE_PAGES = [
   ["characters", "characters", /Last session/],
   ["sessions", null, /\d[smhd] played/],
 ];
+
+
+async function grindApp(ctx) {
+  if (ctx.grind) return ctx.grind;
+  const s = ctx.site.grind;
+  fs.mkdirSync(s.home, { recursive: true });
+  writeGrind(s.wow);
+  expectEqual("exporting the grind fixture", exportSite(ctx, s).code, 0);
+  fs.writeFileSync(path.join(s.home, "settings.json"), JSON.stringify({ wow: s.wow, data: s.out, watch: false, last_view: "overview", keep_addon: false, open_with_wow: false, upload: { enabled: false, server: ctx.website.url } }));
+  ctx.grind = await launch({ exe: ctx.exe, home: s.home, reducedMotion: true });
+  await booted(ctx.grind);
+  await selectCharacter(ctx.grind, GRIND.name);
+  return ctx.grind;
+}
+
+const text = (app, selector) => app.evaluate(`[...document.querySelectorAll(${JSON.stringify(selector)})].map((n) => n.innerText.replace(/\\s+/g, " ").trim())`);
+
+async function openGrind(ctx, key, shows) {
+  const app = await grindApp(ctx);
+  await open(app, key, shows);
+  return app;
+}
 
 async function entrancePages(ctx, reducedMotion) {
   const app = await launch({ exe: ctx.exe, home: ctx.site.motion.home, reducedMotion });
@@ -478,6 +500,83 @@ const CHECKS = [
       const drawn = await app.evaluate(`({ goal: document.querySelector("#body .it .sc-goal")?.innerText.replace(/\\s+/g, " ").trim() ?? "", farmed: [...document.querySelectorAll("#body .it-farm")].map((n) => n.textContent.trim()) })`);
       if (!/4s ?50c \/ 4s ?50c.*Best/.test(drawn.goal)) throw mismatch("the value goal", "4s 50c / 4s 50c ... Best", drawn.goal);
       if (!drawn.farmed.includes("3 looted")) throw mismatch("the farmed total of Linen Cloth", "3 looted", JSON.stringify(drawn.farmed));
+    },
+  },
+  {
+    lane: "app",
+    name: "the Legacy page draws points earned, each tree and each talent as goals",
+    async run(ctx) {
+      const app = running(ctx);
+      await selectCharacter(app, TESTA);
+      await open(app, "legacy", /Earned/);
+      const lead = (await text(app, "#body .legacy-sheet .sc-goal.lg"))[0];
+      expectEqual("the points goal", lead, "Earned 2 / 65 3%");
+      const goals = await text(app, "#body .legacy-sheet .sc-goal:not(.lg)");
+      if (!goals.some((g) => /^Progression 1 \/ 3 33%/.test(g))) throw mismatch("a goal for the Progression tree", "Progression 1 / 3 33%", JSON.stringify(goals));
+      if (!goals.some((g) => /^Progression: Gourmand 1 \/ 3 .*Can afford/.test(g))) throw mismatch("the next rank to buy", "Progression: Gourmand 1 / 3 ... Can afford", JSON.stringify(goals));
+      const node = await text(app, "#body .panel > .sc-goal");
+      if (!node.some((g) => /^Gourmand 1 \/ 3 33%/.test(g))) throw mismatch("a goal for the Gourmand talent", "Gourmand 1 / 3 33%", JSON.stringify(node));
+    },
+  },
+  {
+    lane: "app",
+    name: "the Talents page draws points spent against points available, each tab and each talent as goals",
+    async run(ctx) {
+      const app = running(ctx);
+      await selectCharacter(app, TESTA);
+      await open(app, "character", /Points spent/, null, "character/talents");
+      expectEqual("the points goal", (await text(app, "#body .points-head .sc-goal.lg"))[0], "Points spent 3 / 4 75%");
+      const goals = await text(app, "#body .panel .sc-goal:not(.lg)");
+      for (const want of [/^Arms 3 \/ 4 75% 3 points/, /^Improved Heroic Strike 2 \/ 3 66%/, /^Deflection 2 \/ 2 Max/]) {
+        if (!goals.some((g) => want.test(g))) throw mismatch("a talent goal", String(want), JSON.stringify(goals));
+      }
+    },
+  },
+  {
+    lane: "app",
+    name: "the Stats page draws records, the latest run's pace and the rates run by run, and a record opens its run",
+    async run(ctx) {
+      const app = await openGrind(ctx, "stats", /Records/);
+      const records = await text(app, "#body .stats-goals .sc-record");
+      for (const want of [/^Most XP in a session 3,000 /, /^Most kills in a session 10 /, /^Longest session 25m 0s /]) {
+        if (!records.some((r) => want.test(r))) throw mismatch("a record tile", String(want), JSON.stringify(records));
+      }
+      const paces = await text(app, "#body .stats-goals .sc-pace");
+      if (!paces.some((p) => /^Experience New best for levels \d+.\d+ 7,200an hour 3,000 XP in 25m 0s/.test(p))) throw mismatch("the experience pace of the latest run", "New best, 7,200an hour, 3,000 XP in 25m 0s", JSON.stringify(paces));
+      const sparks = await app.evaluate(`document.querySelectorAll("#body .stats-goals .stat-trend .sc-spark").length`);
+      if (sparks < 2) throw mismatch("trend lines under the rates", "at least 2", String(sparks));
+      await app.evaluate(`[...document.querySelectorAll("#body .stats-goals .sc-record")].find((r) => /Most XP/.test(r.innerText)).click()`);
+      await app.until(`/3,000 XP in 25m 0s/.test(${BODY})`, "the record opens the run with its experience");
+    },
+  },
+  {
+    lane: "app",
+    name: "the Activity page draws the longest day, week and streak, this week against earlier weeks, and the current streak",
+    async run(ctx) {
+      const app = await openGrind(ctx, "activity", /Records/);
+      const records = await text(app, "#body .goals-sheet .sc-record");
+      for (const want of [/^Longest day 25m 0s /, /^Most played week 1h 15m /, /^Longest streak 6 days Nov \d+ to Nov \d+/]) {
+        if (!records.some((r) => want.test(r))) throw mismatch("a record tile", String(want), JSON.stringify(records));
+      }
+      const week = (await text(app, "#body .goals-sheet .sc-pace"))[0] ?? "";
+      if (!/^Played this week, first \d days? .* (of 3 weeks to compare|Middle half)/.test(week)) throw mismatch("this week's pace tile", "Played this week ... weeks to compare or Middle half", week);
+      const streak = (await text(app, "#body .goals-sheet .sc-goal"))[0] ?? "";
+      if (!/^Current streak \d+ days? \/ 6 days?/.test(streak)) throw mismatch("the current streak goal", "Current streak N days / 6 days", streak);
+      await app.evaluate(`[...document.querySelectorAll("#body .goals-sheet .sc-record")].find((r) => /Longest day/.test(r.innerText)).click()`);
+      await app.until(`/25m 0s/.test(${BODY}) && location.hash.startsWith("#sessions/")`, "the longest day opens its run");
+    },
+  },
+  {
+    lane: "app",
+    name: "the Log page heads the list with each run's duration, experience, gold and kills, and a mark where a run set a new best",
+    async run(ctx) {
+      const app = await openGrind(ctx, "log", /Event types/);
+      await app.until(`document.querySelectorAll("#body .lg-cell").length === ${GRIND.sessions.length}`, "a summary for each run");
+      const cells = await text(app, "#body .lg-cell");
+      if (!/^25m 0s .* XP 3,000 Gold 0 Kills 10 New best experience/.test(cells[0])) throw mismatch("the newest run's summary", "25m 0s ... XP 3,000 ... New best experience", cells[0]);
+      if (/New best/.test(cells[cells.length - 1])) throw mismatch("the oldest run's summary", "no New best", cells[cells.length - 1]);
+      await app.evaluate(`document.querySelectorAll("#body .lg-cell")[1].click()`);
+      await app.until(`document.querySelectorAll("#body .lg-cell.on").length === 1`, "a run is picked");
     },
   },
   {
@@ -873,7 +972,7 @@ async function main() {
   const dir = given.keep ? path.resolve(given.keep) : fs.mkdtempSync(path.join(os.tmpdir(), "scarlet-lane-"));
   fs.mkdirSync(dir, { recursive: true });
   const website = await listenWebsite();
-  const ctx = { dir, cli, exe, website, keep: Boolean(given.keep), app: null, site: { cli: site(path.join(dir, "cli")), app: site(path.join(dir, "app")), motion: site(path.join(dir, "motion")) } };
+  const ctx = { dir, cli, exe, website, keep: Boolean(given.keep), app: null, grind: null, site: { cli: site(path.join(dir, "cli")), app: site(path.join(dir, "app")), motion: site(path.join(dir, "motion")), grind: site(path.join(dir, "grind")) } };
   writeWow(ctx.site.cli.wow);
 
   let result = { failed: 1, seconds: 0 };
@@ -881,6 +980,7 @@ async function main() {
     result = await runChecks(checks, ctx);
   } finally {
     if ((await ctx.app?.close().catch(() => null)) === 3) ctx.breach = true;
+    if ((await ctx.grind?.close().catch(() => null)) === 3) ctx.breach = true;
     website.server.close();
     if (ctx.keep || result.failed) console.log(`files kept in ${dir}`);
     else removeFolder(dir);

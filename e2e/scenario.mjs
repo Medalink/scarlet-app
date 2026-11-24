@@ -206,6 +206,25 @@ export const CHARACTERS = [
   },
 ];
 
+const GRIND_START = 1794600000;
+const GRIND_DAY = 86400;
+const GRIND_RUN = 1500;
+
+const grindSession = (n) => {
+  const kills = Array.from({ length: 10 }, (_, k) => [100 * (k + 1), [["K", 6, 1], ["X", 50 * (n + 1), 360, 1400, "k", 6]]]).flatMap(([at, rows]) => rows.map((row) => [at, ...row]));
+  const death = n % 2 ? [[200, "D"], [200, "DL", ELWYNN, 4990, 4060], [210, "R"]] : [];
+  return session(GRIND_START + n * GRIND_DAY, [
+    [0, "S", "1.15.8", "WARRIOR", "Human", 20, "Alliance", "0.9.0", 1, "Forever", 1, 11508, 5, 3600, 3843, 60],
+    [1, "Z", ELWYNN, 0, "none", 0, "Elwynn Forest", "Goldshire"],
+    ...kills,
+    ...death,
+    [GRIND_RUN, "ES"],
+  ]);
+};
+
+/** A character that played six runs of 25 minutes on six days, each earning more experience an hour than the last. */
+export const GRIND = { name: "Grind-Lane", account: "E2EGRIND", sessions: Array.from({ length: 6 }, (_, n) => grindSession(n)) };
+
 const ADDON_LINES = [[20, "gm", "N", ELWYNN, 4390, 6700, 2447]];
 
 const text = (lines) => {
@@ -355,6 +374,15 @@ export function writeWow(wow, { later = false } = {}) {
   fs.mkdirSync(path.dirname(charFile), { recursive: true });
   fs.writeFileSync(charFile, FISHING.char);
   fs.writeFileSync(path.join(account, "SavedVariables", "TheFishingLog.lua"), FISHING.account);
+  fs.mkdirSync(path.join(wow, "_forever_", "Interface", "AddOns", "Scarlet"), { recursive: true });
+  return wow;
+}
+
+/** Writes a World of Warcraft folder that holds only `GRIND`. */
+export function writeGrind(wow) {
+  const file = savedVariablesPath(wow, GRIND);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, savedVariables(GRIND, null));
   fs.mkdirSync(path.join(wow, "_forever_", "Interface", "AddOns", "Scarlet"), { recursive: true });
   return wow;
 }
