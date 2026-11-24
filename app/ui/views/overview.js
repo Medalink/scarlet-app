@@ -569,16 +569,31 @@ function rowFigures(rows) {
 
 const secs = (ms) => Math.floor(ms / 1000);
 
-function inGroup(s, g) {
+function holdsStart(s, g) {
   return s.t >= secs(g.from) && s.t * 1000 <= g.to;
+}
+
+function overlapsGroup(s, g) {
+  return s.t * 1000 < g.to && (s.t + (s.p || 0)) * 1000 > g.from;
+}
+
+function sessionsByGroup(ov, list) {
+  const bins = list.map(() => []);
+  const oldestFirst = list.map((_, i) => i).reverse();
+  for (const s of ov.sessions) {
+    const at = oldestFirst.find((i) => holdsStart(s, list[i])) ?? oldestFirst.find((i) => overlapsGroup(s, list[i]));
+    if (at !== undefined) bins[at].push(s);
+  }
+  return bins;
 }
 
 function sessionGroups(ov) {
   if (!groups || !groups.length) {
     return ov.sessions.map((s) => ({ from: s.t * 1000, to: (s.t + (s.p || 0)) * 1000, live: false, linked: false, ...rowFigures([s]) }));
   }
-  return groups.map((g) => {
-    const f = rowFigures(ov.sessions.filter((s) => inGroup(s, g)));
+  const bins = sessionsByGroup(ov, groups);
+  return groups.map((g, i) => {
+    const f = rowFigures(bins[i]);
     return { from: g.from, to: g.to, live: g.live, linked: true, ...f, p: sessionMode === "manual" || !f.p ? g.played : f.p };
   });
 }
