@@ -40,6 +40,7 @@ const HEAT_WEEKS = 20;
 const GOLD_POINTS = 30;
 const HISTORY_ROWS = 10;
 const HISTORY_MAX = 200;
+const MAX_PIPS = 40;
 
 let xpMode = "xp";
 let histMode = "sessions";
@@ -48,6 +49,8 @@ let xpPinned = null;
 let current = null;
 let life = null;
 let groups = null;
+let sessionMode = "auto";
+let renders = 0;
 let entering = false;
 
 export const className = (c) => CLASS_NAME[c] || (c ? c[0] + c.slice(1).toLowerCase() : "");
@@ -578,28 +581,27 @@ function rowFigures(rows) {
   };
 }
 
+const secs = (ms) => Math.floor(ms / 1000);
+
+function inGroup(s, g) {
+  if (sessionMode === "manual") return s.t <= Math.ceil(g.to / 1000) && s.t + (s.p || 0) >= secs(g.from);
+  return s.t >= secs(g.from) && s.t * 1000 <= g.to;
+}
+
 function sessionGroups(ov) {
-  const spans = groups && groups.length
-    ? groups.map((g) => ({ from: g.from, to: g.to, live: g.live, played: g.played, rows: [] }))
-    : ov.sessions.map((s) => ({ from: s.t * 1000, to: (s.t + (s.p || 0)) * 1000, live: false, played: s.p || 0, rows: [s] }));
-  if (groups && groups.length) {
-    let at = 0;
-    for (const s of ov.sessions) {
-      const ms = s.t * 1000;
-      while (at < spans.length - 1 && ms < spans[at].from) at++;
-      while (at > 0 && ms > spans[at].to) at--;
-      const hit = spans[at];
-      if (ms >= hit.from && ms <= hit.to) hit.rows.push(s);
-    }
+  if (!groups || !groups.length) {
+    return ov.sessions.map((s) => ({ from: s.t * 1000, to: (s.t + (s.p || 0)) * 1000, live: false, linked: false, ...rowFigures([s]) }));
   }
-  return spans.map((g) => {
-    const f = rowFigures(g.rows);
-    return { ...g, ...f, p: g.rows.length ? f.p : g.played };
+  return groups.map((g) => {
+    const f = rowFigures(ov.sessions.filter((s) => inGroup(s, g)));
+    return { from: g.from, to: g.to, live: g.live, linked: true, ...f, p: sessionMode === "manual" || !f.p ? g.played : f.p };
   });
 }
 
+const figure = (n, one, many) => (n ? `<span class="ph-fig"><b>${num(n)}</b> ${n === 1 ? one : many}</span>` : `<span class="ph-fig zero">–</span>`);
+
 const figures = (q, gold, zones) =>
-  `<span class="ph-fig${q ? "" : " zero"}"><b>${num(q)}</b> ${q === 1 ? "quest" : "quests"}</span><span class="ph-fig${gold ? "" : " zero"}">${signed(gold)}</span><span class="ph-fig${zones ? "" : " zero"}"><b>${num(zones)}</b> ${zones === 1 ? "zone" : "zones"}</span>`;
+  `${figure(q, "quest", "quests")}${gold ? `<span class="ph-fig">${signed(gold)}</span>` : `<span class="ph-fig zero">–</span>`}${figure(zones, "zone", "zones")}`;
 
 const playedBar = (p, most) => `<span class="ph-played"><b>${playTime(p)}</b><i style="--w:${p ? Math.max(1.5, (p / most) * 100) : 0}%"></i></span>`;
 
@@ -610,7 +612,8 @@ function sessionRows(ov) {
     name: "sessions",
     rows: all.map((g) => {
       const when = g.live ? "In progress" : `${day(g.from)} <small>${hm(g.from)}</small>`;
-      return `<a class="ph-row" href="#sessions/${g.from}-${g.to}"><span class="ph-when">${when}</span>${playedBar(g.p, most)}${levelChip(g.lo, g.hi)}${figures(g.q, g.gold, g.zones)}</a>`;
+      const cells = `<span class="ph-when">${when}</span>${playedBar(g.p, most)}${levelChip(g.lo, g.hi)}${figures(g.q, g.gold, g.zones)}`;
+      return g.linked ? `<a class="ph-row" href="#sessions/${g.from}-${g.to}">${cells}</a>` : `<div class="ph-row">${cells}</div>`;
     }),
   };
 }
@@ -680,7 +683,9 @@ function importedMod(ov) {
   const days = im.days.slice(0, IMPORT_DAYS);
   const peak = Math.max(...days.flatMap((d) => [d.sold_copper, d.bought_copper]), 1);
   const side = (n, copper, cls, verb) =>
-    `<span class="im-side ${cls}"><span class="im-t"><b>${moneyHtml(copper)}</b> ${verb} ${plural(n, "item", "items")}</span><i style="--w:${copper ? Math.max(1.5, (copper / peak) * 100) : 0}%"></i></span>`;
+    !n && !copper
+      ? `<span class="im-side none"></span>`
+      : `<span class="im-side ${cls}"><span class="im-t"><b>${moneyHtml(copper)}</b> ${verb} ${plural(n, "item", "items")}</span><i style="--w:${copper ? Math.max(1.5, (copper / peak) * 100) : 0}%"></i></span>`;
   const dayRows = days.length
     ? `<h3>Sales and purchases by day</h3><ul class="sc-key im-key"><li><i style="background:var(--alt-4)"></i>Received</li><li><i style="background:var(--alt-1)"></i>Paid</li></ul>
       <div class="im-list">${days
@@ -711,9 +716,11 @@ const until = (sec) => {
 
 function lockRow(l) {
   const known = l.done != null && l.total != null && l.total > 0;
-  const pips = known
-    ? `<span class="lk-pips" data-tip="${l.done} of ${l.total} bosses defeated">${Array.from({ length: l.total }, (_, i) => `<i${i < l.done ? ' class="on"' : ""}></i>`).join("")}</span><b>${l.done}/${l.total}</b>`
-    : `<span class="dim">–</span>`;
+  const bar =
+    known && l.total <= MAX_PIPS
+      ? `<span class="lk-pips" data-tip="${l.done} of ${l.total} bosses defeated">${Array.from({ length: l.total }, (_, i) => `<i${i < l.done ? ' class="on"' : ""}></i>`).join("")}</span>`
+      : "";
+  const pips = known ? `${bar}<b>${l.done}/${l.total}</b>` : `<span class="dim">–</span>`;
   const difficulty = l.kind === "world boss" ? "World boss" : l.difficulty || "–";
   return `<div class="lk-row"><span class="lk-name">${esc(l.name)}${l.extended ? ' <em class="ph-at">extended</em>' : ""}</span><span class="lk-diff">${esc(difficulty)}</span>
     <span class="lk-boss">${pips}</span><span class="lk-reset" data-tip="${dateTime(l.reset_at * 1000)}">Resets ${until(l.reset_at)}</span></div>`;
@@ -725,7 +732,7 @@ function lifetimeMod(life) {
     ["Quests completed", life.quests],
     ["Titles known", life.titles],
     ["Zone maps explored", life.explored],
-  ].filter(([, c]) => c);
+  ].filter(([, c]) => c?.total);
   if (!counts.length && !life.locks.length) return "";
   const countTiles = counts.length
     ? `<div class="sc-grid" style="grid-template-columns:repeat(${counts.length},minmax(0,1fr))">${counts
@@ -737,6 +744,13 @@ function lifetimeMod(life) {
 }
 
 // Page --------------------------------------------------------------------------------
+
+function followShown() {
+  if (state.ch || !current) return;
+  const select = document.querySelector("#char");
+  if (select) select.value = current.name;
+  state.ch = current.name;
+}
 
 function draw(body, refocus = null) {
   const top = body.scrollTop;
@@ -766,6 +780,9 @@ function draw(body, refocus = null) {
       draw(body, `[data-xp="${xpMode}"]`);
     };
   });
+  body.querySelectorAll("a.ph-row").forEach((link) => {
+    link.onclick = followShown;
+  });
   body.querySelectorAll("[data-hist]").forEach((n) => {
     n.onclick = () => {
       histMode = n.dataset.hist;
@@ -790,10 +807,26 @@ function draw(body, refocus = null) {
 
 export const shownName = () => current?.name ?? null;
 
+async function load(ch) {
+  const first = ch ? null : await invoke("overview", { ch });
+  const name = ch ?? first?.name ?? null;
+  const [overview, lifetime, listed] = await Promise.all([
+    first ?? invoke("overview", { ch }),
+    name ? invoke("lifetime", { ch: name }) : null,
+    name ? invoke("session_list", { ch: name }).catch(() => null) : null,
+  ]);
+  return { overview, lifetime, listed };
+}
+
 export async function render(body, ch = state.ch) {
   wireTips();
-  [current, life] = await Promise.all([invoke("overview", { ch }), invoke("lifetime", { ch })]);
-  groups = current ? (await invoke("session_list", { ch: current.name }).catch(() => null))?.sessions ?? null : null;
+  const mine = ++renders;
+  const { overview, lifetime, listed } = await load(ch);
+  if (mine !== renders) return;
+  current = overview;
+  life = lifetime;
+  groups = listed?.sessions ?? null;
+  sessionMode = listed?.prefs.mode ?? "auto";
   xpPinned = null;
   entering = true;
   draw(body);
