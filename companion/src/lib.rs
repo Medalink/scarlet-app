@@ -2,6 +2,25 @@
 //! (docs/FORMAT.md), exports them to text and zstd payloads, and renders
 //! events. Shared by the `scarlet` CLI and the desktop app.
 
+#[macro_export]
+macro_rules! out {
+    () => {
+        $crate::out!("")
+    };
+    ($($arg:tt)*) => {{
+        use ::std::io::Write as _;
+        let _ = ::std::writeln!(::std::io::stdout().lock(), $($arg)*);
+    }};
+}
+
+#[macro_export]
+macro_rules! err {
+    ($($arg:tt)*) => {{
+        use ::std::io::Write as _;
+        let _ = ::std::writeln!(::std::io::stderr().lock(), $($arg)*);
+    }};
+}
+
 pub mod addons;
 pub mod archive;
 pub mod counts;

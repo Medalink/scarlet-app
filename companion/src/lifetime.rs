@@ -9,13 +9,13 @@ use std::collections::BTreeMap;
 
 pub const CODES: [&str; 6] = ["QB", "KT", "EB", "IS", "AQ", "RQ"];
 
-#[derive(Serialize, Default, Clone, Debug, PartialEq)]
+#[derive(Serialize, Default, Clone, Debug, PartialEq, Eq)]
 pub struct Counted {
     pub total: i64,
     pub at: i64,
 }
 
-#[derive(Serialize, Default, Clone, Debug, PartialEq)]
+#[derive(Serialize, Default, Clone, Debug, PartialEq, Eq)]
 pub struct Lock {
     pub name: String,
     pub kind: &'static str,
@@ -28,7 +28,7 @@ pub struct Lock {
     pub reset_at: i64,
 }
 
-#[derive(Serialize, Default, Clone, Debug, PartialEq)]
+#[derive(Serialize, Default, Clone, Debug, PartialEq, Eq)]
 pub struct Price {
     pub item: i64,
     pub kind: &'static str,
@@ -39,13 +39,13 @@ pub struct Price {
     pub at: i64,
 }
 
-#[derive(Serialize, Default, Clone, Debug, PartialEq)]
+#[derive(Serialize, Default, Clone, Debug, PartialEq, Eq)]
 pub struct Reagent {
     pub item: i64,
     pub count: i64,
 }
 
-#[derive(Serialize, Default, Clone, Debug, PartialEq)]
+#[derive(Serialize, Default, Clone, Debug, PartialEq, Eq)]
 pub struct Recipe {
     pub spell: i64,
     pub item: i64,
@@ -56,7 +56,7 @@ pub struct Recipe {
     pub at: i64,
 }
 
-#[derive(Serialize, Default, Clone, Debug, PartialEq)]
+#[derive(Serialize, Default, Clone, Debug, PartialEq, Eq)]
 pub struct Lifetime {
     pub quests: Option<Counted>,
     pub titles: Option<Counted>,

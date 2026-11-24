@@ -47,7 +47,7 @@ pub struct UploadState {
 pub const LOG_KEEP: usize = 50;
 
 /// One upload run: what it sent, or why it stopped.
-#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq)]
 pub struct LogEntry {
     /// Epoch seconds the run ended.
     pub at: u64,
@@ -120,7 +120,8 @@ pub fn save(out: &Path, state: &UploadState) -> Result<()> {
     let tmp = p.with_extension("json.tmp");
     let mut s = state.clone();
     s.v = 1;
-    let json = serde_json::to_string(&s).map_err(|e| Error::local(e.to_string()))?;
-    fs::write(&tmp, json + "\n").map_err(|e| Error::local(e.to_string()))?;
+    let mut json = serde_json::to_string(&s).map_err(|e| Error::local(e.to_string()))?;
+    json.push('\n');
+    fs::write(&tmp, json).map_err(|e| Error::local(e.to_string()))?;
     fs::rename(&tmp, &p).map_err(|e| Error::local(e.to_string()))
 }

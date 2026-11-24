@@ -1571,7 +1571,7 @@ pub fn level_eta(
     } else {
         format!(
             "{basis} at level {level}, rising {:.1}% a level",
-            (pace.slope.exp() - 1.0) * 100.0
+            pace.slope.exp_m1() * 100.0
         )
     };
     eta
@@ -1964,7 +1964,7 @@ pub fn digest_lua_with(
         text = render_digest(chars, made, Some(keep), accounts);
     }
     if trimmed && keep < DIGEST_SESSIONS {
-        eprintln!(
+        err!(
             "scarlet: Digest.lua keeps only the newest {keep} sessions per character to stay under 200 KB; the in-game week can come up short"
         );
     }

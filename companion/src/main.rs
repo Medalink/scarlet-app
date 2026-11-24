@@ -4,13 +4,13 @@
 
 use lexopt::prelude::*;
 use scarlet::upload::cli;
-use scarlet::{DEFAULT_WOW, export};
+use scarlet::{DEFAULT_WOW, err, export};
 use std::error::Error;
 use std::path::PathBuf;
 
 fn main() {
     if let Err(e) = run() {
-        eprintln!("scarlet: {e}");
+        err!("scarlet: {e}");
         std::process::exit(1);
     }
 }
@@ -39,7 +39,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         }
     }
     let Some(cmd) = words.first().cloned() else {
-        eprintln!("usage: scarlet <export|watch|logs|upload> [--wow <dir>]... [--out <dir>]");
+        err!("usage: scarlet <export|watch|logs|upload> [--wow <dir>]... [--out <dir>]");
         std::process::exit(2);
     };
     let out = out
@@ -60,7 +60,7 @@ fn run() -> Result<(), Box<dyn Error>> {
         wows.push(PathBuf::from(DEFAULT_WOW));
     }
     for wow in wows.iter().filter(|w| !w.is_dir()) {
-        eprintln!(
+        err!(
             "scarlet: {} does not exist; pass --wow <the World of Warcraft folder>",
             wow.display()
         );

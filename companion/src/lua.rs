@@ -3,9 +3,10 @@
 //! double-quoted strings with escapes (including `\ddd` decimal byte
 //! escapes), integers, floats, booleans and nil. No Lua runtime.
 
-// The parser understands the whole literal subset; not every variant is
-// read back (floats, bools appear only in ignored tables like `opt`).
-#[allow(dead_code)]
+#[allow(
+    dead_code,
+    reason = "the parser understands the whole literal subset; floats and bools appear only in ignored tables like `opt`"
+)]
 #[derive(Debug)]
 pub enum Lua {
     Str(String),
@@ -114,7 +115,7 @@ struct P<'a> {
     i: usize,
 }
 
-impl<'a> P<'a> {
+impl P<'_> {
     fn peek(&self) -> Option<u8> {
         self.b.get(self.i).copied()
     }

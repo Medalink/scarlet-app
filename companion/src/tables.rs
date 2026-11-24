@@ -373,14 +373,14 @@ pub fn write_char_tables(events: &[Event], me: &str, dir: &Path) -> std::io::Res
                 row.push(zone.clone());
                 row.push(sub.clone());
             }
-            None => row.extend(["".into(), "".into(), "".into(), "".into()]),
+            None => row.extend([String::new(), String::new(), String::new(), String::new()]),
         }
         match &p {
             Some([x, y]) => {
                 row.push(x.clone());
                 row.push(y.clone());
             }
-            None => row.extend(["".into(), "".into()]),
+            None => row.extend([String::new(), String::new()]),
         }
         row.push(tags.join("|"));
         let rule = book.rule();

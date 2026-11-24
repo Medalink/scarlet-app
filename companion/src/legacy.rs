@@ -90,7 +90,7 @@ pub struct RankChange {
 
 /// `chance`: each trial hits or not; value is the share that hit, in percent, and effect the
 /// difference from rank 0 in points. `increase`: value is the mean, effect the percent above rank 0.
-#[derive(Serialize, Clone, Copy, PartialEq)]
+#[derive(Serialize, Clone, Copy, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
     Chance,
@@ -188,7 +188,7 @@ struct Ranks {
     known_since: Option<i64>,
 }
 
-fn ranks<'a>(lines: &[Line<'a>]) -> Ranks {
+fn ranks(lines: &[Line<'_>]) -> Ranks {
     let mut nodes: BTreeMap<String, Node> = BTreeMap::new();
     let mut known_since = None;
     let mut session_base: HashSet<&str> = HashSet::new();

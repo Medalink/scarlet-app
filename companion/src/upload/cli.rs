@@ -68,9 +68,16 @@ fn bytes(n: u64) -> String {
 }
 
 fn print_hit(h: &Hit) {
-    println!(
+    out!(
         "  {:<6} {:<34} {}  sent {}+{}  received {}+{}  {} ms",
-        h.method, h.path, h.status, h.sent_body, h.sent_head, h.recv_body, h.recv_head, h.ms
+        h.method,
+        h.path,
+        h.status,
+        h.sent_body,
+        h.sent_head,
+        h.recv_body,
+        h.recv_head,
+        h.ms
     );
 }
 
@@ -84,7 +91,7 @@ fn open(a: &Args, cfg: &UploadConfig, create: bool) -> Result<Option<Session>> {
 
 fn status(a: &Args) -> Result<()> {
     let cfg = load(a)?;
-    println!(
+    out!(
         "uploading is {}; server {}",
         if cfg.enabled { "on" } else { "off" },
         if cfg.server.is_empty() {
@@ -98,7 +105,7 @@ fn status(a: &Args) -> Result<()> {
         .filter(|g| g.switchable && !cfg.group_on(&g.key))
         .map(|g| g.key)
         .collect();
-    println!(
+    out!(
         "groups off: {}",
         if off_keys.is_empty() {
             "none".into()
@@ -108,7 +115,7 @@ fn status(a: &Args) -> Result<()> {
     );
     let st = state::load(&a.out);
     for (name, c) in &st.characters {
-        println!(
+        out!(
             "{name}: {} parts, {} sessions, last sync {}, sent {} last and {} in all",
             c.acked.len(),
             c.sessions,
@@ -136,17 +143,17 @@ fn status(a: &Args) -> Result<()> {
         } else {
             String::new()
         };
-        println!("upload at {}: {what}, {}{again}", e.at, bytes(e.sent));
+        out!("upload at {}: {what}, {}{again}", e.at, bytes(e.sent));
     }
     if cfg.server_problem().is_some() {
         return Ok(());
     }
     let Some(mut s) = open(a, &cfg, false)? else {
-        println!("this PC has no install key yet");
+        out!("this PC has no install key yet");
         return Ok(());
     };
     let me = s.me()?;
-    println!(
+    out!(
         "linked to an account: {}",
         if me.linked { "yes" } else { "no" }
     );
@@ -154,7 +161,7 @@ fn status(a: &Args) -> Result<()> {
     if let Some(list) = server.get("characters").and_then(|c| c.as_array()) {
         for (i, c) in list.iter().enumerate() {
             let n = |k: &str| c.get(k).and_then(|v| v.as_u64()).unwrap_or(0);
-            println!(
+            out!(
                 "server holds character {}: {} parts, {} bytes of text, {} sessions ({} waiting to decode)",
                 i + 1,
                 n("parts"),
@@ -166,7 +173,7 @@ fn status(a: &Args) -> Result<()> {
     }
     if let Some(r) = server.get("groups_refused").and_then(|g| g.as_array()) {
         let r: Vec<&str> = r.iter().filter_map(|g| g.as_str()).collect();
-        println!(
+        out!(
             "groups removed on the server: {}",
             if r.is_empty() {
                 "none".into()
@@ -192,7 +199,7 @@ fn print_report(r: &CharReport, label: &str) {
             r.parts_sent, r.sessions_sent
         )
     };
-    println!(
+    out!(
         "{label}: {} parts held here; {what}; {} requests, sent {}, received {}, {} ms{}",
         r.parts,
         r.requests,
@@ -223,7 +230,7 @@ fn sync(a: &Args) -> Result<()> {
         parts += r.parts_sent;
         sessions += r.sessions_sent;
         if !r.refused.is_empty() {
-            println!(
+            out!(
                 "  the server removed {}: switched off here",
                 r.refused.join(", ")
             );
@@ -233,7 +240,7 @@ fn sync(a: &Args) -> Result<()> {
     let reqs = s.hits().len();
     let sent: u64 = s.hits().iter().map(Hit::sent).sum();
     let got: u64 = s.hits().iter().map(Hit::received).sum();
-    println!(
+    out!(
         "all: {reqs} requests, sent {} ({sent} bytes), received {} ({got} bytes), {parts} parts of {sessions} sessions",
         bytes(sent),
         bytes(got)
@@ -262,7 +269,7 @@ fn groups(a: &Args) -> Result<()> {
         } else {
             "off"
         };
-        println!("{:<12} {:<7} {}", g.key, state, g.label);
+        out!("{:<12} {:<7} {}", g.key, state, g.label);
     }
     Ok(())
 }
@@ -270,14 +277,14 @@ fn groups(a: &Args) -> Result<()> {
 fn remove_group(a: &Args, key: String) -> Result<()> {
     let cfg = load(a)?;
     let Some(mut s) = open(a, &cfg, false)? else {
-        println!("nothing was uploaded from this PC");
+        out!("nothing was uploaded from this PC");
         return Ok(());
     };
     let (parts, rows) = s.remove_group(&key)?;
     config::update(&a.settings, |c| {
         c.groups.insert(key.clone(), false);
     })?;
-    println!("{key}: removed {parts} parts and {rows} rows from the server; the group is off here");
+    out!("{key}: removed {parts} parts and {rows} rows from the server; the group is off here");
     s.hits().iter().for_each(print_hit);
     Ok(())
 }
@@ -291,7 +298,7 @@ fn restore_group(a: &Args, key: String) -> Result<()> {
     config::update(&a.settings, |c| {
         c.groups.insert(key.clone(), true);
     })?;
-    println!("{key}: on again; the next sync sends its parts");
+    out!("{key}: on again; the next sync sends its parts");
     s.hits().iter().for_each(print_hit);
     Ok(())
 }
@@ -304,11 +311,11 @@ fn delete_all(a: &Args) -> Result<()> {
     }
     let cfg = load(a)?;
     let Some(mut s) = open(a, &cfg, false)? else {
-        println!("nothing was uploaded from this PC");
+        out!("nothing was uploaded from this PC");
         return Ok(());
     };
     let (chars, parts, rows) = s.delete_all()?;
-    println!("removed {chars} characters, {parts} parts and {rows} rows from the server");
+    out!("removed {chars} characters, {parts} parts and {rows} rows from the server");
     s.hits().iter().for_each(print_hit);
     Ok(())
 }
@@ -319,12 +326,12 @@ fn link(a: &Args) -> Result<()> {
         return Err(Error::local("no install key"));
     };
     if s.me()?.linked {
-        println!("this install is linked to an account already");
+        out!("this install is linked to an account already");
         return Ok(());
     }
     let l = s.link()?;
-    println!("code {} (valid until {})", l.code, l.expires_at);
-    println!("open {} and type the code there", l.url);
+    out!("code {} (valid until {})", l.code, l.expires_at);
+    out!("open {} and type the code there", l.url);
     s.hits().iter().for_each(print_hit);
     Ok(())
 }
@@ -382,7 +389,7 @@ fn set(a: &Args) -> Result<()> {
             c.characters.insert(k, on);
         }
     })?;
-    println!(
+    out!(
         "uploading is {}; server {}",
         if cfg.enabled { "on" } else { "off" },
         if cfg.server.is_empty() {
@@ -402,6 +409,6 @@ fn forget(a: &Args) -> Result<()> {
     if state::path(&a.out).exists() {
         state::save(&a.out, &st)?;
     }
-    println!("the install key is deleted; uploading starts with a new identity");
+    out!("the install key is deleted; uploading starts with a new identity");
     Ok(())
 }

@@ -55,6 +55,14 @@ struct Roll {
 }
 
 #[derive(Default, Clone, Copy)]
+struct RollSeen {
+    joined: bool,
+    passed: bool,
+    won: bool,
+    outcome: bool,
+}
+
+#[derive(Default, Clone, Copy)]
 struct RollTotals {
     won: u64,
     lost: u64,
@@ -170,23 +178,14 @@ impl LootBook {
         e.1 += qty.max(1);
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn roll(
-        &mut self,
-        ms: i64,
-        who: &str,
-        item: &str,
-        joined: bool,
-        passed: bool,
-        won: bool,
-        outcome: bool,
-    ) {
+    fn roll(&mut self, ms: i64, who: &str, item: &str, seen: RollSeen) {
         if who.is_empty() || item.is_empty() {
             return;
         }
         let key = (who.to_string(), item.to_string());
         if self.rolls.get(&key).is_some_and(|r| {
-            ms - r.last > ROLL_WINDOW_MS || (r.closed && !outcome && ms - r.last > ROLL_ECHO_MS)
+            ms - r.last > ROLL_WINDOW_MS
+                || (r.closed && !seen.outcome && ms - r.last > ROLL_ECHO_MS)
         }) && let Some(old) = self.rolls.remove(&key)
         {
             self.roll_totals
@@ -204,10 +203,10 @@ impl LootBook {
             closed: false,
         });
         r.last = ms;
-        r.joined |= joined;
-        r.passed |= passed;
-        r.won |= won;
-        r.closed |= outcome;
+        r.joined |= seen.joined;
+        r.passed |= seen.passed;
+        r.won |= seen.won;
+        r.closed |= seen.outcome;
     }
 
     fn window(&mut self, npc: &str, items: &str) {
@@ -284,17 +283,48 @@ impl LootBook {
             "RL" => {
                 let me = self.me.clone();
                 let pass = g(0) == "0";
-                self.roll(ms, &me, g(1), !pass, pass, false, false);
+                let seen = RollSeen {
+                    joined: !pass,
+                    passed: pass,
+                    ..RollSeen::default()
+                };
+                self.roll(ms, &me, g(1), seen);
             }
             "RW" if g(0) == "w" || g(0) == "l" => {
                 let me = self.me.clone();
-                self.roll(ms, &me, g(1), true, false, g(0) == "w", true);
+                let seen = RollSeen {
+                    joined: true,
+                    won: g(0) == "w",
+                    outcome: true,
+                    ..RollSeen::default()
+                };
+                self.roll(ms, &me, g(1), seen);
             }
             // Other players' rolls, from the chat messages and the roll history.
             "LD" => match g(0) {
-                "r" | "s" => self.roll(ms, g(1), g(2), true, false, false, false),
-                "p" => self.roll(ms, g(1), g(2), false, true, false, false),
-                "w" => self.roll(ms, g(1), g(2), true, false, true, true),
+                "r" | "s" => {
+                    let seen = RollSeen {
+                        joined: true,
+                        ..RollSeen::default()
+                    };
+                    self.roll(ms, g(1), g(2), seen);
+                }
+                "p" => {
+                    let seen = RollSeen {
+                        passed: true,
+                        ..RollSeen::default()
+                    };
+                    self.roll(ms, g(1), g(2), seen);
+                }
+                "w" => {
+                    let seen = RollSeen {
+                        joined: true,
+                        won: true,
+                        outcome: true,
+                        ..RollSeen::default()
+                    };
+                    self.roll(ms, g(1), g(2), seen);
+                }
                 _ => {}
             },
             _ => {}

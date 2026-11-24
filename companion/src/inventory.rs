@@ -7,7 +7,7 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry;
 
-#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Default, Clone, Debug, PartialEq, Eq)]
 #[serde(default)]
 pub struct Inventory {
     pub bags: BTreeMap<i64, i64>,

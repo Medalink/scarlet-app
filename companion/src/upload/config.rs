@@ -191,8 +191,9 @@ pub fn update(settings: &Path, f: impl FnOnce(&mut UploadConfig)) -> Result<Uplo
         fs::create_dir_all(dir).map_err(|e| Error::local(e.to_string()))?;
     }
     let tmp = settings.with_extension("json.tmp");
-    let json = serde_json::to_string_pretty(&root).map_err(|e| Error::local(e.to_string()))?;
-    fs::write(&tmp, json + "\n").map_err(|e| Error::local(e.to_string()))?;
+    let mut json = serde_json::to_string_pretty(&root).map_err(|e| Error::local(e.to_string()))?;
+    json.push('\n');
+    fs::write(&tmp, json).map_err(|e| Error::local(e.to_string()))?;
     fs::rename(&tmp, settings).map_err(|e| Error::local(e.to_string()))?;
     Ok(cfg)
 }

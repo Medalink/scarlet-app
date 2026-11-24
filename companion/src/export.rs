@@ -21,6 +21,7 @@ use flate2::read::{DeflateDecoder, ZlibDecoder};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::error::Error;
+use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
@@ -59,7 +60,9 @@ fn load_state(path: &Path) -> State {
 
 fn save_state(path: &Path, state: &State) -> Result<(), Box<dyn Error>> {
     fs::create_dir_all(path.parent().unwrap_or(Path::new(".")))?;
-    fs::write(path, serde_json::to_string_pretty(state)? + "\n")?;
+    let mut json = serde_json::to_string_pretty(state)?;
+    json.push('\n');
+    fs::write(path, json)?;
     Ok(())
 }
 
@@ -199,7 +202,7 @@ pub fn export_new_all(wows: &[PathBuf], out: &Path) -> Result<bool, Box<dyn Erro
         let text = match fs::read_to_string(sv) {
             Ok(t) => t,
             Err(e) => {
-                eprintln!("scarlet: skipping {}: {e}", sv.display());
+                err!("scarlet: skipping {}: {e}", sv.display());
                 continue;
             }
         };
@@ -215,13 +218,13 @@ pub fn export_new_all(wows: &[PathBuf], out: &Path) -> Result<bool, Box<dyn Erro
                     }
                 }
                 Ok(None) => {}
-                Err(e) => eprintln!("scarlet: {}: addons: {e}", sv.display()),
+                Err(e) => err!("scarlet: {}: addons: {e}", sv.display()),
             }
         }
         let db = match lua::parse_main(&text) {
             Ok(d) => d,
             Err(e) => {
-                eprintln!("scarlet: skipping {}: {e}", sv.display());
+                err!("scarlet: skipping {}: {e}", sv.display());
                 continue;
             }
         };
@@ -294,17 +297,17 @@ pub fn export_new_all(wows: &[PathBuf], out: &Path) -> Result<bool, Box<dyn Erro
         // has, in full, on each export.
         let evs = load_events(&dir, name)?;
         if let Err(e) = tables::write_char_tables(&evs, name, &dir.join("tables")) {
-            eprintln!("scarlet: {name}: tables: {e}");
+            err!("scarlet: {name}: tables: {e}");
         }
         let ov = build_overview(name, &evs, &own);
         if let Err(e) = write_overview(&dir, &ov) {
-            eprintln!("scarlet: {name}: overview: {e}");
+            err!("scarlet: {name}: overview: {e}");
         }
         write_inventory(&dir, name, &evs);
         if let Some(rows) = addon.get(name) {
             crosscheck(name, &ov, rows);
         }
-        println!(
+        out!(
             "{name}: {} chunks, {} events, {} bytes (.scl)",
             run.chunks,
             run.events,
@@ -314,9 +317,10 @@ pub fn export_new_all(wows: &[PathBuf], out: &Path) -> Result<bool, Box<dyn Erro
 
     for (name, run) in &addon_runs {
         let size = addons::write_run(&out.join(name), name, run)?;
-        println!(
+        out!(
             "{name}: {} addon chunks, {} addon lines, {size} bytes (.scl)",
-            run.chunks, run.events
+            run.chunks,
+            run.events
         );
     }
 
@@ -326,7 +330,7 @@ pub fn export_new_all(wows: &[PathBuf], out: &Path) -> Result<bool, Box<dyn Erro
     let counts_wrote = refresh_counts(wows, out, &mut state);
     for name in &own {
         if let Err(e) = counts::rebuild(&out.join(name), name) {
-            eprintln!("scarlet: {name}: counts: {e}");
+            err!("scarlet: {name}: counts: {e}");
         }
     }
     save_state(&state_path, &state)?;
@@ -337,7 +341,7 @@ pub fn export_new_all(wows: &[PathBuf], out: &Path) -> Result<bool, Box<dyn Erro
         } else {
             String::new()
         };
-        println!(
+        out!(
             "no new chunks ({} SavedVariables file(s){fail})",
             files.len()
         );
@@ -366,7 +370,7 @@ fn load_events(dir: &Path, name: &str) -> std::io::Result<Vec<archive::Event>> {
     for p in archive::char_payloads(dir)? {
         match archive::read_payload(&p) {
             Ok(pl) => evs.extend(pl.events),
-            Err(e) => eprintln!("scarlet: {name}: {}: {e}", p.display()),
+            Err(e) => err!("scarlet: {name}: {}: {e}", p.display()),
         }
     }
     evs.sort_by_key(|e| e.ms);
@@ -400,7 +404,7 @@ fn overview_rev_stale(out: &Path) -> bool {
     let file = out.join("overview.rev");
     let stale = fs::read_to_string(&file).map_or(true, |t| t.trim() != OVERVIEW_REV);
     if stale && let Err(e) = fs::write(&file, OVERVIEW_REV) {
-        eprintln!("scarlet: {}: {e}", file.display());
+        err!("scarlet: {}: {e}", file.display());
     }
     stale
 }
@@ -416,7 +420,7 @@ fn write_inventory(dir: &Path, name: &str, evs: &[archive::Event]) {
         .and_then(|text| fs::write(&tmp, text).map_err(|e| e.to_string()))
         .and_then(|()| fs::rename(&tmp, dir.join("inventory.json")).map_err(|e| e.to_string()));
     if let Err(e) = written {
-        eprintln!("scarlet: {name}: inventory: {e}");
+        err!("scarlet: {name}: inventory: {e}");
     }
 }
 
@@ -504,18 +508,18 @@ fn refresh_fishing(wows: &[PathBuf], out: &Path, state: &mut State) -> bool {
                     let dir = out.join(&name);
                     match fishing::write(&dir, &name, &read.lines) {
                         Ok(()) => {
-                            println!("{name}: {} lines from The Fishing Log", read.lines.len());
+                            out!("{name}: {} lines from The Fishing Log", read.lines.len());
                             wrote = true;
                         }
-                        Err(e) => eprintln!("scarlet: {name}: The Fishing Log: {e}"),
+                        Err(e) => err!("scarlet: {name}: The Fishing Log: {e}"),
                     }
                     match counts::feed(&dir, read.counts) {
                         Ok(0) => {}
-                        Ok(n) => println!("{name}: {n} fishing counts archived"),
-                        Err(e) => eprintln!("scarlet: {name}: counts: {e}"),
+                        Ok(n) => out!("{name}: {n} fishing counts archived"),
+                        Err(e) => err!("scarlet: {name}: counts: {e}"),
                     }
                 }
-                Err(e) => eprintln!("scarlet: {name}: The Fishing Log: {e}"),
+                Err(e) => err!("scarlet: {name}: The Fishing Log: {e}"),
             }
         }
     }
@@ -591,7 +595,7 @@ fn read_table(file: &Path, table: &str) -> Option<Lua> {
     match text.and_then(|t| lua::parse_named(&t, table)) {
         Ok(db) => db,
         Err(e) => {
-            eprintln!("scarlet: {}: {e}", file.file_name()?.to_string_lossy());
+            err!("scarlet: {}: {e}", file.file_name()?.to_string_lossy());
             None
         }
     }
@@ -603,17 +607,17 @@ fn feed_forever_fishing(file: &Path, exported: &[String], out: &Path) -> bool {
     };
     let (by_name, unmatched) = foreverfishing::assign(foreverfishing::read(&db), exported);
     if unmatched > 0 {
-        println!("{unmatched} ForeverFishing sessions matched no exported character");
+        out!("{unmatched} ForeverFishing sessions matched no exported character");
     }
     let mut wrote = false;
     for (name, records) in by_name {
         match counts::feed(&out.join(&name), records) {
             Ok(0) => {}
             Ok(n) => {
-                println!("{name}: {n} ForeverFishing sessions archived");
+                out!("{name}: {n} ForeverFishing sessions archived");
                 wrote = true;
             }
-            Err(e) => eprintln!("scarlet: {name}: counts: {e}"),
+            Err(e) => err!("scarlet: {name}: counts: {e}"),
         }
     }
     wrote
@@ -642,11 +646,11 @@ fn feed_mastercraft(file: &Path, exported: &[String], out: &Path) -> bool {
     match counts::feed_account(&dirs, totals) {
         Ok(0) => false,
         Ok(n) => {
-            println!("{n} Mastercraft account totals archived");
+            out!("{n} Mastercraft account totals archived");
             true
         }
         Err(e) => {
-            eprintln!("scarlet: Mastercraft: counts: {e}");
+            err!("scarlet: Mastercraft: counts: {e}");
             false
         }
     }
@@ -661,10 +665,10 @@ fn feed_naowhforever(file: &Path, exported: &[String], out: &Path) -> bool {
         match counts::feed(&out.join(&name), records) {
             Ok(0) => {}
             Ok(n) => {
-                println!("{name}: {n} NaowhForever boss kills archived");
+                out!("{name}: {n} NaowhForever boss kills archived");
                 wrote = true;
             }
-            Err(e) => eprintln!("scarlet: {name}: counts: {e}"),
+            Err(e) => err!("scarlet: {name}: counts: {e}"),
         }
     }
     wrote
@@ -684,11 +688,11 @@ fn feed_character(
     match counts::feed(&out.join(name), read(&db)) {
         Ok(0) => false,
         Ok(n) => {
-            println!("{name}: {n} {label} archived");
+            out!("{name}: {n} {label} archived");
             true
         }
         Err(e) => {
-            eprintln!("scarlet: {name}: counts: {e}");
+            err!("scarlet: {name}: counts: {e}");
             false
         }
     }
@@ -792,7 +796,7 @@ fn refresh_imports(
         (BTreeMap::new(), Vec::new())
     };
     for note in notes {
-        eprintln!("scarlet: import: {note}");
+        err!("scarlet: import: {note}");
     }
     let today = chrono::Local::now().date_naive();
     for name in own {
@@ -803,7 +807,7 @@ fn refresh_imports(
         let mut archive = match Archive::load(&dir) {
             Ok(a) => a,
             Err(e) => {
-                eprintln!("scarlet: {name}: import: {e}");
+                err!("scarlet: {name}: import: {e}");
                 continue;
             }
         };
@@ -817,25 +821,25 @@ fn refresh_imports(
         }
         if added > 0 {
             if let Err(e) = archive.save(&dir) {
-                eprintln!("scarlet: {name}: import: {e}");
+                err!("scarlet: {name}: import: {e}");
                 continue;
             }
-            println!("{name}: {added} imported records archived");
+            out!("{name}: {added} imported records archived");
         }
         let evs = match load_events(&dir, name) {
             Ok(e) => e,
             Err(e) => {
-                eprintln!("scarlet: {name}: import: {e}");
+                err!("scarlet: {name}: import: {e}");
                 continue;
             }
         };
         let built = import::build(&archive, &evs, today);
         if let Err(e) = import::write(&dir, name, &built) {
-            eprintln!("scarlet: {name}: import: {e}");
+            err!("scarlet: {name}: import: {e}");
             continue;
         }
         if !built.kept.is_empty() || built.view.dropped != import::Dropped::default() {
-            println!(
+            out!(
                 "{name}: imported {} sales, {} purchases, {} gold points ({} already recorded)",
                 built.view.sales,
                 built.view.buys,
@@ -849,7 +853,7 @@ fn refresh_imports(
         if !evs.is_empty()
             && let Err(e) = write_overview(&dir, &build_overview(name, &evs, own))
         {
-            eprintln!("scarlet: {name}: overview: {e}");
+            err!("scarlet: {name}: overview: {e}");
         }
     }
 }
@@ -914,13 +918,13 @@ fn crosscheck(name: &str, ov: &Overview, rows: &[AddonRow]) {
             // A session whose lines are still in the addon's buffer has not
             // been exported yet.
             if a.t < newest - 3 {
-                println!("check: {name} t={} no companion session", a.t);
+                out!("check: {name} t={} no companion session", a.t);
             }
             continue;
         };
         let diff = |field: &str, addon: i64, companion: i64, tol: i64| {
             if (addon - companion).abs() > tol {
-                println!(
+                out!(
                     "check: {name} t={} {field} addon={addon} companion={companion}",
                     a.t
                 );
@@ -977,13 +981,9 @@ fn save_accounts(wows: &[PathBuf], out: &Path) -> BTreeMap<String, Vec<String>> 
     }
     if known != before
         && let Ok(text) = serde_json::to_string_pretty(&known)
-        && let Err(e) = fs::write(
-            &path,
-            text + "
-",
-        )
+        && let Err(e) = fs::write(&path, format!("{text}\n"))
     {
-        eprintln!("scarlet: {}: {e}", path.display());
+        err!("scarlet: {}: {e}", path.display());
     }
     known
 }
@@ -997,7 +997,7 @@ fn write_digest(wow: &Path, out: &Path, accounts: &BTreeMap<String, Vec<String>>
         .join("Interface")
         .join("AddOns");
     if !addons.is_dir() {
-        println!("digest: no AddOns folder at {}", addons.display());
+        out!("digest: no AddOns folder at {}", addons.display());
         return;
     }
     let mut dirs: Vec<PathBuf> = fs::read_dir(out)
@@ -1024,7 +1024,7 @@ fn write_digest(wow: &Path, out: &Path, accounts: &BTreeMap<String, Vec<String>>
             match load_events(&d, &name) {
                 Ok(evs) if !evs.is_empty() => {
                     if let Err(e) = write_overview(&d, &build_overview(&name, &evs, &own)) {
-                        eprintln!("scarlet: {name}: overview: {e}");
+                        err!("scarlet: {name}: overview: {e}");
                     }
                     write_inventory(&d, &name, &evs);
                 }
@@ -1037,11 +1037,11 @@ fn write_digest(wow: &Path, out: &Path, accounts: &BTreeMap<String, Vec<String>>
         match ov {
             Some(ov) if !ov.sessions.is_empty() => chars.push((name, ov)),
             Some(_) => {}
-            None => eprintln!("scarlet: {name}: overview.json unreadable"),
+            None => err!("scarlet: {name}: overview.json unreadable"),
         }
     }
     if chars.is_empty() {
-        println!("digest: no characters with sessions; Digest.lua not written");
+        out!("digest: no characters with sessions; Digest.lua not written");
         return;
     }
     let accounts: BTreeMap<String, Vec<String>> = accounts
@@ -1065,7 +1065,7 @@ fn write_digest(wow: &Path, out: &Path, accounts: &BTreeMap<String, Vec<String>>
             .iter()
             .map(|t| format!("L{} {} ({}m) {}", t.level, t.time, t.minutes, t.date))
             .collect();
-        println!("eta: {name} {} | {}", targets.join(" | "), eta.basis);
+        out!("eta: {name} {} | {}", targets.join(" | "), eta.basis);
     }
     let data = addons.join(DATA_ADDON);
     if !prepare_data_dir(&data) {
@@ -1075,13 +1075,13 @@ fn write_digest(wow: &Path, out: &Path, accounts: &BTreeMap<String, Vec<String>>
     let text = overview::digest_lua_with(&chars, made, &accounts);
     let dest = data.join("Digest.lua");
     match write_atomic(&dest, &text) {
-        Ok(()) => println!(
+        Ok(()) => out!(
             "digest: {} character(s), {} bytes -> {}",
             chars.len(),
             text.len(),
             dest.display()
         ),
-        Err(e) => println!(
+        Err(e) => out!(
             "digest: could not write {}: {e}; the next export tries again",
             dest.display()
         ),
@@ -1092,7 +1092,7 @@ fn write_digest(wow: &Path, out: &Path, accounts: &BTreeMap<String, Vec<String>>
         if fs::read_to_string(&toc).ok().as_deref() != Some(text.as_str())
             && let Err(e) = write_atomic(&toc, &text)
         {
-            println!("digest: could not write {}: {e}", toc.display());
+            out!("digest: could not write {}: {e}", toc.display());
             return;
         }
         remove_old_data(&addons.join("Scarlet"));
@@ -1125,7 +1125,7 @@ fn is_link(meta: &fs::Metadata) -> bool {
 fn prepare_data_dir(data: &Path) -> bool {
     match fs::symlink_metadata(data) {
         Ok(meta) if is_link(&meta) || !meta.is_dir() || data.join(".git").exists() => {
-            println!(
+            out!(
                 "digest: {} is a link, a file or a checkout; left alone",
                 data.display()
             );
@@ -1135,7 +1135,7 @@ fn prepare_data_dir(data: &Path) -> bool {
         Err(_) => match fs::create_dir_all(data) {
             Ok(()) => true,
             Err(e) => {
-                println!("digest: could not create {}: {e}", data.display());
+                out!("digest: could not create {}: {e}", data.display());
                 false
             }
         },
@@ -1172,7 +1172,7 @@ fn remove_old_data(scarlet: &Path) {
                 && fs::symlink_metadata(&path).is_ok_and(|m| m.is_file() && !is_link(&m))
                 && fs::remove_file(&path).is_ok()
             {
-                println!("digest: removed old {}", path.display());
+                out!("digest: removed old {}", path.display());
             }
         }
     }
@@ -1199,7 +1199,7 @@ fn write_items(data: &Path, chars: &[(String, Overview)], out: &Path, made: i64)
     let text = inventory::items_lua(&list, made);
     let dest = data.join("Items.lua");
     if let Err(e) = write_atomic(&dest, &text) {
-        println!("items: could not write {}: {e}", dest.display());
+        out!("items: could not write {}: {e}", dest.display());
     }
 }
 
@@ -1208,7 +1208,7 @@ fn write_items(data: &Path, chars: &[(String, Overview)], out: &Path, made: i64)
 pub fn watch_all(wows: &[PathBuf], out: &Path) -> Result<(), Box<dyn Error>> {
     let mut seen: HashMap<PathBuf, SystemTime> = HashMap::new();
     let mut first = true;
-    println!("watching {} folder(s) (Ctrl+C to exit)", wows.len());
+    out!("watching {} folder(s) (Ctrl+C to exit)", wows.len());
     loop {
         let mut changed = false;
         for sv in find_sv_all(wows)? {
@@ -1240,7 +1240,7 @@ pub fn logs_all(wows: &[PathBuf], out: &Path) -> Result<(), Box<dyn Error>> {
     for wow in wows {
         let src_dir = crate::gamedir::game_dir(wow).join("Logs");
         let Ok(entries) = fs::read_dir(&src_dir) else {
-            println!("no Logs folder at {}", src_dir.display());
+            out!("no Logs folder at {}", src_dir.display());
             continue;
         };
         for entry in entries {
@@ -1249,7 +1249,7 @@ pub fn logs_all(wows: &[PathBuf], out: &Path) -> Result<(), Box<dyn Error>> {
             let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
                 continue;
             };
-            if !name.starts_with("WoWCombatLog") || !name.ends_with(".txt") {
+            if !name.starts_with("WoWCombatLog") || path.extension() != Some(OsStr::new("txt")) {
                 continue;
             }
             let md = entry.metadata()?;
@@ -1267,7 +1267,7 @@ pub fn logs_all(wows: &[PathBuf], out: &Path) -> Result<(), Box<dyn Error>> {
             let src = match File::open(&path) {
                 Ok(f) => f,
                 Err(e) => {
-                    println!("{name}: skipped, {e}");
+                    out!("{name}: skipped, {e}");
                     continue;
                 }
             };
@@ -1278,11 +1278,11 @@ pub fn logs_all(wows: &[PathBuf], out: &Path) -> Result<(), Box<dyn Error>> {
             drop(dst);
             fs::rename(&tmp, &target)?;
             done += 1;
-            println!("{name} -> {}", target.display());
+            out!("{name} -> {}", target.display());
         }
     }
     if done == 0 {
-        println!("no new combat logs");
+        out!("no new combat logs");
     }
     Ok(())
 }
