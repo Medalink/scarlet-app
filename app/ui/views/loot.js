@@ -1,7 +1,7 @@
 // Loot: what each player received as a quality-coloured bar per loot rule, with their rolls, and drop rates per
 // creature as chance bars.
 
-import { invoke, el, elText, state, esc, displayName, num, stack } from "../lib.js";
+import { invoke, el, elText, state, esc, displayName, num, stack, wireTips } from "../lib.js";
 import { counted, play } from "../motion.js";
 
 const METHOD = {
@@ -187,6 +187,7 @@ function received(view) {
 export async function render(body) {
   const view = await invoke("loot", { ch: state.ch });
   body.innerHTML = "";
+  wireTips();
   const page = el("div", "lt");
   page.append(dropRates(view), received(view));
   body.append(page);
