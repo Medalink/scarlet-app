@@ -41,13 +41,13 @@ const VIEWS = [
   { key: "log", shows: /kill Stonetusk Boar \(113\) by you/, never: /No events|Nothing recorded/ },
   { key: "sessions", shows: /^(?=.*2m in Westfall)(?=.*Level 5 to 6 in Elwynn Forest)(?=.*2m 10s · 2 kills · 1 quest · 1,605 XP)/, never: /No sessions yet\./ },
   { key: "map", shows: /Elwynn Forest 12 points Westfall 10 points/, never: /No path points yet/ },
-  { key: "loot", shows: /^(?=.*Drop rates .* Stonetusk Boar 1 corpse Linen Cloth 100% 1\/1 Chunk of Boar Meat 100% 1\/1)(?=.*Items received and rolls Common 3 Uncommon 1 Rare 1 Won 1 .* Fixture Stranger Solo 2 .* Testa Fixture Solo 3 1)/, never: /No creature loot with an item list|No loot recorded yet/ },
+  { key: "loot", shows: /^(?=.*Drop rates .* Stonetusk Boar 1 corpse Linen Cloth 100% 1\/1 Chunk of Boar Meat 100% 1\/1)(?=.*Items received and rolls Common 3 Uncommon 1 Rare 1 Won 1 Fixture Stranger Solo 2 Testa Fixture Solo 3 1)/, never: /No creature loot with an item list|No loot recorded yet/ },
   { key: "character", hash: "character/class", shows: /Spells cast most Heroic Strike 1/, never: /Select a character|Loading the class section/ },
   { key: "character", hash: "character/talents", shows: /Arms · 3 points, 2 available .* Improved Heroic Strike 2\/3 Deflection 2\/2 .* Picked 1→2\/3/, never: /No talent lines recorded|Select a character/ },
   { key: "legacy", shows: /Progression Gourmand · rank 1 of 3 .* Well Fed duration .* 0 1 15\.0 min — — .* 1 1 20\.0 min \+33% 33% /, never: /No Legacy lines recorded|Select a character/ },
   {
     key: "items",
-    shows: /^(?=.*Linen Cloth 2589 28 1s ?50c \d{4}-\d\d-\d\d \d\d:\d\d Testa Fixture 3 in bags Warband bank \(E2EONE\) 20 Warband bank \(E2ETWO\) 5 Wool Cloth 2592 7 – Guild bank 7 .* Warband bank \(E2EONE\) Testa Fixture 1 .* 12g ?34s Warband bank \(E2ETWO\) Probe Lane 1 .* 5g ?00s Guild bank Probe Lane 1 .* 98g ?76s)(?=.*Recipes Recipe Known by Makes Needs Bolt of Linen Cloth Testa Fixture Bolt of Linen Cloth x1 Linen Cloth x2)(?!.*1s ?25c)/,
+    shows: /^(?=.*Linen Cloth 2589 Testa Fixture 3 Warband bank \(E2EONE\) 20 Warband bank \(E2ETWO\) 5 28 1s ?50c 42s ?00c Wool Cloth 2592 Guild bank 7 7 – –)(?=.*Recipes 2× Linen Cloth 1× Bolt of Linen Cloth Testa Fixture)(?=.*Warband and guild banks Warband bank \(E2EONE\) 1 ?item Last read \d{4}-\d\d-\d\d \d\d:\d\d by Testa Fixture Balance 12g ?34s Warband bank \(E2ETWO\) 1 ?item Last read .* by Probe Lane Balance 5g ?00s Guild bank 1 ?item Last read .* by Probe Lane Balance 98g ?76s)(?!.*1s ?25c)/,
     never: /No bags or bank recorded yet|No items match|Guild bank \(|account unknown/,
   },
   {
@@ -588,7 +588,7 @@ const CHECKS = [
         await open(
           app,
           "items",
-          /Linen Cloth 2589 28 1s ?50c \d{4}-\d\d-\d\d \d\d:\d\d Testa Fixture 3 in bags Warband bank \(account unknown, Probe Lane\) 5 Warband bank \(account unknown, Testa Fixture\) 20 .* Guild bank Probe Lane 1/,
+          /Linen Cloth 2589 Testa Fixture 3 Warband bank \(account unknown, Probe Lane\) 5 Warband bank \(account unknown, Testa Fixture\) 20 28 1s ?50c .* Guild bank 1 ?item Last read .* by Probe Lane/,
           /Warband bank \(E2E|Guild bank \(/,
         );
       } finally {
