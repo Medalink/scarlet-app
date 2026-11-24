@@ -60,7 +60,7 @@ async function history() {
     return g ? { records: g.records, latest: g.latest, trend: g.trend, account: false, who: null } : null;
   }
   const a = await invoke("account_goals").catch(() => null);
-  return a ? { records: a.records, latest: a.latest?.latest ?? null, trend: [], account: true, who: a.latest?.character ?? null } : null;
+  return a ? { records: a.records, latest: a.latest ?? null, trend: [], account: true, who: a.latest?.character ?? null } : null;
 }
 
 function movement(data) {
