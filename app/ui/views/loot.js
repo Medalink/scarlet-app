@@ -76,18 +76,17 @@ function creatures(view) {
     c.rules.set(d.rule, Math.max(c.rules.get(d.rule) ?? 0, d.looted));
     let it = c.items.get(d.item);
     if (!it) {
-      it = { name: d.item_name || `Item ${d.item}`, drops: 0, looted: 0, byRule: [] };
+      it = { name: d.item_name || `Item ${d.item}`, drops: 0, byRule: [] };
       c.items.set(d.item, it);
     }
     it.drops += d.drops;
-    it.looted += d.looted;
     it.byRule.push(d);
   }
   return [...byNpc.values()]
     .map((c) => {
       const corpses = [...c.rules.values()].reduce((a, n) => a + n, 0);
-      const items = [...c.items.values()].sort((a, b) => pctOf(b.drops, b.looted) - pctOf(a.drops, a.looted) || b.drops - a.drops);
-      return { name: c.name, corpses, items, search: `${c.name} ${items.map((i) => i.name).join(" ")}`.toLowerCase() };
+      const items = [...c.items.values()].sort((a, b) => b.drops - a.drops || a.name.localeCompare(b.name));
+      return { name: c.name, rules: c.rules, corpses, items, search: `${c.name} ${items.map((i) => i.name).join(" ")}`.toLowerCase() };
     })
     .sort((a, b) => b.corpses - a.corpses || a.name.localeCompare(b.name));
 }
@@ -96,11 +95,11 @@ function creatureCard(c, view) {
   const shown = c.items.slice(0, ITEMS_PER_CREATURE);
   const rows = shown
     .map((it, n) => {
-      const v = pctOf(it.drops, it.looted);
+      const v = pctOf(it.drops, c.corpses);
       const tip = view.rules.length > 1
-        ? ` data-tip="${esc(it.name)}|${esc(it.byRule.map((d) => `${ruleLabel(view.rules[d.rule])} ${d.drops}/${d.looted}`).join(" · "))}"`
+        ? ` data-tip="${esc(it.name)}|${esc(it.byRule.map((d) => `${ruleLabel(view.rules[d.rule])} ${d.drops}/${c.rules.get(d.rule)}`).join(" · "))}"`
         : "";
-      return `<div class="row"${tip}><span>${esc(it.name)}</span><b>${pctText(v)} <small>${num(it.drops)}/${num(it.looted)}</small></b><i style="--w:${v.toFixed(1)}%;--n:${n}"></i></div>`;
+      return `<div class="row"${tip}><span>${esc(it.name)}</span><b>${pctText(v)} <small>${num(it.drops)}/${num(c.corpses)}</small></b><i style="--w:${v.toFixed(1)}%;--n:${n}"></i></div>`;
     })
     .join("");
   const more = c.items.length - shown.length;
