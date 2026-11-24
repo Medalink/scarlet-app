@@ -69,17 +69,25 @@ try {
   await app.evaluate(`(() => { const s = document.createElement("style"); s.textContent = "html,body,#shell,main,#body{height:auto!important;overflow:visible!important}body{display:block!important}#shell{display:flex}"; document.head.append(s); })()`);
   for (const name of names) {
     const hash = name === "run" ? run : name;
+    const asked = Date.now();
     await app.evaluate(`location.hash = ${JSON.stringify(hash)}`);
+    await app.until(
+      `(() => { const b = document.querySelector("#body"); return !!b && b.dataset.ready === "1" && b.dataset.route === location.hash.slice(1); })()`,
+      `${name} drew`,
+      60000,
+    );
+    const drawnMs = Date.now() - asked;
     const timed = values.delay !== undefined && name === "run";
     if (timed) {
       await app.until(`!!document.querySelector("#body .recap.play")`, "the page's entrance began", 10000);
       await sleep(Number(values.delay));
     } else {
-      await sleep(values.upload ? 5000 : 1500);
+      await app.until(`!document.querySelector("#body .play")`, `${name} settled`, 6000).catch(() => {});
+      await sleep(values.upload ? 5000 : 300);
     }
     const file = path.join(values.out, `${name.replace(/\//g, "-")}${timed ? `-at-${values.delay}ms` : ""}.png`);
     await app.screenshot(file, { full: true });
-    console.log(`${name}: ${file}`);
+    console.log(`${name}: ${file} (drawn in ${drawnMs} ms)`);
   }
   if (app.problems.length) {
     console.log(`problems: ${app.problems.join(" | ")}`);
