@@ -31,7 +31,7 @@ const FEATS_LOCAL_ALL = new RegExp(String.raw`^${ACCOUNT_ROW}(?=.*Probe Lane hol
 const VIEWS = [
   {
     key: "character",
-    shows: /^(?=.*Testa Fixture Level 6 Human Warrior Alliance in Westfall)(?=.*Whole life .* Quests completed 1,234 .* Titles known 3 .* Zone maps explored 3 .* Instance locks .* Blackfathom Deeps normal 1\/4 .* Lord Kazzak World boss)(?!.*Gnomeregan)/,
+    shows: /^(?=.*Testa Fixture Level 6 Human Warrior Alliance in Westfall)(?=.*Whole life Quests completed 1,234 .* Titles known 3 .* Zone maps explored 3 .* Instance locks Blackfathom Deeps normal 1\/4 .* Lord Kazzak World boss)(?!.*Gnomeregan)/,
     never: /No characters recorded yet/,
   },
   { key: "characters", shows: /^(?=.*Level target)(?=.*Testa Fixture)(?=.*Probe Lane)/, never: /No characters recorded yet/ },
@@ -190,7 +190,7 @@ async function startApp(ctx) {
     }),
   );
   ctx.footprint = footprint();
-  ctx.app = await launch({ exe: ctx.exe, home: s.home });
+  ctx.app = await launch({ exe: ctx.exe, home: s.home, reducedMotion: true });
   await ctx.app.until(`document.querySelectorAll("#nav .item").length > 0 && document.querySelector("#pagetitle").textContent !== ""`, "the page booted", 10000);
 }
 

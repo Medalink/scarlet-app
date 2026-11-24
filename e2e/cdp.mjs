@@ -22,23 +22,24 @@ const ATTACH_MS = 15000;
 const ANSWER_MS = 2000;
 const CLOSE_MS = 10000;
 
-const ownEnvironment = (home, port) => {
+const ownEnvironment = (home, port, reducedMotion) => {
   const inherited = Object.fromEntries(Object.entries(process.env).filter(([name]) => !/^(SCARLET_OUT|SCARLET_SETTINGS|WEBVIEW2_.*)$/i.test(name)));
-  return { ...inherited, SCARLET_HOME: home, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port} --lang=en-US` };
+  return { ...inherited, SCARLET_HOME: home, WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS: `--remote-debugging-port=${port} --lang=en-US${reducedMotion ? " --force-prefers-reduced-motion" : ""}` };
 };
 
 /**
- * Starts `exe` on a desktop of its own with `home` as its SCARLET_HOME and returns the page's handle:
+ * Starts `exe` on a desktop of its own with `home` as its SCARLET_HOME (`reducedMotion` skips the entrances, so numbers
+ * are final when a check reads them) and returns the page's handle:
  * `evaluate(expression)`, `until(expression, what, ms)`, `screenshot(file, { full })`, `problems`, `close()`, `pid` and
  * `exitCode()` (the launcher's, null while it runs; 3 means a window of the app was found on the desktop in use).
  * `close()` clicks the window's close button and returns the launcher's exit code, or null when the app had not
  * ended after 10 s and the launcher was killed. The launcher ends the app when this process is gone. An error thrown
  * while starting carries the launcher's exit code as `launcherExit`.
  */
-export async function launch({ exe, home }) {
+export async function launch({ exe, home, reducedMotion = false }) {
   const port = await freePort();
   const launcher = spawn("pwsh", ["-NoProfile", "-File", LAUNCHER, "-Parent", String(process.pid), "-Exe", exe], {
-    env: ownEnvironment(home, port),
+    env: ownEnvironment(home, port, reducedMotion),
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
