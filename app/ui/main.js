@@ -163,7 +163,15 @@ function setView() {
     });
     $("#pagetitle").textContent = labelOf(current);
     refreshWebLine();
-    await activeMod.render($("#body"), VIEWS[key] ? sub : undefined);
+    const stale = $("#body");
+    const keep = stale.dataset.route === route ? stale.scrollTop : 0;
+    const body = stale.cloneNode(false);
+    delete body.dataset.ready;
+    body.dataset.route = route;
+    stale.replaceWith(body);
+    await activeMod.render(body, VIEWS[key] ? sub : undefined);
+    if (keep && body.isConnected) body.scrollTop = keep;
+    body.dataset.ready = "1";
     if (mine === navSeq) invoke("save_view", { view: VIEWS[key] ? route : current });
   });
   navTail = run.catch(() => {});
@@ -217,8 +225,8 @@ async function boot() {
     state.ch = e.target.value || null;
     await setView();
   };
-  await setView();
   window.addEventListener("hashchange", setView);
+  await setView();
   window.addEventListener("keydown", (e) => {
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
       const search = document.querySelector("#body input[placeholder]");
