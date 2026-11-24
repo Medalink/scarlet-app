@@ -177,12 +177,14 @@ impl Session {
         let (character, main) =
             load_payloads_without_repeats(&dir.join("payloads"), "scarlet", None)
                 .map_err(Error::local)?;
-        let (_, addon) = load_payloads_without_repeats(
-            &dir.join("addons").join("payloads"),
-            "scarletaddons",
-            Some(&character),
-        )
-        .unwrap_or_default();
+        let addon_dir = dir.join("addons").join("payloads");
+        let addon = if addon_dir.is_dir() {
+            load_payloads_without_repeats(&addon_dir, "scarletaddons", Some(&character))
+                .map_err(Error::local)?
+                .1
+        } else {
+            Vec::new()
+        };
         let opts = Options {
             on: self
                 .cfg
@@ -583,16 +585,16 @@ fn load_payloads_without_repeats(
 ) -> std::result::Result<(String, Vec<Ev>), String> {
     let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
         .map_err(|e| format!("{}: {e}", dir.display()))?
-        .filter_map(|e| e.ok().map(|e| e.path()))
+        .map(|e| e.map(|e| e.path()).map_err(|e| e.to_string()))
+        .collect::<std::result::Result<Vec<_>, _>>()?
+        .into_iter()
         .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("scl"))
         .collect();
     files.sort();
     let mut name = character.map(str::to_string).unwrap_or_default();
     let mut per_file = Vec::new();
     for path in files {
-        let Ok(bytes) = std::fs::read(&path) else {
-            continue;
-        };
+        let bytes = std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         match parse_scl(&bytes, magic) {
             Ok(p) if name.is_empty() || p.character == name => {
                 name = p.character;
