@@ -8,7 +8,8 @@ use super::keys::{self, KeyStore};
 use super::state::{self, CharState, LogEntry, UploadState, now};
 use super::{Error, Result};
 use scarlet_part::build::{Built, Options, build_parts};
-use scarlet_part::load::{load_dir, load_fishing, load_imports};
+use scarlet_part::load::{load_fishing, load_imports};
+use scarlet_part::payload::{Ev, parse_scl};
 use scarlet_part::pseudo::hex;
 use scarlet_part::wire;
 use scarlet_part::{fishing, imports};
@@ -173,11 +174,15 @@ impl Session {
 
     fn build(&self, name: &str) -> Result<(String, Built)> {
         let dir = self.out.join(name);
-        let loaded = load_dir(
-            &dir.join("payloads"),
-            Some(&dir.join("addons").join("payloads")),
+        let (character, main) =
+            load_payloads_without_repeats(&dir.join("payloads"), "scarlet", None)
+                .map_err(Error::local)?;
+        let (_, addon) = load_payloads_without_repeats(
+            &dir.join("addons").join("payloads"),
+            "scarletaddons",
+            Some(&character),
         )
-        .map_err(Error::local)?;
+        .unwrap_or_default();
         let opts = Options {
             on: self
                 .cfg
@@ -187,8 +192,7 @@ impl Session {
                 .collect(),
             name_key: self.name_key,
         };
-        let character = loaded.character.clone();
-        let mut built = build_parts(&character, loaded.main, loaded.addon, &opts);
+        let mut built = build_parts(&character, main, addon, &opts);
         let imported = load_imports(&dir.join("imports").join("payloads"), &character);
         built
             .parts
@@ -570,4 +574,37 @@ fn zstd_frame(raw: &[u8]) -> Result<Vec<u8>> {
         .map_err(err)?;
     enc.write_all(raw).map_err(err)?;
     enc.finish().map_err(err)
+}
+
+fn load_payloads_without_repeats(
+    dir: &Path,
+    magic: &str,
+    character: Option<&str>,
+) -> std::result::Result<(String, Vec<Ev>), String> {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(dir)
+        .map_err(|e| format!("{}: {e}", dir.display()))?
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("scl"))
+        .collect();
+    files.sort();
+    let mut name = character.map(str::to_string).unwrap_or_default();
+    let mut per_file = Vec::new();
+    for path in files {
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        match parse_scl(&bytes, magic) {
+            Ok(p) if name.is_empty() || p.character == name => {
+                name = p.character;
+                per_file.push(p.events);
+            }
+            _ => {}
+        }
+    }
+    if name.is_empty() {
+        return Err(format!("{}: no readable payload", dir.display()));
+    }
+    let events =
+        crate::archive::merge_by(per_file, |e, h| std::hash::Hash::hash(&(e.ms, &e.text), h));
+    Ok((name, events))
 }
