@@ -1,13 +1,60 @@
 // Log: virtualized event log with Rust-side search, code chips, date range
 // and session jump.
 
-import { invoke, el, state, clock, esc, num, highlight } from "../lib.js";
+import { invoke, el, elText, state, clock, esc, num, dur, highlight, money, shortDate, displayName } from "../lib.js";
+import { paceName } from "./paces.js";
 
 const ROW_PX = 24;
 const ROWS_PER_PAGE = 500;
+const BRIEFS_SHOWN = 12;
+const MIN_PLAYED = 900;
+const QUALITY_LINE = /^(.*) is (poor|common|uncommon|rare|epic|legendary)$/;
+const METERS = [["xp", "XP", num], ["gold", "Gold", (v) => (v === 0 ? "0" : `${v > 0 ? "+" : ""}${money(v)}`)], ["kills", "Kills", num]];
+
+const clockOf = (ms) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+async function briefsOf(sessionsList) {
+  const goals = state.ch ? await invoke("goals", { ch: state.ch }).catch(() => null) : null;
+  if (goals?.runs.length) return goals.runs.slice(0, BRIEFS_SHOWN);
+  return [...sessionsList]
+    .filter((s) => s.duration >= MIN_PLAYED)
+    .sort((a, b) => b.start - a.start)
+    .slice(0, BRIEFS_SHOWN)
+    .map((s) => ({ from: s.start, to: s.end, played: s.duration, xp: s.xp, gold: s.money, kills: s.kills, new_best: [], who: s.char_name }));
+}
+
+function briefCell(b, most, onPick) {
+  const cell = el("button", "lg-cell");
+  cell.type = "button";
+  cell.dataset.from = String(b.from);
+  cell.dataset.to = String(b.to);
+  const head = el("span", "lg-head");
+  head.append(elText("b", "", dur(b.played)), elText("span", "", `${shortDate(b.from)} ${clockOf(b.from)}`));
+  if (b.who) head.append(elText("span", "", displayName(b.who)));
+  cell.append(head);
+  for (const [key, label, show] of METERS) {
+    const value = b[key];
+    const row = el("span", "lg-meter");
+    const bar = el("i");
+    bar.style.setProperty("--w", `${most[key] > 0 ? Math.max(0, Math.min(1, value / most[key])) * 100 : 0}%`);
+    row.append(elText("span", "", label), el("em", "", show(value)), bar);
+    cell.append(row);
+  }
+  if (b.new_best.length) cell.append(elText("span", "best new", `New best ${b.new_best.map((k) => paceName(k).toLowerCase()).join(", ")}`));
+  cell.onclick = () => onPick(b, cell);
+  return cell;
+}
+
+function briefStrip(briefs, onPick) {
+  const most = Object.fromEntries(METERS.map(([key]) => [key, Math.max(...briefs.map((b) => b[key]), 0)]));
+  const strip = el("div", "lg-strip");
+  for (const b of briefs) strip.append(briefCell(b, most, onPick));
+  return strip;
+}
 
 export async function render(body) {
   const sessionsList = await invoke("sessions", { ch: state.ch });
+  const briefs = await briefsOf(sessionsList);
   body.innerHTML = "";
 
   const picked = window.__tlSession ?? null;
@@ -98,7 +145,17 @@ export async function render(body) {
   const scroll = el("div", "tl-scroll");
   const view = el("div", "tl-abs");
   scroll.appendChild(view);
-  wrap.append(ctl, codeBar, scroll);
+  const pick = (b, cell) => {
+    ui.sessFrom = b.from - 1000;
+    ui.sessTo = b.to + 1000;
+    sess.value = "";
+    wrap.querySelectorAll(".lg-cell.on").forEach((c) => c.classList.remove("on"));
+    cell.classList.add("on");
+    reset();
+  };
+  const strip = briefs.length ? briefStrip(briefs, pick) : null;
+  if (strip) strip.querySelectorAll(".lg-cell").forEach((c) => c.classList.toggle("on", picked != null && Number(c.dataset.from) - 1000 <= picked.from && picked.from <= Number(c.dataset.to) + 1000));
+  wrap.append(ctl, ...(strip ? [strip] : []), codeBar, scroll);
   body.appendChild(wrap);
 
   const fromMs = () => (ui.sessFrom ?? (from.value ? new Date(from.value + "T00:00:00").getTime() : -86400e12));
@@ -144,7 +201,8 @@ export async function render(body) {
         continue;
       }
       const r = page[i - p * ROWS_PER_PAGE];
-      const textHtml = r.text ? highlight(r.text, term) : "";
+      const quality = r.code === "itemquality" ? QUALITY_LINE.exec(r.text) : null;
+      const textHtml = quality ? `${highlight(quality[1], term)} is <span class="tl-q" style="--c:var(--q-${quality[2]}, var(--muted))">${quality[2]}</span>` : r.text ? highlight(r.text, term) : "";
       html += `<div class="tl-row" style="top:${i * ROW_PX}px" data-code="${esc(r.code)}">
         <span class="tl-time">${clock(r.ms)}</span>
         <span class="tl-word" title="Filter by ${esc(r.word)}">${esc(r.word)}</span>
@@ -175,9 +233,11 @@ export async function render(body) {
 
   let deb;
   q.oninput = () => { clearTimeout(deb); deb = setTimeout(reset, 200); };
-  from.onchange = () => { ui.sessFrom = ui.sessTo = null; sess.value = ""; reset(); };
-  to.onchange = () => { ui.sessFrom = ui.sessTo = null; sess.value = ""; reset(); };
+  const unpick = () => wrap.querySelectorAll(".lg-cell.on").forEach((c) => c.classList.remove("on"));
+  from.onchange = () => { ui.sessFrom = ui.sessTo = null; sess.value = ""; unpick(); reset(); };
+  to.onchange = () => { ui.sessFrom = ui.sessTo = null; sess.value = ""; unpick(); reset(); };
   sess.onchange = () => {
+    unpick();
     if (sess.value === "") {
       ui.sessFrom = ui.sessTo = null;
     } else {
@@ -195,6 +255,7 @@ export async function render(body) {
     from.value = to.value = "";
     ui.sessFrom = ui.sessTo = null;
     sess.value = "";
+    unpick();
     state.codes.clear();
     syncCodeBar();
     reset();
