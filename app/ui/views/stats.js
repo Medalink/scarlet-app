@@ -33,7 +33,7 @@ const median = (values) => {
 function trendTile(t) {
   const rates = t.points.map((p) => p[1]);
   const last = rates[rates.length - 1];
-  const view = tile(`${paceName(t.key)} an hour`, rateText(t.key, last), `Median ${rateText(t.key, median(rates))} over ${rates.length} runs, ${shortDate(t.points[0][0])} to ${shortDate(t.points[t.points.length - 1][0])}`, { size: "md", extra: spark(rates.map((v) => Math.max(0, v)), { w: 240, h: 40 }) });
+  const view = tile(`${paceName(t.key)} an hour`, rateText(t.key, last), `Median ${rateText(t.key, median(rates))} over ${rates.length} runs at all levels, ${shortDate(t.points[0][0])} to ${shortDate(t.points[t.points.length - 1][0])}`, { size: "md", extra: spark(rates.map((v) => Math.max(0, v)), { w: 240, h: 40 }) });
   view.classList.add("stat-trend");
   return view;
 }
