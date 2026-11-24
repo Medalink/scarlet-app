@@ -9,7 +9,7 @@ same two commits promoted.
 On medaviper the T3 workflow `scarlet-release` (roster `t3/workflows/medaviper/scarlet-release.ts`) asks in the T3
 inbox at 04:30, on each day that `main` of either repo moved since the last beta or release, whether to build a beta,
 with links to the changes. Nothing is built without a `build beta` answer. The question lapses after 20 hours and the
-next day's replaces it. On `build beta` it waits while a game runs, as `dev-update.ps1` does, builds the beta and asks
+next day's replaces it. On `build beta` it waits while a game runs, as the edge builder does, builds the beta and asks
 whether to promote it. `promote` runs the release lane below with `-From` that beta, which also uploads the addon to
 CurseForge and Wago. A newer beta withdraws the older promote question. The commands below still work by hand.
 

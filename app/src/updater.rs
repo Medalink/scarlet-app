@@ -290,8 +290,8 @@ pub fn note_start() {
     STARTED_AS.get_or_init(exe_stamp);
 }
 
-/// True once a newer build has replaced this exe on disk, as `scripts/dev-update.ps1` does
-/// to a dev copy while it runs.
+/// True once a newer build has replaced this exe on disk, as the edge builder does to the dev
+/// copy while it runs.
 pub fn rebuilt() -> bool {
     let start = STARTED_AS.get_or_init(exe_stamp);
     start.is_some() && exe_stamp().is_some_and(|now| Some(now) != *start)

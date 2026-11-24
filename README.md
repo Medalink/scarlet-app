@@ -29,9 +29,10 @@ cargo build --release
 target\release\scarlet-app.exe
 ```
 
-On medaviper, `scripts/dev-update.ps1 -Install` keeps `app\target\release\scarlet-app.exe` at the newest main: a
-scheduled task rebuilds it in a clone of its own after a ship, once no game has run for 10 minutes, and an open Scarlet
-shows "Restart to update".
+On medaviper, the "Scarlet edge builder" task (roster `ship/builders/rust-edge.ps1 -App scarlet-app`) keeps
+`app\target\release\scarlet-app.exe` at the newest main: it builds each SHA the flow engine reports, in a clone of its
+own, once no game has run for 10 minutes, and an open Scarlet shows "Restart to update". The flow's `edge` ring passes
+when that SHA is in place.
 
 ## Checks before a ship
 
