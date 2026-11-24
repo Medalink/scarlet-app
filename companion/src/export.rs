@@ -365,13 +365,17 @@ pub fn set_group_by_account(wows: &[PathBuf], out: &Path, on: bool) {
 
 /// Every payload of one character, in time order.
 fn load_events(dir: &Path, name: &str) -> std::io::Result<Vec<archive::Event>> {
-    let mut evs: Vec<archive::Event> = Vec::new();
-    for p in archive::char_payloads(dir)? {
-        match archive::read_payload(&p) {
-            Ok(pl) => evs.extend(pl.events),
-            Err(e) => eprintln!("scarlet: {name}: {}: {e}", p.display()),
-        }
-    }
+    let payloads =
+        archive::char_payloads(dir)?
+            .into_iter()
+            .filter_map(|p| match archive::read_payload(&p) {
+                Ok(pl) => Some(pl.events),
+                Err(e) => {
+                    eprintln!("scarlet: {name}: {}: {e}", p.display());
+                    None
+                }
+            });
+    let mut evs = archive::merge(payloads);
     evs.sort_by_key(|e| e.ms);
     Ok(evs)
 }

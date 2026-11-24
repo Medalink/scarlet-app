@@ -3,7 +3,10 @@
 //! export's payload writer.
 
 use crate::events;
+use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::io::Read;
 use std::path::Path;
 
@@ -58,6 +61,38 @@ pub fn parse_payload_text(text: &str) -> Payload {
         events.push(Event { ms, code, fields });
     }
     Payload { character, events }
+}
+
+fn event_key(e: &Event) -> u64 {
+    let mut h = DefaultHasher::new();
+    e.ms.hash(&mut h);
+    e.code.hash(&mut h);
+    e.fields.hash(&mut h);
+    h.finish()
+}
+
+/// The events of `payloads` in the order given, leaving out each event a payload holds again from an earlier one: an
+/// export that lost its state reads the whole recording a second time and writes it as one more payload. An event that
+/// repeats inside one payload stays; it is only a repeat when an earlier payload held it as often.
+pub fn merge(payloads: impl IntoIterator<Item = Vec<Event>>) -> Vec<Event> {
+    let mut held: HashMap<u64, usize> = HashMap::new();
+    let mut out = Vec::new();
+    for events in payloads {
+        let mut here: HashMap<u64, usize> = HashMap::new();
+        for e in events {
+            let key = event_key(&e);
+            let n = here.entry(key).or_insert(0);
+            *n += 1;
+            if *n > held.get(&key).copied().unwrap_or(0) {
+                out.push(e);
+            }
+        }
+        for (key, n) in here {
+            let most = held.entry(key).or_insert(0);
+            *most = (*most).max(n);
+        }
+    }
+    out
 }
 
 /// Every .scl payload for one character directory (`<out>/<Name-Surname>/payloads`).

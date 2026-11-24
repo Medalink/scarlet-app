@@ -146,28 +146,27 @@ impl Store {
             // Pass 1: names and zones, so pass 2 renders with them.
             let mut parsed: Vec<Event> = Vec::new();
             let mut fishing: HashSet<String> = HashSet::new();
-            for p in &payloads {
-                let Ok(pl) = archive::read_payload(p) else {
-                    continue;
-                };
-                for e in pl.events {
-                    if e.code == "SN"
-                        && let [id, name, ..] = e.fields.as_slice()
-                        && name == "Fishing"
-                    {
-                        fishing.insert(id.clone());
-                    }
-                    if let Some((kind, id, n)) = archive::name_of(&e) {
-                        names.insert(events::name_key(kind, &id), n);
-                    } else if e.code == "Z"
-                        && let (Some(map), Some(zone)) =
-                            (e.fields.first(), e.fields.get(4).filter(|z| !z.is_empty()))
-                        && let Ok(m) = map.parse::<u32>()
-                    {
-                        zones.entry(m).or_insert_with(|| zone.clone());
-                    }
-                    parsed.push(e);
+            let read = payloads
+                .iter()
+                .filter_map(|p| archive::read_payload(p).ok())
+                .map(|pl| pl.events);
+            for e in archive::merge(read) {
+                if e.code == "SN"
+                    && let [id, name, ..] = e.fields.as_slice()
+                    && name == "Fishing"
+                {
+                    fishing.insert(id.clone());
                 }
+                if let Some((kind, id, n)) = archive::name_of(&e) {
+                    names.insert(events::name_key(kind, &id), n);
+                } else if e.code == "Z"
+                    && let (Some(map), Some(zone)) =
+                        (e.fields.first(), e.fields.get(4).filter(|z| !z.is_empty()))
+                    && let Ok(m) = map.parse::<u32>()
+                {
+                    zones.entry(m).or_insert_with(|| zone.clone());
+                }
+                parsed.push(e);
             }
 
             // Pass 2: rows, sessions and polylines.
