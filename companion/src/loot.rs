@@ -160,21 +160,24 @@ impl LootBook {
         self.quality.get(item).copied()
     }
 
-    /// Times this book's character received `item`, under any loot rule.
-    pub fn received(&self, item: &str) -> u64 {
-        self.receipts
-            .iter()
-            .filter(|((who, _, id), _)| *who == self.me && id == item)
-            .map(|(_, (count, _))| count)
-            .sum()
+    /// Times this book's character received each item, under any loot rule.
+    pub fn received_counts(&self) -> HashMap<&str, u64> {
+        let mut out: HashMap<&str, u64> = HashMap::new();
+        for ((who, _, item), (count, _)) in &self.receipts {
+            if *who == self.me {
+                *out.entry(item.as_str()).or_default() += count;
+            }
+        }
+        out
     }
 
-    pub fn kills_of(&self, npc: &str) -> u64 {
-        self.kills
-            .iter()
-            .filter(|((id, _), _)| id == npc)
-            .map(|(_, n)| n)
-            .sum()
+    /// Kills of each creature, under any loot rule.
+    pub fn kill_counts(&self) -> HashMap<&str, u64> {
+        let mut out: HashMap<&str, u64> = HashMap::new();
+        for ((npc, _), n) in &self.kills {
+            *out.entry(npc.as_str()).or_default() += n;
+        }
+        out
     }
 
     fn receipt(&mut self, who: &str, item: &str, qty: u64) {

@@ -182,11 +182,13 @@ fn loot_sync(app: AppHandle, ch: Option<String>) -> LootView {
             kills.entry(d.npc.as_str()).or_default();
         }
         for book in books.values() {
+            let got = book.received_counts();
             for (item, n) in &mut received {
-                *n += book.received(item);
+                *n += got.get(item).copied().unwrap_or(0);
             }
+            let killed = book.kill_counts();
             for (npc, n) in &mut kills {
-                *n += book.kills_of(npc);
+                *n += killed.get(npc).copied().unwrap_or(0);
             }
         }
         let items = received
