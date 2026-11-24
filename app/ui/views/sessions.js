@@ -76,14 +76,13 @@ function controls(prefs, redraw) {
   return bar;
 }
 
-async function draw(body) {
+async function draw(body, hash) {
   const mine = ++drawn;
-  const hash = location.hash;
   const { prefs, cards } = await invoke("session_cards", { ch: state.ch });
   if (mine !== drawn || hash !== location.hash || !body.isConnected) return;
   const shown = cards.filter((c) => c.recap || c.live);
   body.innerHTML = "";
-  body.append(controls(prefs, () => draw(body)));
+  body.append(controls(prefs, () => draw(body, hash)));
   if (!shown.length) {
     body.appendChild(el("div", "empty", prefs.mode === "manual" ? "Press Start session, play, then press Stop session." : "No sessions yet."));
     return;
@@ -110,7 +109,7 @@ async function draw(body) {
 export async function render(body, sub) {
   if (/^\d+-\d+$/.test(sub ?? "")) return renderRun(body, sub);
   wireTips();
-  await draw(body);
+  await draw(body, location.hash);
 }
 
 const overlap = (c, from, to) => Math.min(c.to, to) - Math.max(c.from, from);
