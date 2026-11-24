@@ -60,7 +60,7 @@ function ago(sec) {
 
 function reachCell(c) {
   if (c.cap > 0 && c.level >= c.cap) return "At level cap";
-  return c.reach && c.reach.date ? `Level ${c.reach.level} ${esc(c.reach.date)}` : "–";
+  return c.reach && c.reach.date ? `Level ${c.reach.level} ${esc(c.reach.date)}` : "";
 }
 
 function charCard(c, most, withAccount) {
@@ -70,6 +70,7 @@ function charCard(c, most, withAccount) {
   const time = c.played || c.recorded;
   const played = time ? `${longDur(time)}${c.played ? "" : " recorded"}` : "–";
   const last = c.through ? `<b data-tip="${day(c.through * 1000)} ${hm(c.through * 1000)}">${ago(c.through)}</b>` : "<b>–</b>";
+  const reach = reachCell(c);
   const account = withAccount && c.account ? `<span class="ch-acct">${esc(c.account)}</span>` : "";
   return `<div class="ch-card" role="link" tabindex="0" data-pick="${esc(c.name)}" style="--cls:${CLASS_COLOR[c.class] || "var(--accent)"}">
     <div class="ch-top"><span class="ch-name">${esc(displayName(c.name))}</span><span class="ch-lv"><small>Level</small> ${c.level || "–"}</span></div>
@@ -79,7 +80,7 @@ function charCard(c, most, withAccount) {
     <dl class="ch-facts">
       <div><dt>Gold</dt><dd>${c.money == null ? "–" : `<span data-to="${c.money}" data-as="money">${moneyHtml(c.money)}</span>`}</dd></div>
       <div><dt>Last session</dt><dd>${last}</dd></div>
-      <div><dt>Level target</dt><dd>${reachCell(c)}</dd></div>
+      ${reach ? `<div><dt>Level target</dt><dd>${reach}</dd></div>` : ""}
     </dl>
   </div>`;
 }
@@ -126,8 +127,8 @@ function goldMod() {
   const biggest = Math.max(...data.chars.map((c) => c.money || 0), data.warband, 1);
   const share = (v) => (total > 0 ? `${Math.round((v / total) * 100)}%` : "");
   const balance = (v) =>
-    `<div class="gl-bal"><div class="gl-t"><span data-to="${v}" data-as="money">${moneyHtml(v)}</span><b>${share(v)}</b></div><i style="--w:${Math.max(1, (v / biggest) * 100)}%"></i></div>`;
-  const flow = (v, cls, label) => (v ? `<span class="gl-${cls}" data-tip="${label}|${esc(money(v))}">${moneyHtml(v)}</span>` : `<span class="gl-${cls} none">–</span>`);
+    `<div class="gl-bal"><div class="gl-t"><span data-to="${v}" data-as="money">${moneyHtml(v)}</span><b>${share(v)}</b></div><i style="--w:${v ? Math.max(1, (v / biggest) * 100) : 0}%"></i></div>`;
+  const flow = (v, cls, label) => (v ? `<span class="gl-${cls}" data-tip="${label}|${esc(money(v))}">${moneyHtml(v)} <small>${cls}</small></span>` : `<span class="gl-${cls} none">–</span>`);
   const rows = data.chars
     .map((c, i) => {
       const n = nets[i];
@@ -191,17 +192,27 @@ function transfersMod() {
 }
 
 
+const PAIRS_AS_BARS = 3;
+
 function pairsMod() {
   if (!data.pairs.length) return mod("w12 first last", "Played together", empty("None of your characters were online or grouped together."));
   const longest = Math.max(...data.pairs.map((p) => p.together), 1);
+  const lead = (p) => (p.together ? `${longDur(p.together)} online together` : "No time online together");
+  const group = (p) => (p.grouped ? `, ${longDur(p.grouped)} grouped` : "");
+  if (data.pairs.length < PAIRS_AS_BARS) {
+    const lines = data.pairs
+      .map(
+        (p) => `<p class="pt-line"><span class="pt-who">${nameOf(p.a)}<small>and</small>${nameOf(p.b)}</span><span><b>${lead(p)}</b>${group(p)} · ${plural(p.sessions, "session", "sessions")}${p.last ? ` · ${ago(p.last)}` : ""}</span></p>`
+      )
+      .join("");
+    return mod("w12 first last", "Played together", lines);
+  }
   const rows = data.pairs
-    .map((p) => {
-      const lead = p.together ? `${longDur(p.together)} online together` : "No time online together";
-      const group = p.grouped ? `, ${longDur(p.grouped)} grouped` : "";
-      return `<div class="pt-row"><span class="pt-who">${nameOf(p.a)}<small>and</small>${nameOf(p.b)}</span>
-        <div class="pt-bar"><span class="pt-t"><b>${lead}</b>${group}</span><i style="--w:${(p.together / longest) * 100}%;--g:${p.together ? Math.min(100, (p.grouped / p.together) * 100) : 0}%"></i></div>
-        <span class="pt-n">${plural(p.sessions, "session", "sessions")}</span><span class="pt-last">${p.last ? ago(p.last) : "–"}</span></div>`;
-    })
+    .map(
+      (p) => `<div class="pt-row"><span class="pt-who">${nameOf(p.a)}<small>and</small>${nameOf(p.b)}</span>
+        <div class="pt-bar"><span class="pt-t"><b>${lead(p)}</b>${group(p)}</span><i style="--w:${(p.together / longest) * 100}%;--g:${p.together ? Math.min(100, (p.grouped / p.together) * 100) : 0}%"></i></div>
+        <span class="pt-n">${plural(p.sessions, "session", "sessions")}</span><span class="pt-last">${p.last ? ago(p.last) : "–"}</span></div>`
+    )
     .join("");
   const key = `<ul class="key"><li><i style="background:var(--text)"></i>Online together</li><li><i style="background:var(--accent)"></i>Grouped</li></ul>`;
   return mod("w12 first last", "Played together", `${key}<div class="pt-list">${rows}</div>`);
