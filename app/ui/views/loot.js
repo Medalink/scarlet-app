@@ -31,6 +31,7 @@ const ROLLS = [
   ["Passed", "--s-0", "rolls_passed"],
 ];
 const CREATURE_LIMIT = 48;
+const CREATURE_TOP = 12;
 const ITEMS_PER_CREATURE = 8;
 
 function ruleLabel(r) {
@@ -118,17 +119,110 @@ function dropRates(view) {
   q.style.width = "260px";
   const grid = el("div", "lt-grid");
   const note = el("div", "dim");
+  const all = elText("button", "sc-btn quiet small", "");
+  all.type = "button";
+  let expanded = false;
   const draw = () => {
     const f = q.value.trim().toLowerCase();
     const hit = f ? list.filter((c) => c.search.includes(f)) : list;
-    grid.innerHTML = hit.slice(0, CREATURE_LIMIT).map((c) => creatureCard(c, view)).join("");
-    note.textContent = hit.length > CREATURE_LIMIT ? `Showing ${CREATURE_LIMIT} of ${num(hit.length)}.` : "";
+    const shown = hit.slice(0, f || expanded ? CREATURE_LIMIT : CREATURE_TOP);
+    grid.innerHTML = shown.map((c) => creatureCard(c, view)).join("");
+    note.textContent = shown.length < hit.length && (f || expanded) ? `Showing ${CREATURE_LIMIT} of ${num(hit.length)}.` : "";
+    all.hidden = Boolean(f) || expanded || hit.length <= CREATURE_TOP;
+    all.textContent = `Show all ${num(hit.length)} creatures`;
+  };
+  all.onclick = () => {
+    expanded = true;
+    draw();
   };
   let deb;
   q.oninput = () => { clearTimeout(deb); deb = setTimeout(draw, 120); };
   draw();
-  p.append(q, grid, note);
+  p.append(q, grid, note, all);
   return p;
+}
+
+const ownCharacters = () => new Set(state.store?.chars ?? []);
+
+function sumOf(rows) {
+  const t = { items: 0, quality: Array(SHADES.length).fill(0), rolls_won: 0, rolls_lost: 0, rolls_passed: 0 };
+  for (const a of rows) {
+    t.items += a.items;
+    a.quality.forEach((n, i) => (t.quality[i] += n));
+    for (const [, , field] of ROLLS) t[field] += a[field];
+  }
+  return t;
+}
+
+function lootLine(who, note, t, most) {
+  const row = el("div", "lt-row");
+  row.append(elText("span", "lt-who", who), elText("span", "lt-rule", note));
+  const track = el("div", "lt-track");
+  const parts = SHADES.map(([label, c], i) => [label, t.quality[i], c]).filter((r) => r[1] > 0);
+  if (parts.length) {
+    const bar = stack(parts, { key: false, h: 10 });
+    bar.style.width = `${Math.max(6, (t.items / most) * 100)}%`;
+    track.append(bar);
+  } else {
+    track.append(el("i", "lt-none"));
+  }
+  row.append(counted(elText("b", "lt-n", num(t.items)), t.items, num), track);
+  const rolls = el("div", "lt-rolls");
+  const rolled = ROLLS.filter(([, , field]) => t[field] > 0);
+  if (rolled.length) {
+    for (const [label, c, field] of rolled) {
+      const s = elText("span", "lt-roll", num(t[field]));
+      s.style.setProperty("--c", `var(${c})`);
+      s.dataset.tip = `${label}|${num(t[field])} ${t[field] === 1 ? "roll" : "rolls"}`;
+      rolls.append(s);
+    }
+    const bar = stack(rolled.map(([label, c, field]) => [label, t[field], c]), { key: false, h: 6 });
+    bar.classList.add("lt-rollbar");
+    rolls.append(bar);
+  }
+  row.append(rolls);
+  return row;
+}
+
+function entry(who, note, t, most, kids) {
+  const wrap = el("div", "lt-entry");
+  const row = lootLine(who, note, t, most);
+  wrap.append(row);
+  if (!kids) return wrap;
+  const sub = el("div", "lt-sub");
+  sub.hidden = true;
+  row.classList.add("lt-toggle");
+  row.tabIndex = 0;
+  row.setAttribute("role", "button");
+  row.setAttribute("aria-expanded", "false");
+  const flip = () => {
+    if (!sub.children.length) sub.append(...kids());
+    sub.hidden = !sub.hidden;
+    row.setAttribute("aria-expanded", String(!sub.hidden));
+  };
+  row.onclick = flip;
+  row.onkeydown = (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      flip();
+    }
+  };
+  wrap.append(sub);
+  return wrap;
+}
+
+function playerEntry(who, rows, view, most) {
+  const withItems = rows.filter((a) => a.items > 0).sort((a, b) => a.rule - b.rule);
+  const total = sumOf(rows);
+  const name = displayName(who);
+  if (withItems.length < 2) {
+    const note = withItems.length ? ruleLabel(view.rules[withItems[0].rule]) : "Rolls only";
+    return entry(name, note, total, most, null);
+  }
+  const top = Math.max(...withItems.map((a) => a.items), 1);
+  return entry(name, `${withItems.length} loot rules`, total, most, () =>
+    withItems.map((a) => entry("", ruleLabel(view.rules[a.rule]), sumOf([a]), top, null))
+  );
 }
 
 function received(view) {
@@ -137,47 +231,32 @@ function received(view) {
     p.appendChild(el("div", "empty", "No loot recorded yet."));
     return p;
   }
-  const list = view.attribution.slice().sort((a, b) => a.who.localeCompare(b.who) || a.rule - b.rule);
-  const qTotals = SHADES.map(([label, c], i) => [label, list.reduce((n, a) => n + a.quality[i], 0), c]).filter((r) => r[1] > 0);
-  const rTotals = ROLLS.map(([label, c, field]) => [label, list.reduce((n, a) => n + a[field], 0), c]).filter((r) => r[1] > 0);
+  const qTotals = SHADES.map(([label, c], i) => [label, view.attribution.reduce((n, a) => n + a.quality[i], 0), c]).filter((r) => r[1] > 0);
+  const rTotals = ROLLS.map(([label, c, field]) => [label, view.attribution.reduce((n, a) => n + a[field], 0), c]).filter((r) => r[1] > 0);
   const keys = el("div", "lt-keys");
   if (qTotals.length) keys.append(key(qTotals));
   if (rTotals.length) keys.append(key(rTotals));
 
-  const most = Math.max(...list.map((a) => a.items), 1);
+  const byWho = new Map();
+  for (const a of view.attribution) byWho.set(a.who, [...(byWho.get(a.who) ?? []), a]);
+  const mine = ownCharacters();
+  const byItems = (a, b) => sumOf(b[1]).items - sumOf(a[1]).items || a[0].localeCompare(b[0]);
+  const own = [...byWho].filter(([who]) => mine.has(who)).sort(byItems);
+  const others = [...byWho].filter(([who]) => !mine.has(who)).sort(byItems);
+
+  const most = (players) => Math.max(...players.map(([, rows]) => sumOf(rows).items), 1);
   const rows = el("div", "lt-rows");
-  let last = null;
-  for (const a of list) {
-    const row = el("div", "lt-row");
-    row.append(elText("span", "lt-who", a.who === last ? "" : displayName(a.who)), elText("span", "lt-rule", ruleLabel(view.rules[a.rule])));
-    last = a.who;
-    const track = el("div", "lt-track");
-    const parts = SHADES.map(([label, c], i) => [label, a.quality[i], c]).filter((r) => r[1] > 0);
-    if (parts.length) {
-      const bar = stack(parts, { key: false, h: 10 });
-      bar.style.width = `${Math.max(6, (a.items / most) * 100)}%`;
-      track.append(bar);
-    } else {
-      track.append(el("i", "lt-none"));
-    }
-    const total = elText("b", "lt-n", num(a.items));
-    counted(total, a.items, num);
-    row.append(total, track);
-    const rolls = el("div", "lt-rolls");
-    const rolled = ROLLS.filter(([, , field]) => a[field] > 0);
-    if (rolled.length) {
-      for (const [label, c, field] of rolled) {
-        const s = elText("span", "lt-roll", num(a[field]));
-        s.style.setProperty("--c", `var(${c})`);
-        s.dataset.tip = `${label}|${num(a[field])} ${a[field] === 1 ? "roll" : "rolls"}`;
-        rolls.append(s);
-      }
-      const bar = stack(rolled.map(([label, c, field]) => [label, a[field], c]), { key: false, h: 6 });
-      bar.classList.add("lt-rollbar");
-      rolls.append(bar);
-    }
-    row.append(rolls);
-    rows.append(row);
+  const topMost = Math.max(most(own), others.length ? sumOf(others.flatMap(([, r]) => r)).items : 0, 1);
+  for (const [who, list] of own) rows.append(playerEntry(who, list, view, topMost));
+  if (others.length) {
+    const everyone = others.flatMap(([, r]) => r);
+    const note = `${num(others.length)} ${others.length === 1 ? "player" : "players"}`;
+    rows.append(
+      entry(`Group members (${num(others.length)})`, note, sumOf(everyone), topMost, () => {
+        const inner = most(others);
+        return others.map(([who, list]) => playerEntry(who, list, view, inner));
+      })
+    );
   }
   p.append(keys, rows);
   return p;
@@ -188,7 +267,7 @@ export async function render(body) {
   body.innerHTML = "";
   wireTips();
   const page = el("div", "lt");
-  page.append(dropRates(view), received(view));
+  page.append(received(view), dropRates(view));
   body.append(page);
   play(page);
 }
