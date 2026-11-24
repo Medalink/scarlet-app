@@ -152,6 +152,7 @@ pub fn has_new_all(wows: &[PathBuf], out: &Path) -> bool {
         .and_then(|m| m.modified())
         .ok();
     wows.iter().any(|w| data_addon_stale(w))
+        || tables_rev_differs(out)
         || imports_stale(wows, out)
         || fishing_stale(wows, out)
         || counts_stale(wows, out)
@@ -324,24 +325,34 @@ pub fn export_new_all(wows: &[PathBuf], out: &Path) -> Result<bool, Box<dyn Erro
     }
 
     let mut touched: Vec<String> = runs.keys().cloned().collect();
-    if overview_rev_differs(out) {
+    let rebuild_tables = tables_rev_differs(out);
+    let mut tables_rebuilt = true;
+    if rebuild_tables {
         for name in own.iter().filter(|n| !runs.contains_key(*n)) {
             let dir = out.join(name);
             if !dir.join("payloads").is_dir() {
                 continue;
             }
-            match load_events(&dir, name) {
-                Ok(evs) => {
-                    if let Err(e) = tables::write_char_tables(&evs, name, &dir.join("tables")) {
-                        eprintln!("scarlet: {name}: tables: {e}");
-                    }
-                }
-                Err(e) => eprintln!("scarlet: {name}: tables: {e}"),
+            let written = load_events(&dir, name)
+                .map_err(|e| e.to_string())
+                .and_then(|evs| {
+                    tables::write_char_tables(&evs, name, &dir.join("tables"))
+                        .map_err(|e| e.to_string())
+                });
+            if let Err(e) = written {
+                eprintln!("scarlet: {name}: tables: {e}");
+                tables_rebuilt = false;
             }
             touched.push(name.clone());
         }
     }
     refresh_imports(wows, out, &mut state, &touched, &own);
+    if rebuild_tables
+        && tables_rebuilt
+        && let Err(e) = fs::write(out.join("tables.rev"), TABLES_REV)
+    {
+        eprintln!("scarlet: tables.rev: {e}");
+    }
     let fishing_wrote = refresh_fishing(wows, out, &mut state);
     let counts_wrote = refresh_counts(wows, out, &mut state);
     for name in &own {
@@ -419,9 +430,15 @@ fn roster(out: &Path) -> Vec<String> {
 }
 
 const OVERVIEW_REV: &str = "10";
+const TABLES_REV: &str = "1";
 
 fn overview_rev_differs(out: &Path) -> bool {
     fs::read_to_string(out.join("overview.rev")).map_or(true, |t| t.trim() != OVERVIEW_REV)
+}
+
+fn tables_rev_differs(out: &Path) -> bool {
+    !roster(out).is_empty()
+        && fs::read_to_string(out.join("tables.rev")).map_or(true, |t| t.trim() != TABLES_REV)
 }
 
 fn overview_rev_stale(out: &Path) -> bool {
