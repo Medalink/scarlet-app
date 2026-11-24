@@ -187,17 +187,18 @@ export const shortDate = (ms) => new Date(ms).toLocaleDateString([], { day: "num
 
 /**
  * Progress to a ceiling: the name and `value / cap` over a bar that fills, and under it the share and `eta` when given.
- * `size: "lg"` makes the figure a headline. A bar at its cap reads "Max". `count` is off for a list of many.
+ * `size: "lg"` makes the figure a headline. A bar at its cap reads "Max", or `doneText`. `count` is off for a list of many.
+ * `format(n)` gives the figure's HTML, so money can show as coins.
  */
-export function goal(value, cap, { label = "", eta = "", size = "", color = "", note = "", count = true } = {}) {
+export function goal(value, cap, { label = "", eta = "", size = "", color = "", note = "", count = true, format = num, doneText = "Max" } = {}) {
   const share = cap > 0 ? Math.max(0, Math.min(1, value / cap)) : 0;
   const done = cap > 0 && value >= cap;
   const box = el("div", `sc-goal${size ? ` ${size}` : ""}${done ? " done" : ""}`);
   const head = el("div", "sg-h");
   const figure = el("span", "sg-n");
-  const now = el("b", "", num(value));
-  if (count) counted(now, value, num);
-  figure.append(now, elText("em", "", ` / ${num(cap)}`));
+  const now = el("b", "", format(value));
+  if (count) counted(now, value, format);
+  figure.append(now, el("em", "", ` / ${format(cap)}`));
   head.append(elText("span", "sg-l", label), figure);
   const track = el("div", "sg-t");
   const fill = el("i");
@@ -205,7 +206,7 @@ export function goal(value, cap, { label = "", eta = "", size = "", color = "", 
   if (color) fill.style.setProperty("--c", color);
   track.append(fill);
   const foot = el("div", "sg-f");
-  foot.append(elText("span", "", done ? "Max" : `${Math.floor(share * 100)}%`), elText("span", "", [note, eta].filter(Boolean).join(" · ")));
+  foot.append(elText("span", "", done ? doneText : `${Math.floor(share * 100)}%`), elText("span", "", [note, eta].filter(Boolean).join(" · ")));
   box.append(head, track, foot);
   return box;
 }

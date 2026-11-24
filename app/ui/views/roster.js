@@ -2,8 +2,10 @@
 // The model comes from the `roster` command. Section order: totals, characters by game
 // account, gold and transfers, played together, play time by day, time per level, professions.
 
-import { invoke, state, esc, displayName, num, dur, money, moneyHtml, dateStr, wireTips } from "../lib.js";
+import { invoke, state, el, elText, esc, displayName, num, dur, money, moneyHtml, dateStr, goal, shortDate, wireTips } from "../lib.js";
 import { countMarked, play } from "../motion.js";
+import { TIERS, recordTiles } from "./goals-section.js";
+import { openAs, paceTiles } from "./paces.js";
 import { CLASS_COLOR, className, raceName, day, hm, longDur, playTime, signed, empty, mod, mondayOf, axisTime, plural } from "./overview.js";
 
 const DAYS = 30;
@@ -11,6 +13,7 @@ const TRANSFER_ROWS = 8;
 const TONES = 8;
 
 let data = null;
+let account = null;
 let clients = 0;
 let transfersAll = false;
 let entering = false;
@@ -58,37 +61,45 @@ function ago(sec) {
   return n(Math.floor(d / (30 * DAY_S)), "month");
 }
 
-function reachCell(c) {
-  if (c.cap > 0 && c.level >= c.cap) return "At level cap";
-  return c.reach && c.reach.date ? `Level ${c.reach.level} ${esc(c.reach.date)}` : "";
+function capGoals(c) {
+  const out = [];
+  if (c.level && c.cap > 0) {
+    const eta = c.reach?.date ? `Level ${c.reach.level} ${c.reach.date}` : "";
+    out.push(goal(c.level, c.cap, { label: "Level", eta, count: false }));
+  }
+  const caps = account?.chars.find((x) => x.name === c.name);
+  if (caps?.skillsKnown) out.push(goal(caps.skillsMaxed, caps.skillsKnown, { label: "Skills maxed", count: false }));
+  if (caps?.rep) out.push(goal(caps.rep.standing - caps.rep.from, caps.rep.to - caps.rep.from, { label: caps.rep.name, note: TIERS[caps.rep.tier], count: false }));
+  return out;
 }
 
-function charCard(c, most, withAccount) {
-  const atCap = c.cap > 0 && c.level >= c.cap;
-  const pct = atCap ? 100 : c.xp_max > 0 ? Math.min(100, Math.floor((c.xp / c.xp_max) * 100)) : 0;
-  const bar = atCap ? "At level cap" : c.xp_max > 0 ? `${pct}% to level ${c.level + 1}` : "No experience bar recorded";
+function charCard(c, withAccount) {
   const time = c.played || c.recorded;
   const played = time ? `${longDur(time)}${c.played ? "" : " recorded"}` : "–";
   const last = c.through ? `<b data-tip="${day(c.through * 1000)} ${hm(c.through * 1000)}">${ago(c.through)}</b>` : "<b>–</b>";
-  const reach = reachCell(c);
-  const account = withAccount && c.account ? `<span class="ch-acct">${esc(c.account)}</span>` : "";
+  const acct = withAccount && c.account ? `<span class="ch-acct">${esc(c.account)}</span>` : "";
   return `<div class="ch-card" role="link" tabindex="0" data-pick="${esc(c.name)}" style="--cls:${CLASS_COLOR[c.class] || "var(--accent)"}">
-    <div class="ch-top"><span class="ch-name">${esc(displayName(c.name))}</span><span class="ch-lv"><small>Level</small> ${c.level || "–"}</span></div>
-    <div class="ch-xp" data-tip="${esc(bar)}"><i style="width:${pct}%"></i></div>
-    <p class="ch-id">${esc(raceName(c.race))} ${esc(className(c.class))}${c.zone ? ` · ${esc(c.zone)}` : ""}${account}</p>
-    <div class="ch-played"><span>Played</span><b>${played}</b><i style="--w:${time ? Math.max(2, (time / most) * 100) : 0}%"></i></div>
+    <div class="ch-top"><span class="ch-name">${esc(displayName(c.name))}</span></div>
+    <p class="ch-id">${esc(raceName(c.race))} ${esc(className(c.class))}${c.zone ? ` · ${esc(c.zone)}` : ""}${acct}</p>
+    <div class="ch-caps" data-caps="${esc(c.name)}"></div>
     <dl class="ch-facts">
+      <div><dt>Played</dt><dd>${played}</dd></div>
       <div><dt>Gold</dt><dd>${c.money == null ? "–" : `<span data-to="${c.money}" data-as="money">${moneyHtml(c.money)}</span>`}</dd></div>
       <div><dt>Last session</dt><dd>${last}</dd></div>
-      ${reach ? `<div><dt>Level target</dt><dd>${reach}</dd></div>` : ""}
     </dl>
   </div>`;
 }
 
 function charGrid(list, withAccount) {
-  const most = Math.max(...list.map((c) => c.played || c.recorded || 0), 1);
-  const cards = [...list].sort((a, b) => b.through - a.through).map((c) => charCard(c, most, withAccount));
+  const cards = [...list].sort((a, b) => b.through - a.through).map((c) => charCard(c, withAccount));
   return `<div class="ch-grid">${cards.join("")}</div>`;
+}
+
+function fillCaps(body) {
+  for (const slot of body.querySelectorAll("[data-caps]")) {
+    const c = data.chars.find((x) => x.name === slot.dataset.caps);
+    if (c) slot.append(...capGoals(c));
+  }
 }
 
 function groupMod(group) {
@@ -141,7 +152,31 @@ function goldMod() {
   const warband = data.warband ? `<div class="gl-row"><span class="who-c">Warband bank</span>${balance(data.warband)}<span class="dim">–</span><span></span></div>` : "";
   const head = `<div class="gl-row gl-head"><span>Character</span><span>Balance and share</span><span>Net without transfers</span><span>Received and sent</span></div>`;
   const table = `<div class="gl-list">${head}${rows}${warband}</div>`;
-  return mod("w8 first", "Gold", `<p class="big">${moneyHtml(total)}</p>${plot}${table}`);
+  return mod("w8 first", "Gold", `<p class="big">${moneyHtml(total)}</p><div class="gold-goals" id="r-gold-goals"></div>${plot}${table}`);
+}
+
+function fillGoldGoals(body) {
+  const slot = body.querySelector("#r-gold-goals");
+  if (!slot) return;
+  const held = sum(data.chars, (c) => c.money || 0);
+  const best = combined().reduce((a, p) => (p.m > a.m ? p : a), { m: 0, t: 0 });
+  if (best.m > 0 && held > 0) {
+    const cap = Math.max(best.m, held);
+    slot.append(goal(held, cap, { label: "Gold held, characters", format: moneyHtml, doneText: "Best", note: held >= best.m ? "" : `Best ${money(best.m)} on ${shortDate(best.t * 1000)}`, count: false }));
+  }
+  const latest = account?.latest;
+  const rate = latest ? paceTiles(latest.paces.filter((p) => p.key === "gold_h"), latest.played, { onOpen: openAs(latest.character) }) : null;
+  if (rate) slot.append(elText("p", "sc-label", `${displayName(latest.character)}, run of ${shortDate(latest.from)}`), rate);
+}
+
+function recordsSheet() {
+  const list = account && recordTiles(account.records, { open: (r) => openAs(r.character), owner: (r) => displayName(r.character) });
+  if (!list) return null;
+  const sheet = el("div", "sheet goals-sheet");
+  const section = el("section", "mod w12 first last");
+  section.append(elText("h2", "", "Records"), list);
+  sheet.append(section);
+  return sheet;
 }
 
 function wireGold(body) {
@@ -382,10 +417,14 @@ function draw(body) {
     body.innerHTML = `<section class="panel"><h3>Characters</h3>${empty("No characters recorded yet")}</section>`;
     return;
   }
+  const records = recordsSheet();
+  if (records) body.append(records);
   body.insertAdjacentHTML(
     "beforeend",
     `${totals()}<div class="sheet">${data.group_by_account ? data.groups.map(groupMod).join("") : charactersMod()}${goldMod()}${transfersMod()}${pairsMod()}${daysMod()}${levelsMod()}${professionsMod()}</div>`
   );
+  fillCaps(body);
+  fillGoldGoals(body);
   countMarked(body, { money: moneyHtml, num });
   wireGold(body);
   wireDays(body);
@@ -416,7 +455,7 @@ function draw(body) {
 
 export async function render(body) {
   wireTips();
-  [data, clients] = await Promise.all([invoke("roster"), invoke("wow_clients").catch(() => 0)]);
+  [data, clients, account] = await Promise.all([invoke("roster"), invoke("wow_clients").catch(() => 0), invoke("account_goals").catch(() => null)]);
   entering = true;
   draw(body);
 }

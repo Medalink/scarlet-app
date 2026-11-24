@@ -4,7 +4,7 @@
 import { el, elText, num, dur, moneyHtml, tiles, goal, record, shortDate } from "../lib.js";
 import { paceTiles } from "./paces.js";
 
-const TIERS = ["", "Hated", "Hostile", "Unfriendly", "Neutral", "Friendly", "Honored", "Revered", "Exalted"];
+export const TIERS = ["", "Hated", "Hostile", "Unfriendly", "Neutral", "Friendly", "Honored", "Revered", "Exalted"];
 const REPS_SHOWN = 6;
 const FALLBACK_CAP = 60;
 const EXALTED = 8;
@@ -102,7 +102,7 @@ function legacyMod(legacy) {
 
 const fixed = (v) => (v >= 10 ? num(v) : String(Math.round(v * 10) / 10));
 
-const RECORDS = [
+export const RECORDS = [
   ["xp_h", "Most XP an hour", num],
   ["gold_h", "Most gold an hour", moneyHtml],
   ["kills_h", "Most kills an hour", fixed],
@@ -116,18 +116,27 @@ const RECORDS = [
   ["balance", "Highest balance", moneyHtml],
 ];
 
-function recordsMod(records, onOpen) {
+/**
+ * The record tiles for `records`, in the order of RECORDS, null when there are none. `open(r)` gives the handler that
+ * runs when a tile's run is opened; `owner(r)` the character's name shown in a tile's note.
+ */
+export function recordTiles(records, { open, owner = null }) {
   const list = [];
   for (const [key, name, show] of RECORDS) {
     const r = records.find((x) => x.key === key);
     if (!r) continue;
     const when = key === "balance" ? shortDate(r.at) : `${shortDate(r.at)} · level ${r.level}`;
-    list.push(record(name, show(r.value), when, r.span ? `#sessions/${r.span[0]}-${r.span[1]}` : "", { count: [r.value, show], note: r.item?.name ?? "", onOpen }));
+    const note = [owner?.(r), r.item?.name].filter(Boolean).join(" · ");
+    list.push(record(name, show(r.value), when, r.span ? `#sessions/${r.span[0]}-${r.span[1]}` : "", { count: [r.value, show], note, onOpen: open(r) }));
   }
   const cols = Math.min(4, list.length);
   const loose = cols ? list.length % cols : 0;
   if (loose) list[list.length - 1].style.gridColumn = `span ${cols - loose + 1}`;
-  const body = list.length ? tiles(list, cols) : elText("p", "sc-empty", "No session of 15 minutes recorded yet");
+  return list.length ? tiles(list, cols) : null;
+}
+
+function recordsMod(records, onOpen) {
+  const body = recordTiles(records, { open: () => onOpen }) ?? elText("p", "sc-empty", "No session of 15 minutes recorded yet");
   return mod("w12 first last", "Records", body);
 }
 

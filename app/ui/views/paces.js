@@ -1,7 +1,14 @@
 // The pace tiles of one run: experience, gold, kills and gathers an hour against the character's own history. Drawn
 // from the `paces` the backend sends for a session page and for the character's latest run.
 
-import { num, dur, money, moneyHtml, tiles, pace } from "../lib.js";
+import { num, dur, money, moneyHtml, tiles, pace, state } from "../lib.js";
+
+/** Makes `name` the selected character, so the run a record opens is drawn as that character's. */
+export const openAs = (name) => () => {
+  const select = document.querySelector("#char");
+  if (select) select.value = name;
+  state.ch = name;
+};
 
 const fixed = (v) => (Math.abs(v) >= 10 ? num(v) : String(Math.round(v * 10) / 10));
 
