@@ -1254,8 +1254,8 @@ a.sc-session:hover { border-color: var(--line2); }
   .play .it-vbar i, .play .fr-cell i::after { transform-origin: 0 50%; animation: rc-grow 700ms var(--ease-out) 150ms both; }
 }
 .ch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; margin-top: 16px; }
-.ch-card { display: grid; gap: 10px; align-content: start; min-width: 0; padding: 14px 16px 15px; background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--cls, var(--accent)); border-radius: 4px; cursor: pointer; }
-.ch-card:hover { background: var(--card); border-color: var(--line2); border-left-color: var(--cls, var(--accent)); }
+.ch-card { display: grid; gap: 10px; align-content: start; min-width: 0; padding: 14px 16px 15px; background: var(--panel); border: 1px solid var(--line); border-radius: 4px; cursor: pointer; }
+.ch-card:hover { background: var(--card); border-color: var(--line2); }
 .ch-card:focus-visible { outline-offset: 2px; }
 .ch-top { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .ch-name { min-width: 0; font: 750 26px/1.05 var(--display); color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
