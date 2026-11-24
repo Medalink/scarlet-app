@@ -64,6 +64,10 @@ pub struct Entry {
     rect: Option<Rect>,
 }
 
+#[allow(
+    clippy::expect_used,
+    reason = "the table is a file compiled into the app, so a parse failure is a build defect"
+)]
 fn table() -> &'static Table {
     static T: std::sync::OnceLock<Table> = std::sync::OnceLock::new();
     T.get_or_init(|| {

@@ -227,6 +227,7 @@ pub fn watch_window(app: AppHandle) {
     let mut clients: Vec<HANDLE> = Vec::new();
     loop {
         if !clients.is_empty() {
+            // SAFETY: `clients` holds `len` open process handles, at most the client cap (under the API's 64), and stays alive during the wait.
             let r = unsafe {
                 WaitForMultipleObjects(
                     clients.len() as u32,
@@ -240,9 +241,11 @@ pub fn watch_window(app: AppHandle) {
             }
             let i = r.wrapping_sub(WAIT_OBJECT_0) as usize;
             if i < clients.len() {
+                // SAFETY: the handle was removed from `clients` first, so it is closed exactly once.
                 unsafe { CloseHandle(clients.swap_remove(i)) };
             } else {
-                for c in clients.drain(..) {
+                for c in std::mem::take(&mut clients) {
+                    // SAFETY: each tracked handle came from OpenProcess and is closed once, here.
                     unsafe { CloseHandle(c) };
                 }
                 std::thread::sleep(POLL);

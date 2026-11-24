@@ -24,7 +24,11 @@ pub struct ArtStatus {
 
 #[tauri::command(async)]
 pub fn map_art_status(app: AppHandle) -> ArtStatus {
-    let s = state(&app).settings.lock().unwrap().clone();
+    let s = state(&app)
+        .settings
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .clone();
     let found = Install::probe(&s.wow);
     ArtStatus {
         art: s.map_art,
@@ -41,7 +45,11 @@ pub fn set_map_art(app: AppHandle, art: String) -> Result<String, String> {
         return Err("Map art is dark or openmap.".into());
     }
     settings::update(|c| c.map_art = art.clone())?;
-    state(&app).settings.lock().unwrap().map_art = art.clone();
+    state(&app)
+        .settings
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .map_art = art.clone();
     Ok(art)
 }
 
@@ -55,7 +63,10 @@ pub async fn map_image_openmap(
     land: Option<bool>,
 ) -> tauri::ipc::Response {
     let (wow, data) = {
-        let s = state(&app).settings.lock().unwrap();
+        let s = state(&app)
+            .settings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         (s.wow.clone(), s.data.clone())
     };
     // Finding the install reads files too, so it runs on the blocking thread with the cut.

@@ -261,7 +261,10 @@ fn together_in(a: &[(i64, i64)], b: &[(i64, i64)]) -> (i64, i64, i64) {
 pub async fn roster(app: AppHandle) -> Roster {
     blocking(move || {
         let (folders, group_by_account) = {
-            let s = state(&app).settings.lock().unwrap();
+            let s = state(&app)
+                .settings
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             (s.folders(), s.group_by_account)
         };
         let accounts: Vec<(String, Vec<String>)> = folders

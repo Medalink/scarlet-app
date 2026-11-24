@@ -85,7 +85,8 @@ fn main() {
 
     // A portable copy keeps temp off C:. Safe here: before any thread spawns.
     if let Some(temp) = settings::temp_dir() {
-        std::fs::create_dir_all(&temp).ok();
+        let _ = std::fs::create_dir_all(&temp);
+        // SAFETY: no other thread exists yet, so nothing can read the environment while it changes.
         unsafe {
             std::env::set_var("TMP", &temp);
             std::env::set_var("TEMP", &temp);
@@ -181,7 +182,7 @@ fn main() {
             .inner_size(1280.0, 840.0)
             .min_inner_size(960.0, 620.0);
             if let Some(dir) = settings::webview_data() {
-                std::fs::create_dir_all(&dir).ok();
+                let _ = std::fs::create_dir_all(&dir);
                 window = window.data_directory(dir);
             }
             window.build()?;
@@ -194,7 +195,7 @@ fn main() {
             let s = commands::state(app.handle())
                 .settings
                 .lock()
-                .unwrap()
+                .unwrap_or_else(|e| e.into_inner())
                 .clone();
             scarlet::overview::set_group_by_account(s.group_by_account);
             if s.watch {

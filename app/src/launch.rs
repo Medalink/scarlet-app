@@ -83,6 +83,7 @@ pub fn set_registered(on: bool) -> Result<(), String> {
     let rc = if on {
         let cmd = format!("\"{}\" {FLAG}", exe()?.display());
         let data = wide(&cmd);
+        // SAFETY: key, name and data are NUL-terminated wide strings that outlive the call, and the byte length matches `data`.
         unsafe {
             RegSetKeyValueW(
                 HKEY_CURRENT_USER,
@@ -94,6 +95,7 @@ pub fn set_registered(on: bool) -> Result<(), String> {
             )
         }
     } else {
+        // SAFETY: key and name are NUL-terminated wide strings that outlive the call.
         let rc = unsafe { RegDeleteKeyValueW(HKEY_CURRENT_USER, key.as_ptr(), name.as_ptr()) };
         if rc == ERROR_FILE_NOT_FOUND { 0 } else { rc }
     };
@@ -122,8 +124,12 @@ pub fn spawn_watcher() {
 /// mutex stays held until the process exits. False when one is already open.
 pub fn claim_app() -> bool {
     let name = mutex_name(APP_MUTEX);
+    // SAFETY: null security attributes are allowed and `name` is a NUL-terminated wide string that outlives the call.
     let h = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
-    if !h.is_null() && unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+    // SAFETY: GetLastError has no preconditions; it is read right after the call that set it.
+    let existed = unsafe { GetLastError() } == ERROR_ALREADY_EXISTS;
+    if !h.is_null() && existed {
+        // SAFETY: `h` is the valid handle CreateMutexW just returned, and it is not used again.
         unsafe { CloseHandle(h) };
         return false;
     }
@@ -142,16 +148,19 @@ pub fn focus_existing() {
         .unwrap_or_else(|| "\\scarlet-app.exe".into());
     let mut prev = std::ptr::null_mut();
     for _ in 0..50 {
+        // SAFETY: a null parent and class are allowed, `prev` is null or the window the last call returned, and `title` is NUL-terminated.
         let w =
             unsafe { FindWindowExW(std::ptr::null_mut(), prev, std::ptr::null(), title.as_ptr()) };
         if w.is_null() {
             return;
         }
         let mut pid = 0u32;
+        // SAFETY: `w` is a window handle just found and `pid` is a valid out pointer.
         unsafe { GetWindowThreadProcessId(w, &mut pid) };
         // The installer may name the exe differently from the cargo binary, so match our own name.
         let ours = image_path(pid).is_some_and(|p| p.to_lowercase().ends_with(&own_exe_suffix));
         if ours {
+            // SAFETY: `w` was just found; both calls fail harmlessly if the window has closed since.
             unsafe {
                 if IsIconic(w) != 0 {
                     ShowWindow(w, SW_RESTORE);
@@ -166,10 +175,12 @@ pub fn focus_existing() {
 
 fn app_open() -> bool {
     let name = mutex_name(APP_MUTEX);
+    // SAFETY: `name` is a NUL-terminated wide string that outlives the call.
     let h = unsafe { OpenMutexW(SYNCHRONIZATION_SYNCHRONIZE, 0, name.as_ptr()) };
     if h.is_null() {
         return false;
     }
+    // SAFETY: `h` is the valid handle OpenMutexW just returned, and it is not used again.
     unsafe { CloseHandle(h) };
     true
 }
@@ -184,6 +195,7 @@ fn norm(p: &Path) -> String {
 fn handle_path(h: HANDLE) -> Option<String> {
     let mut buf = [0u16; 1024];
     let mut len = buf.len() as u32;
+    // SAFETY: `h` is an open process handle, `buf` holds `len` UTF-16 units, and `len` is a valid in-out pointer.
     let ok =
         unsafe { QueryFullProcessImageNameW(h, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut len) };
     (ok != 0).then(|| String::from_utf16_lossy(&buf[..len as usize]))
@@ -191,11 +203,13 @@ fn handle_path(h: HANDLE) -> Option<String> {
 
 /// Full image path of a process, or None when it cannot be opened.
 fn image_path(pid: u32) -> Option<String> {
+    // SAFETY: OpenProcess takes plain values and returns null on failure, which is checked next.
     let h = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
     if h.is_null() {
         return None;
     }
     let p = handle_path(h);
+    // SAFETY: `h` is the valid handle OpenProcess just returned, and it is not used again.
     unsafe { CloseHandle(h) };
     p
 }
@@ -215,14 +229,17 @@ const MAX_CLIENTS: usize = 60;
 /// Looks for every process running from exactly one of `targets`, the `Wow.exe` of each WoW folder
 /// (retail and Classic are Wow.exe too).
 pub(crate) fn find(targets: &[String]) -> Seen {
+    // SAFETY: CreateToolhelp32Snapshot takes plain values and returns INVALID_HANDLE_VALUE on failure, which is checked next.
     let snap = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
     if snap == INVALID_HANDLE_VALUE {
         return Seen::Unknown;
     }
     let mut unknown = false;
+    // SAFETY: PROCESSENTRY32W is plain data for which all-zero bytes are valid.
     let mut e: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
     e.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
     let mut found: Vec<HANDLE> = Vec::new();
+    // SAFETY: `snap` is a valid snapshot handle and `e` is a valid entry whose dwSize is set.
     let mut more = unsafe { Process32FirstW(snap, &mut e) } != 0;
     while more {
         let end = e
@@ -232,6 +249,7 @@ pub(crate) fn find(targets: &[String]) -> Seen {
             .unwrap_or(e.szExeFile.len());
         let name = String::from_utf16_lossy(&e.szExeFile[..end]);
         if name.eq_ignore_ascii_case("wow.exe") {
+            // SAFETY: OpenProcess takes plain values and returns null on failure, which is checked next.
             let h = unsafe {
                 OpenProcess(
                     PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZATION_SYNCHRONIZE,
@@ -242,6 +260,7 @@ pub(crate) fn find(targets: &[String]) -> Seen {
             match (!h.is_null()).then(|| handle_path(h)).flatten() {
                 Some(p) if targets.contains(&norm(Path::new(&p))) && found.len() < MAX_CLIENTS => {
                     found.push(h);
+                    // SAFETY: `snap` is a valid snapshot handle and `e` is a valid entry whose dwSize is set.
                     more = unsafe { Process32NextW(snap, &mut e) } != 0;
                     continue;
                 }
@@ -249,11 +268,14 @@ pub(crate) fn find(targets: &[String]) -> Seen {
                 None => unknown = true,
             }
             if !h.is_null() {
+                // SAFETY: `h` is a valid handle from OpenProcess and was not kept in `found`.
                 unsafe { CloseHandle(h) };
             }
         }
+        // SAFETY: `snap` is a valid snapshot handle and `e` is a valid entry whose dwSize is set.
         more = unsafe { Process32NextW(snap, &mut e) } != 0;
     }
+    // SAFETY: `snap` is a valid handle that is not used again.
     unsafe { CloseHandle(snap) };
     if !found.is_empty() {
         Seen::Running(found)
@@ -282,8 +304,11 @@ fn open_app(run: Option<crate::run::Run>) {
 /// the setting is turned off.
 pub fn watch() {
     let name = mutex_name(WATCH_MUTEX);
+    // SAFETY: null security attributes are allowed and `name` is a NUL-terminated wide string that outlives the call.
     let h = unsafe { CreateMutexW(std::ptr::null(), 0, name.as_ptr()) };
-    if h.is_null() || unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
+    // SAFETY: GetLastError has no preconditions; it is read right after the call that set it.
+    let existed = unsafe { GetLastError() } == ERROR_ALREADY_EXISTS;
+    if h.is_null() || existed {
         return;
     }
     // was: WoW was running at the last scan. A scan clears it only after two misses, so
@@ -299,12 +324,12 @@ pub fn watch() {
         // A missing or half-written file keeps the last good path; only a real "off" exits.
         match settings::try_load() {
             Some(s) if !s.open_with_wow => {
-                unsafe {
-                    for c in clients.drain(..) {
-                        CloseHandle(c);
-                    }
-                    CloseHandle(h);
+                for c in std::mem::take(&mut clients) {
+                    // SAFETY: each tracked handle came from OpenProcess and is closed once, here.
+                    unsafe { CloseHandle(c) };
                 }
+                // SAFETY: `h` is the mutex handle created above and is not used after this return.
+                unsafe { CloseHandle(h) };
                 return;
             }
             Some(s) => {
@@ -314,6 +339,7 @@ pub fn watch() {
         }
         // While WoW runs, waiting on every client's handle is the sleep: no scan until one exits.
         if !clients.is_empty() {
+            // SAFETY: `clients` holds `len` open process handles, at most MAX_CLIENTS (under the API's 64), and stays alive during the wait.
             let r = unsafe {
                 WaitForMultipleObjects(
                     clients.len() as u32,
@@ -327,10 +353,12 @@ pub fn watch() {
             }
             let i = r.wrapping_sub(WAIT_OBJECT_0) as usize;
             if i < clients.len() {
+                // SAFETY: the handle was removed from `clients` first, so it is closed exactly once.
                 unsafe { CloseHandle(clients.swap_remove(i)) };
             } else {
                 // The wait failed: drop what is held and look again.
-                for c in clients.drain(..) {
+                for c in std::mem::take(&mut clients) {
+                    // SAFETY: each tracked handle came from OpenProcess and is closed once, here.
                     unsafe { CloseHandle(c) };
                 }
                 std::thread::sleep(POLL);
@@ -398,6 +426,7 @@ fn run_over(from: Option<i64>) {
 /// A message box for a failure when there is no window to show it in.
 pub fn message_box(title: &str, text: &str) {
     let (t, x) = (wide(title), wide(text));
+    // SAFETY: a null owner window is allowed and both strings are NUL-terminated wide strings that outlive the call.
     unsafe {
         MessageBoxW(
             std::ptr::null_mut(),
@@ -410,13 +439,16 @@ pub fn message_box(title: &str, text: &str) {
 
 /// Image paths of every running Wow.exe that can be read.
 pub fn wow_paths() -> Vec<PathBuf> {
+    // SAFETY: CreateToolhelp32Snapshot takes plain values and returns INVALID_HANDLE_VALUE on failure, which is checked next.
     let snap = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
     if snap == INVALID_HANDLE_VALUE {
         return Vec::new();
     }
     let mut out = Vec::new();
+    // SAFETY: PROCESSENTRY32W is plain data for which all-zero bytes are valid.
     let mut e: PROCESSENTRY32W = unsafe { std::mem::zeroed() };
     e.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
+    // SAFETY: `snap` is a valid snapshot handle and `e` is a valid entry whose dwSize is set.
     let mut more = unsafe { Process32FirstW(snap, &mut e) } != 0;
     while more {
         let end = e
@@ -429,8 +461,10 @@ pub fn wow_paths() -> Vec<PathBuf> {
         {
             out.push(PathBuf::from(p));
         }
+        // SAFETY: `snap` is a valid snapshot handle and `e` is a valid entry whose dwSize is set.
         more = unsafe { Process32NextW(snap, &mut e) } != 0;
     }
+    // SAFETY: `snap` is a valid handle that is not used again.
     unsafe { CloseHandle(snap) };
     out
 }
@@ -452,6 +486,7 @@ fn created(h: HANDLE) -> Option<i64> {
     let mut exit = FILETIME::default();
     let mut kernel = FILETIME::default();
     let mut user = FILETIME::default();
+    // SAFETY: `h` is an open process handle and the four FILETIME out pointers are valid.
     let ok = unsafe { GetProcessTimes(h, &mut birth, &mut exit, &mut kernel, &mut user) };
     (ok != 0).then(|| {
         let since_1601 = ((birth.dwHighDateTime as i64) << 32) | birth.dwLowDateTime as i64;

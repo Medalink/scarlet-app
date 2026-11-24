@@ -330,7 +330,7 @@ pub fn collect(layers: &Layers, map: u32, ch: Option<u32>) -> LayersOut {
     o.quests = once(quests, 40, |q| (q.0, q.1, q.2 as i32));
     o.camps = once(camps, 80, |p| (p[0], p[1], 0));
     o.met = met.into_iter().map(|([x, y], n)| (x, y, n)).collect();
-    o.met.sort();
+    o.met.sort_unstable();
     let mut npcs: Vec<_> = npcs
         .into_values()
         .map(|(kind, x, y, n)| ((x / n) as i32, (y / n) as i32, kind.to_string()))

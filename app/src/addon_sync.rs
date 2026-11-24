@@ -345,7 +345,7 @@ fn download(
     let total = resp.body().content_length();
     let mut reader = resp.body_mut().with_config().limit(MAX_ZIP).reader();
     let mut out = Vec::new();
-    let mut chunk = [0u8; 64 * 1024];
+    let mut chunk = vec![0u8; 64 * 1024];
     loop {
         let n = reader.read(&mut chunk).map_err(|e| failed(&e))?;
         if n == 0 {
@@ -365,7 +365,8 @@ fn write_marker(dir: &Path, version: &str, files: &[String]) -> Result<(), Strin
         version: version.into(),
         files: files.to_vec(),
     };
-    let text = serde_json::to_string_pretty(&m).map_err(|e| e.to_string())? + "\n";
+    let mut text = serde_json::to_string_pretty(&m).map_err(|e| e.to_string())?;
+    text.push('\n');
     fs::write(dir.join(MARKER), text).map_err(|e| e.to_string())
 }
 
@@ -483,7 +484,10 @@ pub fn run(app: &AppHandle) {
         return;
     }
     let (wows, primary, keep) = {
-        let s = state(app).settings.lock().unwrap();
+        let s = state(app)
+            .settings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         (s.folders(), s.wow.clone(), s.keep_addon)
     };
     if !keep {
@@ -709,7 +713,10 @@ pub fn folder_addons(wow: &Path) -> Vec<FolderStatus> {
 
 pub fn status(app: &AppHandle) -> Status {
     let (wow, keep) = {
-        let s = state(app).settings.lock().unwrap();
+        let s = state(app)
+            .settings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         (s.wow.clone(), s.keep_addon)
     };
     let offer = updater::current_feed().and_then(|f| f.addon);
@@ -757,7 +764,12 @@ struct Progress<'a> {
 #[tauri::command(async)]
 pub fn addon_install(app: AppHandle, folder: String, takeover: bool) -> Result<Status, String> {
     let _one = RUNNING.lock().unwrap_or_else(|e| e.into_inner());
-    let wow = state(&app).settings.lock().unwrap().wow.clone();
+    let wow = state(&app)
+        .settings
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .wow
+        .clone();
     if let Some(p) = settings::folder_problem(&wow) {
         return Err(p);
     }
@@ -827,7 +839,10 @@ pub fn addon_status(app: AppHandle) -> Status {
 #[tauri::command(async)]
 pub fn set_keep_addon(app: AppHandle, on: bool) -> Result<Status, String> {
     let cur = settings::update(|c| c.keep_addon = on)?;
-    *state(&app).settings.lock().unwrap() = cur;
+    *state(&app)
+        .settings
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = cur;
     if on {
         run(&app);
     }

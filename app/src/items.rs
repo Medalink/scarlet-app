@@ -110,7 +110,11 @@ struct Shared<'a> {
 #[tauri::command]
 pub async fn items(app: AppHandle, query: String, ch: Option<String>) -> Items {
     blocking(move || {
-        let folders = state(&app).settings.lock().unwrap().folders();
+        let folders = state(&app)
+            .settings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .folders();
         let accounts: Vec<(String, Vec<String>)> = folders
             .iter()
             .flat_map(|f| scarlet::export::accounts(f))
@@ -349,7 +353,9 @@ fn search(
             if !row_for(*id, &mut by_item) {
                 continue;
             }
-            let row = by_item.get_mut(id).expect("row exists");
+            let Some(row) = by_item.get_mut(id) else {
+                continue;
+            };
             if row.holders.iter().any(|h| h.character == *name) {
                 continue;
             }
@@ -370,7 +376,9 @@ fn search(
             if !row_for(*id, &mut by_item) {
                 continue;
             }
-            let row = by_item.get_mut(id).expect("row exists");
+            let Some(row) = by_item.get_mut(id) else {
+                continue;
+            };
             row.total += count;
             row.places.push(Place {
                 place: bank.place,

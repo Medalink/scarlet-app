@@ -1,4 +1,4 @@
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(
         tauri_build::AppManifest::new().commands(&[
             "app_state",
@@ -63,6 +63,6 @@ fn main() {
             "feats_get",
             "feats_seen",
         ]),
-    ))
-    .expect("tauri-build failed");
+    ))?;
+    Ok(())
 }

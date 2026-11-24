@@ -12,7 +12,7 @@ use std::sync::{Mutex, OnceLock, RwLock};
 use tauri::{AppHandle, Emitter};
 
 pub struct State {
-    pub store: RwLock<Option<Store>>,
+    pub store: RwLock<Store>,
     pub settings: Mutex<Settings>,
 }
 
@@ -23,9 +23,9 @@ static CELL: OnceLock<State> = OnceLock::new();
 pub fn preload() -> &'static State {
     CELL.get_or_init(|| {
         let settings = settings::load();
-        let store = Store::load(&settings.data.clone());
+        let store = Store::load(&settings.data);
         State {
-            store: RwLock::new(Some(store)),
+            store: RwLock::new(store),
             settings: Mutex::new(settings),
         }
     })
@@ -37,11 +37,15 @@ pub fn state(_app: &AppHandle) -> &'static State {
 
 pub fn with_store<T>(app: &AppHandle, f: impl FnOnce(&Store) -> T) -> T {
     let s = state(app);
-    let guard = s.store.read().unwrap();
-    f(guard.as_ref().expect("store is always loaded"))
+    let guard = s.store.read().unwrap_or_else(|e| e.into_inner());
+    f(&guard)
 }
 
 /// Run a blocking read or computation on Tokio's blocking pool so async workers are never starved.
+#[allow(
+    clippy::expect_used,
+    reason = "a task that panicked has no value to return, so the command fails as before"
+)]
 pub async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static) -> T {
     tauri::async_runtime::spawn_blocking(f)
         .await
@@ -51,9 +55,14 @@ pub async fn blocking<T: Send + 'static>(f: impl FnOnce() -> T + Send + 'static)
 /// Replace the store after an export or a settings change, and tell the UI.
 pub fn reload(app: &AppHandle) {
     let s = state(app);
-    let dir = s.settings.lock().unwrap().data.clone();
+    let dir = s
+        .settings
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .data
+        .clone();
     let store = Store::load(&dir);
-    *s.store.write().unwrap() = Some(store);
+    *s.store.write().unwrap_or_else(|e| e.into_inner()) = store;
     let _ = app.emit("store-changed", ());
 }
 
@@ -593,7 +602,10 @@ pub struct TimelinePage {
 }
 
 #[tauri::command]
-#[allow(clippy::too_many_arguments)]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "one argument per filter the timeline view sends, as Tauri's command arguments"
+)]
 pub async fn timeline(
     app: AppHandle,
     ch: Option<String>,
@@ -994,7 +1006,7 @@ fn bucket(series: Vec<(i64, i64)>, n: usize) -> Vec<(i64, i64)> {
     }
     let step = series.len() / n;
     (0..n)
-        .map(|i| {
+        .filter_map(|i| {
             let start = i * step;
             let end = if i == n - 1 {
                 series.len()
@@ -1004,7 +1016,6 @@ fn bucket(series: Vec<(i64, i64)>, n: usize) -> Vec<(i64, i64)> {
             series[start..end.max(start + 1).min(series.len())]
                 .last()
                 .copied()
-                .unwrap()
         })
         .collect()
 }

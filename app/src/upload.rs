@@ -130,7 +130,11 @@ fn view() -> UploadView {
 /// Change the upload settings on disk and in the running app.
 fn change(app: &AppHandle, f: impl FnOnce(&mut UploadConfig)) -> Result<Settings, String> {
     let cur = settings::update(|s| f(&mut s.upload))?;
-    state(app).settings.lock().unwrap().upload = cur.upload.clone();
+    state(app)
+        .settings
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .upload = cur.upload.clone();
     Ok(cur)
 }
 

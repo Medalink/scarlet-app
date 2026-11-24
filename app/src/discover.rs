@@ -33,7 +33,11 @@ pub fn spawn(app: AppHandle) {
             }
         });
         if let Ok(cur) = saved {
-            commands::state(&app).settings.lock().unwrap().wow = cur.wow;
+            commands::state(&app)
+                .settings
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .wow = cur.wow;
             watch::wake();
         }
     });

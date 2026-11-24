@@ -124,6 +124,7 @@ fn known_folder(id: &GUID) -> Option<PathBuf> {
     } else {
         None
     };
+    // SAFETY: `p` was allocated by SHGetKnownFolderPath for the caller to free with CoTaskMemFree, and is not used again.
     unsafe { CoTaskMemFree(p.cast()) };
     text.map(PathBuf::from)
 }
@@ -215,6 +216,7 @@ fn reg_string(root: HKEY, sub: &str, name: &str) -> Option<String> {
     }
     let mut buf = vec![0u16; bytes as usize / 2 + 2];
     let mut got = (buf.len() * 2) as u32;
+    // SAFETY: `buf` holds `got` bytes, and the key, subkey and name pointers outlive the call.
     let rc = unsafe {
         RegGetValueW(
             root,
@@ -268,7 +270,10 @@ pub fn detect_wow() -> Option<PathBuf> {
             continue;
         }
         let root = format!("{}:\\", (b'A' + i as u8) as char);
-        if unsafe { GetDriveTypeW(wide(&root).as_ptr()) } != DRIVE_FIXED {
+        let wide_root = wide(&root);
+        // SAFETY: `wide_root` is a NUL-terminated wide string that outlives the call.
+        let drive_type = unsafe { GetDriveTypeW(wide_root.as_ptr()) };
+        if drive_type != DRIVE_FIXED {
             continue;
         }
         for rel in [
@@ -348,8 +353,9 @@ pub fn save(s: &Settings) -> Result<(), String> {
         fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
     let tmp = p.with_extension("json.tmp");
-    let json = serde_json::to_string_pretty(s).map_err(|e| e.to_string())?;
-    fs::write(&tmp, json + "\n").map_err(|e| e.to_string())?;
+    let mut json = serde_json::to_string_pretty(s).map_err(|e| e.to_string())?;
+    json.push('\n');
+    fs::write(&tmp, json).map_err(|e| e.to_string())?;
     fs::rename(&tmp, &p).map_err(|e| e.to_string())
 }
 

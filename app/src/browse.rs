@@ -68,53 +68,74 @@ unsafe fn pick_modern(owner: isize, title: &[u16]) -> Result<Option<PathBuf>, ()
     if hr < 0 || dlg.is_null() {
         return Err(());
     }
+    // SAFETY: a COM object starts with a pointer to its vtable, and `dlg` is a live IFileDialog.
     let vtbl = unsafe { *(dlg as *const *const *const c_void) };
+    // SAFETY: slot 2 of IUnknown's vtable is Release, which has this signature.
     let release: unsafe extern "system" fn(*mut c_void) -> u32 =
         unsafe { std::mem::transmute(*vtbl.add(2)) };
+    // SAFETY: slot 3 of IModalWindow's vtable is Show, which has this signature.
     let show: unsafe extern "system" fn(*mut c_void, *mut c_void) -> i32 =
         unsafe { std::mem::transmute(*vtbl.add(3)) };
+    // SAFETY: slot 9 of IFileDialog's vtable is SetOptions, which has this signature.
     let set_options: unsafe extern "system" fn(*mut c_void, u32) -> i32 =
         unsafe { std::mem::transmute(*vtbl.add(9)) };
+    // SAFETY: slot 10 of IFileDialog's vtable is GetOptions, which has this signature.
     let get_options: unsafe extern "system" fn(*mut c_void, *mut u32) -> i32 =
         unsafe { std::mem::transmute(*vtbl.add(10)) };
+    // SAFETY: slot 17 of IFileDialog's vtable is SetTitle, which has this signature.
     let set_title: unsafe extern "system" fn(*mut c_void, *const u16) -> i32 =
         unsafe { std::mem::transmute(*vtbl.add(17)) };
+    // SAFETY: slot 20 of IFileDialog's vtable is GetResult, which has this signature.
     let get_result: unsafe extern "system" fn(*mut c_void, *mut *mut c_void) -> i32 =
         unsafe { std::mem::transmute(*vtbl.add(20)) };
 
     let mut opts = 0u32;
+    // SAFETY: `dlg` is a live IFileDialog and `opts` is a valid out pointer.
     let _ = unsafe { get_options(dlg, &mut opts) };
+    // SAFETY: `dlg` is a live IFileDialog and the options are plain flags.
     let _ = unsafe {
         set_options(
             dlg,
             opts | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST,
         )
     };
+    // SAFETY: `dlg` is a live IFileDialog and `title` is NUL-terminated and outlives the dialog.
     let _ = unsafe { set_title(dlg, title.as_ptr()) };
 
+    // SAFETY: `dlg` is a live IFileDialog and `owner` is a window handle of this process or null.
     let shown = unsafe { show(dlg, owner as *mut c_void) };
     let picked = if shown >= 0 {
         let mut item: *mut c_void = std::ptr::null_mut();
-        if unsafe { get_result(dlg, &mut item) } >= 0 && !item.is_null() {
+        // SAFETY: `dlg` is a live IFileDialog that was shown and `item` is a valid out pointer.
+        let got = unsafe { get_result(dlg, &mut item) } >= 0;
+        if got && !item.is_null() {
+            // SAFETY: a COM object starts with a pointer to its vtable, and `item` is a live IShellItem.
             let ivtbl = unsafe { *(item as *const *const *const c_void) };
+            // SAFETY: slot 2 of IUnknown's vtable is Release, which has this signature.
             let item_release: unsafe extern "system" fn(*mut c_void) -> u32 =
                 unsafe { std::mem::transmute(*ivtbl.add(2)) };
+            // SAFETY: slot 5 of IShellItem's vtable is GetDisplayName, which has this signature.
             let get_name: unsafe extern "system" fn(*mut c_void, u32, *mut *mut u16) -> i32 =
                 unsafe { std::mem::transmute(*ivtbl.add(5)) };
             let mut raw: *mut u16 = std::ptr::null_mut();
-            let path =
-                if unsafe { get_name(item, SIGDN_FILESYSPATH, &mut raw) } >= 0 && !raw.is_null() {
-                    let mut len = 0usize;
-                    while unsafe { *raw.add(len) } != 0 {
-                        len += 1;
-                    }
-                    let slice = unsafe { std::slice::from_raw_parts(raw, len) };
-                    let p = PathBuf::from(String::from_utf16_lossy(slice));
-                    unsafe { CoTaskMemFree(raw.cast()) };
-                    Some(p)
-                } else {
-                    None
-                };
+            // SAFETY: `item` is a live IShellItem and `raw` is a valid out pointer.
+            let named = unsafe { get_name(item, SIGDN_FILESYSPATH, &mut raw) } >= 0;
+            let path = if named && !raw.is_null() {
+                let mut len = 0usize;
+                // SAFETY: on success `raw` is a NUL-terminated wide string, so every read up to the NUL is in bounds.
+                while unsafe { *raw.add(len) } != 0 {
+                    len += 1;
+                }
+                // SAFETY: `raw` holds `len` initialized units, as counted above, and is not freed until after the copy.
+                let slice = unsafe { std::slice::from_raw_parts(raw, len) };
+                let p = PathBuf::from(String::from_utf16_lossy(slice));
+                // SAFETY: `raw` was allocated by the shell for the caller to free with CoTaskMemFree, and is not used again.
+                unsafe { CoTaskMemFree(raw.cast()) };
+                Some(p)
+            } else {
+                None
+            };
+            // SAFETY: `item` is a live IShellItem that is not used again.
             unsafe { item_release(item) };
             Ok(path)
         } else {
@@ -125,6 +146,7 @@ unsafe fn pick_modern(owner: isize, title: &[u16]) -> Result<Option<PathBuf>, ()
     } else {
         Err(())
     };
+    // SAFETY: `dlg` is the live IFileDialog from CoCreateInstance and is not used again.
     unsafe { release(dlg) };
     picked
 }
@@ -142,7 +164,9 @@ fn pick_folder(owner: isize) -> Option<PathBuf> {
             }
         }
         let title = wide("Choose the folder that contains _forever_");
-        let path = match unsafe { pick_modern(owner, &title) } {
+        // SAFETY: COM was initialized on this thread above, which is all pick_modern needs.
+        let picked = unsafe { pick_modern(owner, &title) };
+        let path = match picked {
             Ok(chosen) => chosen,
             Err(()) => {
                 let mut name = [0u16; MAX_PATH as usize];
@@ -173,6 +197,7 @@ fn pick_folder(owner: isize) -> Option<PathBuf> {
                 }
             }
         };
+        // SAFETY: balances the successful CoInitializeEx on this thread.
         unsafe { CoUninitialize() };
         path
     })

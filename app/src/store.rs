@@ -255,7 +255,7 @@ impl Store {
                         "Z" => {
                             if let Some(z) = e.fields.get(4).filter(|z| !z.is_empty()) {
                                 let last = s.zones.last();
-                                if last != Some(&z.to_string()) {
+                                if last != Some(z) {
                                     s.zones.push(z.clone());
                                 }
                             }

@@ -25,6 +25,10 @@ use windows_sys::Win32::System::Threading::{
 pub static WATCH_ON: AtomicBool = AtomicBool::new(false);
 /// True while the watch thread is alive. Taken under the lock to decide to exit or to spawn,
 /// so a quick off-then-on never leaves the watch without a thread.
+#[allow(
+    clippy::mutex_atomic,
+    reason = "the flag is read and set while the lock is held, so the exit-or-spawn decision is one step"
+)]
 static RUNNING: Mutex<bool> = Mutex::new(false);
 /// Auto-reset event the thread also waits on. The handle is kept as a number (it is never closed).
 static WAKE: OnceLock<usize> = OnceLock::new();
@@ -37,13 +41,15 @@ const RECHECK_MS: u32 = 30_000;
 const MAX_FOLDERS: usize = 60;
 
 fn wake_handle() -> HANDLE {
-    *WAKE.get_or_init(|| unsafe {
-        CreateEventW(std::ptr::null(), FALSE, FALSE, std::ptr::null()) as usize
+    *WAKE.get_or_init(|| {
+        // SAFETY: null security attributes and a null name are allowed; the new event is never closed.
+        unsafe { CreateEventW(std::ptr::null(), FALSE, FALSE, std::ptr::null()) as usize }
     }) as HANDLE
 }
 
 /// Makes the watch thread re-read the settings and the folder it watches.
 pub fn wake() {
+    // SAFETY: the handle is the process-lifetime event from wake_handle.
     unsafe { SetEvent(wake_handle()) };
 }
 
@@ -58,6 +64,7 @@ fn wide(p: &Path) -> Vec<u16> {
 /// A change notification on the folder and everything below it, or None when it is missing.
 fn watch_dir(dir: &Path) -> Option<HANDLE> {
     let w = wide(dir);
+    // SAFETY: `w` is a NUL-terminated wide path that outlives the call; failure returns INVALID_HANDLE_VALUE, checked below.
     let h = unsafe {
         FindFirstChangeNotificationW(
             w.as_ptr(),
@@ -104,7 +111,7 @@ fn watch_loop(app: AppHandle) {
         }
         let s = state(&app);
         let (wows, out) = {
-            let st = s.settings.lock().unwrap();
+            let st = s.settings.lock().unwrap_or_else(|e| e.into_inner());
             (st.folders(), st.data.clone())
         };
         // One notification per WoW folder: each game account in each of them writes its own
@@ -129,10 +136,12 @@ fn watch_loop(app: AppHandle) {
         {
             // Do not spin on a file that cannot be read yet.
             stamps.clear();
+            // SAFETY: the handle is the process-lifetime event from wake_handle.
             unsafe { WaitForSingleObject(wake_handle(), 5_000) };
         }
 
         if notes.is_empty() {
+            // SAFETY: the handle is the process-lifetime event from wake_handle.
             unsafe { WaitForSingleObject(wake_handle(), RECHECK_MS) };
             continue;
         }
@@ -142,6 +151,7 @@ fn watch_loop(app: AppHandle) {
             let mut objs = vec![wake_handle()];
             objs.extend(&notes);
             let timeout = if missing { RECHECK_MS } else { INFINITE };
+            // SAFETY: `objs` holds the wake event and at most MAX_FOLDERS open notification handles, and outlives the wait.
             let r =
                 unsafe { WaitForMultipleObjects(objs.len() as u32, objs.as_ptr(), FALSE, timeout) };
             // Index 0 is the wake event; anything but a folder's notification re-reads.
@@ -150,8 +160,10 @@ fn watch_loop(app: AppHandle) {
                 break;
             }
             let note = objs[i];
+            // SAFETY: `note` is an open change notification from `notes`.
             unsafe { FindNextChangeNotification(note) };
             std::thread::sleep(SETTLE);
+            // SAFETY: `note` is still an open change notification from `notes`.
             unsafe { FindNextChangeNotification(note) };
             if !WATCH_ON.load(Ordering::Relaxed) {
                 break;
@@ -167,6 +179,7 @@ fn watch_loop(app: AppHandle) {
             }
         }
         for note in notes {
+            // SAFETY: each notification was opened by watch_dir and is closed once, here.
             unsafe { FindCloseChangeNotification(note) };
         }
     }

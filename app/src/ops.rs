@@ -22,7 +22,7 @@ pub async fn sizes(app: AppHandle) -> Sizes {
     blocking(move || {
         let s = state(&app);
         let (wows, dir) = {
-            let st = s.settings.lock().unwrap();
+            let st = s.settings.lock().unwrap_or_else(|e| e.into_inner());
             (st.folders(), st.data.clone())
         };
         let sv = scarlet::export::find_sv_all(&wows).unwrap_or_default();
@@ -60,7 +60,7 @@ pub async fn sizes(app: AppHandle) -> Sizes {
 fn run_export(app: &AppHandle) -> String {
     let s = state(app);
     let (wows, out) = {
-        let st = s.settings.lock().unwrap();
+        let st = s.settings.lock().unwrap_or_else(|e| e.into_inner());
         (st.folders(), st.data.clone())
     };
     if !wows
@@ -86,7 +86,7 @@ pub async fn compress_logs(app: AppHandle) -> String {
     blocking(move || {
         let s = state(&app);
         let (wows, out) = {
-            let st = s.settings.lock().unwrap();
+            let st = s.settings.lock().unwrap_or_else(|e| e.into_inner());
             (st.folders(), st.data.clone())
         };
         match scarlet::export::logs_all(&wows, &out) {
@@ -104,7 +104,10 @@ pub fn toggle_watch(app: AppHandle, on: bool) -> Result<bool, String> {
     set_watch(&app, on);
     let watch = WATCH_ON.load(Ordering::Relaxed);
     let cur = settings::update(|c| c.watch = watch)?;
-    *state(&app).settings.lock().unwrap() = cur;
+    *state(&app)
+        .settings
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = cur;
     Ok(watch)
 }
 
@@ -112,7 +115,10 @@ pub fn toggle_watch(app: AppHandle, on: bool) -> Result<bool, String> {
 #[tauri::command(async)]
 pub fn set_setup_done(app: AppHandle, done: bool) -> Result<(), String> {
     let cur = settings::update(|c| c.setup_done = done)?;
-    *state(&app).settings.lock().unwrap() = cur;
+    *state(&app)
+        .settings
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = cur;
     Ok(())
 }
 
@@ -165,12 +171,15 @@ pub fn set_settings(
                 .collect();
         }
     })?;
-    *state(&app).settings.lock().unwrap() = cur.clone();
+    *state(&app)
+        .settings
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = cur.clone();
     reload(&app);
     // The watch thread reads the new folders.
     wake();
     // The addon may now be missing from the new folder.
-    crate::updater::kick(app.clone());
+    crate::updater::kick(app);
     Ok(cur)
 }
 
@@ -185,7 +194,11 @@ pub fn set_open_with_wow(app: AppHandle, on: bool) -> Result<bool, String> {
         let _ = settings::update(|c| c.open_with_wow = !on);
         return Err(e);
     }
-    state(&app).settings.lock().unwrap().open_with_wow = on;
+    state(&app)
+        .settings
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .open_with_wow = on;
     if on {
         crate::launch::spawn_watcher();
         // An off-then-on click can meet the old watcher still exiting; a second copy
@@ -203,7 +216,10 @@ pub fn set_open_with_wow(app: AppHandle, on: bool) -> Result<bool, String> {
 #[tauri::command(async)]
 pub fn set_group_by_account(app: AppHandle, on: bool) -> Result<bool, String> {
     let cur = settings::update(|c| c.group_by_account = on)?;
-    *state(&app).settings.lock().unwrap() = cur.clone();
+    *state(&app)
+        .settings
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = cur.clone();
     scarlet::export::set_group_by_account(&cur.folders(), &cur.data, on);
     Ok(on)
 }
@@ -225,7 +241,10 @@ fn view_to_store(view: &str) -> String {
 pub fn save_view(app: AppHandle, view: String) {
     let view = view_to_store(&view);
     {
-        let mut st = state(&app).settings.lock().unwrap();
+        let mut st = state(&app)
+            .settings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         // Re-rendering the same view writes nothing.
         if st.last_view == view {
             return;
@@ -243,7 +262,11 @@ pub fn save_view(app: AppHandle, view: String) {
 /// The number of WoW Forever clients running now, in every folder, for the sidebar.
 #[tauri::command(async)]
 pub fn wow_clients(app: AppHandle) -> usize {
-    let folders = state(&app).settings.lock().unwrap().folders();
+    let folders = state(&app)
+        .settings
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .folders();
     crate::launch::running_clients(&folders).iter().sum()
 }
 
@@ -272,7 +295,10 @@ pub struct FolderView {
 #[tauri::command(async)]
 pub fn wow_folders(app: AppHandle) -> Vec<FolderView> {
     let (primary, more) = {
-        let st = state(&app).settings.lock().unwrap();
+        let st = state(&app)
+            .settings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         (st.wow.clone(), st.more_wow.clone())
     };
     let mut all: Vec<PathBuf> = Vec::new();

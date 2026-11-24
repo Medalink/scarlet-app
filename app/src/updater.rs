@@ -77,7 +77,12 @@ pub fn enabled(app: &AppHandle) -> bool {
 
 /// The saved track; unset follows the installed build, so a beta build keeps getting betas.
 pub fn track(app: &AppHandle) -> Track {
-    let saved = state(app).settings.lock().unwrap().track.clone();
+    let saved = state(app)
+        .settings
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .track
+        .clone();
     saved.as_deref().and_then(Track::parse).unwrap_or_else(|| {
         if version(app).pre.as_str().starts_with("beta") {
             Track::Beta
@@ -387,7 +392,10 @@ pub async fn update_check(app: AppHandle) -> Info {
 pub async fn set_track(app: AppHandle, track: String) -> Result<Info, String> {
     let t = Track::parse(&track).ok_or("Update track must be release or beta.")?;
     let cur = settings::update(|c| c.track = Some(t.key().to_string()))?;
-    *state(&app).settings.lock().unwrap() = cur;
+    *state(&app)
+        .settings
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = cur;
     {
         // What the old track offered is not an offer on this one.
         let mut s = shared();
@@ -396,7 +404,7 @@ pub async fn set_track(app: AppHandle, track: String) -> Result<Info, String> {
         s.notes.clear();
         s.error = None;
     }
-    NOTES.lock().unwrap().take();
+    NOTES.lock().unwrap_or_else(|e| e.into_inner()).take();
     refresh(&app).await;
     Ok(info(&app))
 }
@@ -504,7 +512,7 @@ fn notes_from(json: &str, track: Track) -> Result<Vec<Note>, String> {
 #[tauri::command(async)]
 pub fn release_notes(app: AppHandle) -> Result<Vec<Note>, String> {
     let track = track(&app);
-    if let Some((at, t, notes)) = NOTES.lock().unwrap().as_ref()
+    if let Some((at, t, notes)) = NOTES.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
         && *t == track
         && at.elapsed() < NOTES_CACHE
     {
@@ -524,6 +532,6 @@ pub fn release_notes(app: AppHandle) -> Result<Vec<Note>, String> {
         .read_to_string()
         .map_err(|e| format!("Could not read the release notes: {e}"))?;
     let notes = notes_from(&text, track)?;
-    *NOTES.lock().unwrap() = Some((Instant::now(), track, notes.clone()));
+    *NOTES.lock().unwrap_or_else(|e| e.into_inner()) = Some((Instant::now(), track, notes.clone()));
     Ok(notes)
 }
