@@ -30,7 +30,8 @@ const ownEnvironment = (home, port, reducedMotion) => {
 /**
  * Starts `exe` on a desktop of its own with `home` as its SCARLET_HOME (`reducedMotion` skips the entrances, so numbers
  * are final when a check reads them) and returns the page's handle:
- * `evaluate(expression)`, `until(expression, what, ms)`, `screenshot(file, { full })`, `problems`, `close()`, `pid` and
+ * `evaluate(expression)`, `until(expression, what, ms)`, `screenshot(file, { full })`, `viewport(width, height)` (the page
+ * lays out at that size, for a narrow-window check), `problems`, `close()`, `pid` and
  * `exitCode()` (the launcher's, null while it runs; 3 means a window of the app was found on the desktop in use).
  * `close()` clicks the window's close button and returns the launcher's exit code, or null when the app had not
  * ended after 10 s and the launcher was killed. The launcher ends the app when this process is gone. An error thrown
@@ -169,6 +170,11 @@ export async function launch({ exe, home, reducedMotion = false }) {
     fs.writeFileSync(file, Buffer.from(result.data, "base64"));
   };
 
+  const viewport = async (width, height) => {
+    const { error } = await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
+    if (error) throw new Error(`viewport failed: ${JSON.stringify(error)}`);
+  };
+
   const close = async () => {
     evaluate(`document.querySelector("#win-close").click()`).catch(() => {});
     const code = await Promise.race([exited, pause(CLOSE_MS).then(() => "late")]);
@@ -181,5 +187,5 @@ export async function launch({ exe, home, reducedMotion = false }) {
     return code === "late" ? null : code;
   };
 
-  return { evaluate, until, screenshot, problems, close, pid, exitCode: () => exitCode };
+  return { evaluate, until, screenshot, viewport, problems, close, pid, exitCode: () => exitCode };
 }
