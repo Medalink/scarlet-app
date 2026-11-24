@@ -731,19 +731,41 @@ fn session_prefs(app: &AppHandle) -> SessionPrefs {
     }
 }
 
-/// The sessions of the chosen mode, newest first, without their recaps, with the prefs they were cut by. A session
-/// with nothing recorded is left out unless it is open.
+/// The sessions of the list, newest first, each with the lite recap of its main character. A session the list has no
+/// recap for is left out unless it is open. The Sessions page and the lists that step between sessions both read
+/// this, so Older and Newer never reach a session the page hides.
+pub fn listed<'a>(
+    st: &'a Store,
+    prefs: &SessionPrefs,
+    ch: Option<u32>,
+    now: i64,
+) -> impl Iterator<
+    Item = (
+        crate::session_groups::Group,
+        Option<crate::recap::SessionRecap>,
+    ),
+> + 'a {
+    crate::session_groups::groups(st, prefs.mode, &prefs.marks, ch, now)
+        .into_iter()
+        .filter_map(move |g| {
+            let recap = g
+                .chars()
+                .first()
+                .and_then(|main| crate::recap::lite_spans(st, *main, &g.spans_of(*main)));
+            (g.live || recap.is_some()).then_some((g, recap))
+        })
+}
+
+/// The sessions of the chosen mode, newest first, without their recaps, with the prefs they were cut by. It lists the
+/// sessions `session_cards` lists.
 #[tauri::command]
 pub async fn session_list(app: AppHandle, ch: Option<String>) -> SessionList {
     blocking(move || {
         let prefs = session_prefs(&app);
         with_store(&app, |st| {
             let c = ch.and_then(|n| st.char_index(&n));
-            let now = crate::run::now_ms();
-            let sessions = crate::session_groups::groups(st, prefs.mode, &prefs.marks, c, now)
-                .iter()
-                .filter(|g| g.live || !g.parts.is_empty())
-                .map(|g| span_of(st, g))
+            let sessions = listed(st, &prefs, c, crate::run::now_ms())
+                .map(|(g, _)| span_of(st, &g))
                 .collect();
             SessionList { prefs, sessions }
         })
@@ -763,24 +785,14 @@ pub async fn session_cards(
         let prefs = session_prefs(&app);
         with_store(&app, |st| {
             let c = ch.and_then(|n| st.char_index(&n));
-            let now = crate::run::now_ms();
-            let mut cards = Vec::new();
-            for g in crate::session_groups::groups(st, prefs.mode, &prefs.marks, c, now) {
-                let recap = g
-                    .chars()
-                    .first()
-                    .and_then(|main| crate::recap::lite_spans(st, *main, &g.spans_of(*main)));
-                if limit.is_some() && recap.is_none() {
-                    continue;
-                }
-                cards.push(SessionCard {
+            let cards = listed(st, &prefs, c, crate::run::now_ms())
+                .filter(|(_, recap)| limit.is_none() || recap.is_some())
+                .take(limit.unwrap_or(usize::MAX))
+                .map(|(g, recap)| SessionCard {
                     span: span_of(st, &g),
                     recap,
-                });
-                if limit.is_some_and(|n| cards.len() >= n) {
-                    break;
-                }
-            }
+                })
+                .collect();
             SessionCards { prefs, cards }
         })
     })

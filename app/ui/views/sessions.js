@@ -80,10 +80,9 @@ async function draw(body, hash) {
   const mine = ++drawn;
   const { prefs, cards } = await invoke("session_cards", { ch: state.ch });
   if (mine !== drawn || hash !== location.hash || !body.isConnected) return;
-  const shown = cards.filter((c) => c.recap || c.live);
   body.innerHTML = "";
   body.append(controls(prefs, () => draw(body, hash)));
-  if (!shown.length) {
+  if (!cards.length) {
     body.appendChild(el("div", "empty", prefs.mode === "manual" ? "Press Start session, play, then press Stop session." : "No sessions yet."));
     return;
   }
@@ -92,18 +91,18 @@ async function draw(body, hash) {
   more.type = "button";
   let count = 0;
   const add = () => {
-    for (const c of shown.slice(count, count + PAGE)) {
+    for (const c of cards.slice(count, count + PAGE)) {
       const onOpen = () => window.__nav(`sessions/${c.from}-${c.to}`);
       list.append(c.recap ? sessionCard(c.recap, { who: !state.ch, others: c.chars.slice(1), live: c.live, onOpen }) : liveCard(c, onOpen));
     }
-    count = Math.min(shown.length, count + PAGE);
-    more.textContent = `Show more (${shown.length - count} left)`;
-    if (count >= shown.length) more.remove();
+    count = Math.min(cards.length, count + PAGE);
+    more.textContent = `Show more (${cards.length - count} left)`;
+    if (count >= cards.length) more.remove();
   };
   more.onclick = add;
   add();
   body.append(list);
-  if (count < shown.length) body.append(more);
+  if (count < cards.length) body.append(more);
 }
 
 export async function render(body, sub) {
