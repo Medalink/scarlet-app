@@ -2,6 +2,7 @@
 //! compress actions. The whole event set never crosses to the UI.
 
 use crate::agg::Agg;
+use crate::ops::SessionPrefs;
 use crate::settings::{self, Settings};
 use crate::store::{Row, Session, Store};
 use chrono::{Datelike, Local, TimeZone, Timelike};
@@ -678,13 +679,76 @@ pub fn sessions(app: AppHandle, ch: Option<String>) -> Vec<SessionRow> {
 }
 
 #[derive(Serialize)]
-pub struct SessionCard {
+pub struct SessionSpan {
     from: i64,
     to: i64,
     live: bool,
     played: i64,
     chars: Vec<String>,
+}
+
+#[derive(Serialize)]
+pub struct SessionCard {
+    #[serde(flatten)]
+    span: SessionSpan,
     recap: Option<crate::recap::SessionRecap>,
+}
+
+#[derive(Serialize)]
+pub struct SessionCards {
+    prefs: SessionPrefs,
+    cards: Vec<SessionCard>,
+}
+
+#[derive(Serialize)]
+pub struct SessionList {
+    prefs: SessionPrefs,
+    sessions: Vec<SessionSpan>,
+}
+
+fn span_of(st: &Store, g: &crate::session_groups::Group) -> SessionSpan {
+    SessionSpan {
+        from: g.from,
+        to: g.to,
+        live: g.live,
+        played: g.played(),
+        chars: g
+            .chars()
+            .iter()
+            .map(|c| st.chars.get(*c as usize).cloned().unwrap_or_default())
+            .collect(),
+    }
+}
+
+fn session_prefs(app: &AppHandle) -> SessionPrefs {
+    let s = state(app)
+        .settings
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    SessionPrefs {
+        mode: s.session_mode,
+        marks: s.session_marks.clone(),
+    }
+}
+
+/// The sessions of the chosen mode, newest first, without their recaps, with the prefs they were cut by. A session
+/// with nothing recorded is left out unless it is open.
+#[tauri::command]
+pub async fn session_list(app: AppHandle, ch: Option<String>) -> SessionList {
+    blocking(move || {
+        let prefs = session_prefs(&app);
+        with_store(&app, |st| {
+            let c = ch.and_then(|n| st.char_index(&n));
+            let now = crate::run::now_ms();
+            let sessions = crate::session_groups::groups(st, prefs.mode, &prefs.marks, c, now)
+                .iter()
+                .filter(|g| g.live || !g.parts.is_empty())
+                .map(|g| span_of(st, g))
+                .collect();
+            SessionList { prefs, sessions }
+        })
+    })
+    .await
 }
 
 /// One card for each session of the chosen mode, newest first, each with the lite recap of its main character; with
@@ -694,40 +758,30 @@ pub async fn session_cards(
     app: AppHandle,
     ch: Option<String>,
     limit: Option<usize>,
-) -> Vec<SessionCard> {
+) -> SessionCards {
     blocking(move || {
-        let (mode, marks) = {
-            let s = state(&app).settings.lock().unwrap();
-            (s.session_mode, s.session_marks.clone())
-        };
+        let prefs = session_prefs(&app);
         with_store(&app, |st| {
             let c = ch.and_then(|n| st.char_index(&n));
             let now = crate::run::now_ms();
             let mut cards = Vec::new();
-            for g in crate::session_groups::groups(st, mode, &marks, c, now) {
-                let chars = g.chars();
-                let recap = chars
+            for g in crate::session_groups::groups(st, prefs.mode, &prefs.marks, c, now) {
+                let recap = g
+                    .chars()
                     .first()
                     .and_then(|main| crate::recap::lite_spans(st, *main, &g.spans_of(*main)));
                 if limit.is_some() && recap.is_none() {
                     continue;
                 }
                 cards.push(SessionCard {
-                    from: g.from,
-                    to: g.to,
-                    live: g.live,
-                    played: g.played(),
-                    chars: chars
-                        .iter()
-                        .map(|c| st.chars.get(*c as usize).cloned().unwrap_or_default())
-                        .collect(),
+                    span: span_of(st, &g),
                     recap,
                 });
                 if limit.is_some_and(|n| cards.len() >= n) {
                     break;
                 }
             }
-            cards
+            SessionCards { prefs, cards }
         })
     })
     .await

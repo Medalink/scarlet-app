@@ -33,6 +33,15 @@ function liveCard(c, onOpen) {
   return card;
 }
 
+let drawn = 0;
+let changes = Promise.resolve();
+
+const change = (command, args) => {
+  const run = changes.then(() => invoke(command, args));
+  changes = run.catch(() => {});
+  return run;
+};
+
 function controls(prefs, redraw) {
   const bar = el("div", "sc-modes");
   const seg = el("div", "sc-seg");
@@ -40,7 +49,7 @@ function controls(prefs, redraw) {
     seg.append(
       button(mode === prefs.mode ? "on" : "", name, async () => {
         if (mode === prefs.mode) return;
-        await invoke("set_session_mode", { mode });
+        await change("set_session_mode", { mode });
         redraw();
       }),
     );
@@ -51,7 +60,7 @@ function controls(prefs, redraw) {
   if (open) {
     bar.append(
       button("sc-btn", "Stop session", async () => {
-        await invoke("session_stop");
+        await change("session_stop");
         redraw();
       }),
       elText("span", "sc-sub", `Started ${clock(open.from)}`),
@@ -59,7 +68,7 @@ function controls(prefs, redraw) {
   } else {
     bar.append(
       button("sc-btn", "Start session", async () => {
-        await invoke("session_start");
+        await change("session_start");
         redraw();
       }),
     );
@@ -68,8 +77,10 @@ function controls(prefs, redraw) {
 }
 
 async function draw(body) {
-  const [cards, s] = await Promise.all([invoke("session_cards", { ch: state.ch }), invoke("get_settings")]);
-  const prefs = { mode: s.session_mode ?? "auto", marks: s.session_marks ?? [] };
+  const mine = ++drawn;
+  const hash = location.hash;
+  const { prefs, cards } = await invoke("session_cards", { ch: state.ch });
+  if (mine !== drawn || hash !== location.hash || !body.isConnected) return;
   const shown = cards.filter((c) => c.recap || c.live);
   body.innerHTML = "";
   body.append(controls(prefs, () => draw(body)));
@@ -106,8 +117,7 @@ const overlap = (c, from, to) => Math.min(c.to, to) - Math.max(c.from, from);
 
 async function renderRun(body, sub) {
   const [from, to] = sub.split("-").map(Number);
-  const [all, s] = await Promise.all([invoke("session_cards", { ch: state.ch }), invoke("get_settings")]);
-  const cards = all.filter((c) => c.recap || c.live);
+  const { prefs, sessions: cards } = await invoke("session_list", { ch: state.ch });
   const exact = cards.find((c) => c.from === from);
   const current = exact ?? cards.filter((c) => overlap(c, from, to) > 0).sort((a, b) => overlap(b, from, to) - overlap(a, from, to))[0] ?? null;
   const run = exact ? await invoke("run_summary", { from: exact.from, to: exact.to, ch: state.ch, clip: true }) : await invoke("run_summary", { from, to });
@@ -116,7 +126,7 @@ async function renderRun(body, sub) {
     body.appendChild(el("div", "empty", exact?.live ? "Nothing recorded yet." : "Nothing was recorded while WoW ran."));
     return;
   }
-  await renderRecaps(body, run, { cards: current ? cards : [], current, mode: s.session_mode ?? "auto" });
+  await renderRecaps(body, run, { cards: current ? cards : [], current, mode: prefs.mode });
   const row = await linkPrompt("recap");
   if (row && body.isConnected) body.append(row);
 }

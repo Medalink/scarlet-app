@@ -211,8 +211,8 @@ pub fn set_group_by_account(app: AppHandle, on: bool) -> Result<bool, String> {
 
 #[derive(Serialize)]
 pub struct SessionPrefs {
-    mode: SessionMode,
-    marks: Vec<Mark>,
+    pub mode: SessionMode,
+    pub marks: Vec<Mark>,
 }
 
 fn store_prefs(app: &AppHandle, cur: Settings) -> SessionPrefs {

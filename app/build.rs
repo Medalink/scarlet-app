@@ -12,6 +12,7 @@ fn main() {
             "timeline",
             "sessions",
             "session_cards",
+            "session_list",
             "map_list",
             "map_data",
             "map_image",

@@ -21,6 +21,7 @@
     "allow-timeline",
     "allow-sessions",
     "allow-session-cards",
+    "allow-session-list",
     "allow-map-list",
     "allow-map-data",
     "allow-map-image",
