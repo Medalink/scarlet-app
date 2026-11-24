@@ -32,6 +32,7 @@ const MIN_TOGETHER_MS: i64 = 60_000;
 const TRADE_WINDOW_MS: i64 = 120_000;
 const MAIL_WINDOW_MS: i64 = 31 * 86_400_000;
 const MAX_TRANSFERS: usize = 200;
+const GOLD_BUCKETS: usize = 240;
 
 #[derive(Serialize)]
 pub struct Skill {
@@ -66,8 +67,6 @@ pub struct RosterChar {
     /// `[start, played, earned, spent]` per session, newest first; earned and spent leave out
     /// money moved between the player's own characters.
     sessions: Vec<[i64; 4]>,
-    /// `[end, balance]` per session that read one, oldest first.
-    balance: Vec<[i64; 2]>,
     /// `[level, seconds]` for every complete level: seen from its ding to the next, with no unrecorded
     /// play inside.
     levels: Vec<[i64; 2]>,
@@ -102,9 +101,18 @@ pub struct Pair {
     last: i64,
 }
 
+/// What every character together held, replayed from each one's balance: `[seconds, copper]` over time, thinned to
+/// the highest and the last point of each stretch, and the highest of all.
+#[derive(Serialize)]
+pub struct Gold {
+    series: Vec<[i64; 2]>,
+    best: Option<[i64; 2]>,
+}
+
 #[derive(Serialize)]
 pub struct Roster {
     group_by_account: bool,
+    gold: Gold,
     chars: Vec<RosterChar>,
     groups: Vec<Group>,
     warband: i64,
@@ -168,6 +176,59 @@ fn field(f: &[String], i: usize) -> &str {
 
 fn copper(f: &[String], i: usize) -> i64 {
     field(f, i).parse().unwrap_or(0)
+}
+
+fn highest(points: &[[i64; 2]]) -> Option<[i64; 2]> {
+    points
+        .iter()
+        .copied()
+        .reduce(|a, p| if p[1] > a[1] { p } else { a })
+}
+
+fn gold_replay(events: &[Vec<overview::Ev>]) -> Gold {
+    let mut steps: Vec<(i64, usize, i64)> = Vec::new();
+    for (c, evs) in events.iter().enumerate() {
+        for ((ms, _, _), balance) in evs.iter().zip(overview::balances(evs)) {
+            if let Some(b) = balance {
+                steps.push((*ms, c, b));
+            }
+        }
+    }
+    steps.sort_by_key(|s| s.0);
+    let mut held = vec![0i64; events.len()];
+    let mut total = 0i64;
+    let mut points: Vec<[i64; 2]> = Vec::new();
+    for (ms, c, b) in steps {
+        total += b - held[c];
+        held[c] = b;
+        let at = ms.div_euclid(1000);
+        match points.last_mut() {
+            Some(last) if last[0] == at => last[1] = total,
+            Some(last) if last[1] == total => {}
+            _ => points.push([at, total]),
+        }
+    }
+    let best = highest(&points);
+    if points.len() > GOLD_BUCKETS * 2 {
+        let width = points.len().div_ceil(GOLD_BUCKETS);
+        points = points
+            .chunks(width)
+            .flat_map(|chunk| {
+                let top = highest(chunk).unwrap_or_default();
+                let last = chunk[chunk.len() - 1];
+                if top == last {
+                    vec![last]
+                } else {
+                    vec![top, last]
+                }
+            })
+            .collect();
+        points.sort_by_key(|p| p[0]);
+    }
+    Gold {
+        series: points,
+        best,
+    }
 }
 
 fn own_transfers(moves: Vec<Move>, names: &[String]) -> Vec<Transfer> {
@@ -357,6 +418,7 @@ fn build(st: &Store, accounts: Vec<(String, Vec<String>)>, group_by_account: boo
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |d| d.as_secs() as i64);
+    let gold = gold_replay(&events);
     let overviews: Vec<Overview> = events
         .into_iter()
         .zip(&st.chars)
@@ -490,12 +552,6 @@ fn build(st: &Store, accounts: Vec<(String, Vec<String>)>, group_by_account: boo
                 through: ov.through,
                 cap,
                 reach,
-                balance: ov
-                    .sessions
-                    .iter()
-                    .rev()
-                    .filter_map(|s| s.m.map(|m| [s.t + s.p, m]))
-                    .collect(),
                 sessions: ov.sessions.iter().map(|s| [s.t, s.p, s.g, s.s]).collect(),
                 levels: ov
                     .levels
@@ -517,6 +573,7 @@ fn build(st: &Store, accounts: Vec<(String, Vec<String>)>, group_by_account: boo
     let transfers_total = moved.len();
     Roster {
         group_by_account,
+        gold,
         chars,
         groups,
         warband,

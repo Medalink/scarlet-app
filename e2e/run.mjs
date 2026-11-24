@@ -451,7 +451,7 @@ const CHECKS = [
       const app = running(ctx);
       await selectCharacter(app, "");
       await open(app, "characters", /Last session/);
-      const drawn = await app.evaluate(`({ cards: document.querySelectorAll("#body .ch-card").length, levels: [...document.querySelectorAll("#body .ch-card .ch-caps .sc-goal .sg-n")].map((n) => n.textContent.replace(/\\s+/g, " ").trim()), gold: document.querySelectorAll("#body #r-gold-goals .sc-goal").length })`);
+      const drawn = await app.evaluate(`({ cards: document.querySelectorAll("#body .ch-card").length, levels: [...document.querySelectorAll("#body .ch-card .ch-caps .sc-goal .sg-n")].map((n) => n.textContent.replace(/\\s+/g, " ").trim()), gold: document.querySelectorAll("#body #r-gold-goals .sc-goal, #body #r-gold-goals .gold-best").length })`);
       expectEqual("character cards", drawn.cards, CHARACTERS.length);
       for (const level of ["6 / 60", "3 / 60"]) if (!drawn.levels.includes(level)) throw mismatch("a card's level goal", level, JSON.stringify(drawn.levels));
       if (drawn.gold < 1) throw mismatch("goals under the gold figure", "at least one", String(drawn.gold));

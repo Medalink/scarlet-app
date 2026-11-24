@@ -115,14 +115,7 @@ function charactersMod() {
 }
 
 
-function combined() {
-  const points = data.chars.flatMap((c, i) => c.balance.map(([t, m]) => ({ t, m, i }))).sort((a, b) => a.t - b.t);
-  const last = new Map();
-  return points.map((p) => {
-    last.set(p.i, p.m);
-    return { t: p.t, m: [...last.values()].reduce((a, v) => a + v, 0) };
-  });
-}
+const combined = () => data.gold.series.map(([t, m]) => ({ t, m }));
 
 function goldMod() {
   const total = sum(data.chars, (c) => c.money || 0) + data.warband;
@@ -159,10 +152,15 @@ function fillGoldGoals(body) {
   const slot = body.querySelector("#r-gold-goals");
   if (!slot) return;
   const held = sum(data.chars, (c) => c.money || 0);
-  const best = combined().reduce((a, p) => (p.m > a.m ? p : a), { m: 0, t: 0 });
-  if (best.m > 0 && held > 0) {
-    const cap = Math.max(best.m, held);
-    slot.append(goal(held, cap, { label: "Gold held, characters", format: moneyHtml, doneText: "Best", note: held >= best.m ? "" : `Best ${money(best.m)} on ${shortDate(best.t * 1000)}`, count: false }));
+  const [bestAt, best] = data.gold.best ?? [0, 0];
+  if (best > 0 && held > 0) {
+    if (held >= best) {
+      const line = el("p", "gold-best");
+      line.innerHTML = `<span>Gold held, characters</span><b>${moneyHtml(held)}</b><span>Best: now</span>`;
+      slot.append(line);
+    } else {
+      slot.append(goal(held, best, { label: "Gold held, characters", format: moneyHtml, note: `Best ${money(best)} on ${shortDate(bestAt * 1000)}`, count: false }));
+    }
   }
   const latest = account?.latest;
   const rate = latest ? paceTiles(latest.paces.filter((p) => p.key === "gold_h"), latest.played, { onOpen: openAs(latest.character) }) : null;
