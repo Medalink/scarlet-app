@@ -21,6 +21,7 @@ mod loot;
 mod mapart;
 mod openmap;
 mod ops;
+mod playtime;
 mod recap;
 mod roster;
 mod run;
@@ -114,6 +115,7 @@ fn main() {
             run::run_summary,
             run::take_wow_run,
             commands::heatmap,
+            playtime::playtime,
             commands::timeline,
             commands::sessions,
             commands::session_cards,

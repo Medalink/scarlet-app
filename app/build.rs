@@ -11,6 +11,7 @@ fn main() {
             "run_summary",
             "take_wow_run",
             "heatmap",
+            "playtime",
             "timeline",
             "sessions",
             "session_cards",

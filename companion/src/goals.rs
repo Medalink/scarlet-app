@@ -14,6 +14,9 @@ const EXALTED: i64 = 42_000;
 const EXALTED_TIER: u8 = 8;
 const RARE: u8 = 3;
 const FARMED_TOP: usize = 3;
+const TREND_RUNS: usize = 24;
+const BRIEF_RUNS: usize = 40;
+const RANK_COST: i64 = 1;
 const FARMED_SHARE_PERCENT: i64 = 10;
 const BELOW_NEUTRAL: [(i64, i64); 3] = [(-42_000, -6_000), (-6_000, -3_000), (-3_000, 0)];
 const PROFESSIONS: [&str; 17] = [
@@ -39,6 +42,7 @@ const PROFESSIONS: [&str; 17] = [
 struct Metric {
     key: &'static str,
     banded: bool,
+    ranked: bool,
     value: fn(&Activity, u32) -> Option<f64>,
 }
 
@@ -52,36 +56,54 @@ fn per_hour(n: i64, a: &Activity) -> f64 {
     n as f64 * 3600.0 / a.played as f64
 }
 
-const METRICS: [Metric; 4] = [
+const METRICS: [Metric; 6] = [
     Metric {
         key: "xp_h",
         banded: true,
+        ranked: true,
         value: |a, cap| (a.xp > 0 && (cap == 0 || a.level[0] < cap)).then(|| per_hour(a.xp, a)),
     },
     Metric {
         key: "gold_h",
         banded: true,
+        ranked: true,
         value: |a, _| (a.net != 0 || a.coin != 0).then(|| per_hour(a.net, a)),
     },
     Metric {
         key: "kills_h",
         banded: true,
+        ranked: true,
         value: |a, _| (a.kills > 0).then(|| per_hour(a.kills, a)),
     },
     Metric {
         key: "gathers_h",
         banded: false,
+        ranked: true,
         value: |a, _| (a.gathers > 0).then(|| per_hour(a.gathers, a)),
+    },
+    Metric {
+        key: "quests_h",
+        banded: true,
+        ranked: true,
+        value: |a, _| (a.quests > 0).then(|| per_hour(a.quests, a)),
+    },
+    Metric {
+        key: "deaths_h",
+        banded: true,
+        ranked: false,
+        value: |a, _| (a.deaths > 0).then(|| per_hour(a.deaths, a)),
     },
 ];
 
 type Total = fn(&Activity) -> i64;
 
-const TOTALS: [(&str, Total); 6] = [
+const TOTALS: [(&str, Total); 8] = [
     ("xp", |a| a.xp),
     ("coin", |a| a.coin),
     ("kills", |a| a.kills),
     ("gathers", |a| a.gathers),
+    ("quests", |a| a.quests),
+    ("loot", |a| a.items),
     ("item", |a| a.top_item.map_or(0, |t| t.1)),
     ("played", |a| a.played),
 ];
@@ -220,6 +242,8 @@ pub struct Node {
 pub struct LegacyGoal {
     earned: i64,
     max: i64,
+    available: i64,
+    rank_cost: i64,
     trees: Vec<TreeSpent>,
     nodes: Vec<Node>,
 }
@@ -307,6 +331,25 @@ pub struct View<'a> {
     caps: &'a Caps,
     records: Vec<Record>,
     latest: Option<Latest>,
+    trend: Vec<Trend>,
+    runs: Vec<Brief>,
+}
+
+#[derive(Serialize)]
+pub struct Brief {
+    from: i64,
+    to: i64,
+    played: i64,
+    xp: i64,
+    gold: i64,
+    kills: i64,
+    new_best: Vec<&'static str>,
+}
+
+#[derive(Serialize)]
+pub struct Trend {
+    key: &'static str,
+    points: Vec<[f64; 2]>,
 }
 
 pub struct Goals {
@@ -343,7 +386,7 @@ struct Reading {
     reps: HashMap<String, [i64; 4]>,
     nodes: HashMap<String, (String, String, i64, i64)>,
     balance: Vec<(i64, String, Vec<String>)>,
-    legacy: Option<(i64, i64, [i64; 3])>,
+    legacy: Option<(i64, i64, i64, [i64; 3])>,
     quality: HashMap<i64, u8>,
 }
 
@@ -407,6 +450,7 @@ impl Reading {
                 self.legacy = Some((
                     number(fields, 0),
                     number(fields, 4),
+                    number(fields, 1),
                     [number(fields, 5), number(fields, 6), number(fields, 7)],
                 ));
             }
@@ -478,7 +522,7 @@ impl Reading {
     }
 
     fn legacy(&self) -> Option<LegacyGoal> {
-        let (earned, max, spent) = self.legacy?;
+        let (earned, max, available, spent) = self.legacy?;
         let mut nodes: Vec<Node> = self
             .nodes
             .values()
@@ -494,6 +538,8 @@ impl Reading {
         Some(LegacyGoal {
             earned,
             max,
+            available,
+            rank_cost: RANK_COST,
             trees: ["1187", "1188", "1189"]
                 .iter()
                 .zip(spent)
@@ -745,11 +791,13 @@ impl Goals {
                 let best = peers
                     .iter()
                     .copied()
+                    .filter(|_| m.ranked)
                     .max_by(|a, b| a.1.total_cmp(&b.1).then_with(|| b.0.from.cmp(&a.0.from)));
                 let beaten = best
                     .map_or(0.0, |b| b.1)
                     .max(if qualifies { rate } else { 0.0 });
                 let record = band
+                    .filter(|_| m.ranked)
                     .and_then(|_| self.top(|r| m.of(&r.a, self.cap)))
                     .filter(|(_, v)| *v > beaten)
                     .map(peak);
@@ -767,8 +815,9 @@ impl Goals {
                     spread: enough.then(|| Spread::of(peers.iter().map(|p| p.1).collect(), rate)),
                     best: best.map(peak),
                     record,
-                    is_best: exact && enough && peers.iter().all(|p| rate >= p.1),
-                    new_best: exact
+                    is_best: m.ranked && exact && enough && peers.iter().all(|p| rate >= p.1),
+                    new_best: m.ranked
+                        && exact
                         && qualifies
                         && earlier.len() >= MIN_PEERS
                         && earlier.iter().all(|v| rate > *v),
@@ -789,6 +838,7 @@ impl Goals {
         };
         let mut out: Vec<Record> = METRICS
             .iter()
+            .filter(|m| m.ranked)
             .filter_map(|m| top(&|r| m.of(&r.a, self.cap)).map(|t| made(m.key, t)))
             .collect();
         for (key, value) in TOTALS {
@@ -826,6 +876,46 @@ impl Goals {
             caps: &self.caps,
             records: self.records(),
             latest: self.latest(),
+            trend: self.trend(),
+            runs: self.briefs(),
         }
+    }
+
+    fn briefs(&self) -> Vec<Brief> {
+        self.rows
+            .iter()
+            .rev()
+            .filter(|r| r.a.played > 0)
+            .take(BRIEF_RUNS)
+            .map(|r| Brief {
+                from: r.from,
+                to: r.to,
+                played: r.a.played,
+                xp: r.a.xp,
+                gold: r.a.net,
+                kills: r.a.kills,
+                new_best: self
+                    .paces(r, true)
+                    .iter()
+                    .filter(|p| p.new_best)
+                    .map(|p| p.key)
+                    .collect(),
+            })
+            .collect()
+    }
+
+    fn trend(&self) -> Vec<Trend> {
+        let runs: Vec<&Row> = self.rows.iter().filter(|r| r.qualifies()).collect();
+        let runs = &runs[runs.len().saturating_sub(TREND_RUNS)..];
+        METRICS
+            .iter()
+            .filter_map(|m| {
+                let points: Vec<[f64; 2]> = runs
+                    .iter()
+                    .filter_map(|r| m.of(&r.a, self.cap).map(|v| [r.from as f64, v]))
+                    .collect();
+                (points.len() >= 2).then_some(Trend { key: m.key, points })
+            })
+            .collect()
     }
 }
