@@ -33,6 +33,7 @@ const TRADE_WINDOW_MS: i64 = 120_000;
 const MAIL_WINDOW_MS: i64 = 31 * 86_400_000;
 const MAX_TRANSFERS: usize = 200;
 const GOLD_BUCKETS: usize = 240;
+const GOLD_BEST_HOLD_S: i64 = 10;
 
 #[derive(Serialize)]
 pub struct Skill {
@@ -185,6 +186,29 @@ fn highest(points: &[[i64; 2]]) -> Option<[i64; 2]> {
         .reduce(|a, p| if p[1] > a[1] { p } else { a })
 }
 
+fn lowest(points: &[[i64; 2]]) -> Option<[i64; 2]> {
+    points
+        .iter()
+        .copied()
+        .reduce(|a, p| if p[1] < a[1] { p } else { a })
+}
+
+fn held_best(points: &[[i64; 2]]) -> Option<[i64; 2]> {
+    let mut best: Option<[i64; 2]> = None;
+    for (i, p) in points.iter().enumerate() {
+        let held = points[i..]
+            .iter()
+            .take_while(|q| q[0] - p[0] < GOLD_BEST_HOLD_S)
+            .map(|q| q[1])
+            .min()
+            .unwrap_or(p[1]);
+        if best.is_none_or(|b| held > b[1]) {
+            best = Some([p[0], held]);
+        }
+    }
+    best
+}
+
 fn gold_replay(events: &[Vec<overview::Ev>]) -> Gold {
     let mut steps: Vec<(i64, usize, i64)> = Vec::new();
     for (c, evs) in events.iter().enumerate() {
@@ -208,22 +232,22 @@ fn gold_replay(events: &[Vec<overview::Ev>]) -> Gold {
             _ => points.push([at, total]),
         }
     }
-    let best = highest(&points);
-    if points.len() > GOLD_BUCKETS * 2 {
+    let best = held_best(&points);
+    if points.len() > GOLD_BUCKETS * 3 {
         let width = points.len().div_ceil(GOLD_BUCKETS);
         points = points
             .chunks(width)
             .flat_map(|chunk| {
-                let top = highest(chunk).unwrap_or_default();
-                let last = chunk[chunk.len() - 1];
-                if top == last {
-                    vec![last]
-                } else {
-                    vec![top, last]
-                }
+                let mut kept = vec![
+                    lowest(chunk).unwrap_or_default(),
+                    highest(chunk).unwrap_or_default(),
+                    chunk[chunk.len() - 1],
+                ];
+                kept.sort_by_key(|p| p[0]);
+                kept.dedup();
+                kept
             })
             .collect();
-        points.sort_by_key(|p| p[0]);
     }
     Gold {
         series: points,
