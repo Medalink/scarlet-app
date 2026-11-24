@@ -4,11 +4,20 @@
 use crate::commands::{blocking, state, with_store};
 use scarlet::inventory::{Inventory, newest_per};
 use scarlet::lifetime::{Lifetime, Price};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use tauri::AppHandle;
 
 const MAX_ROWS: usize = 300;
+
+/// What the item list is ordered by before it is cut to `MAX_ROWS`.
+#[derive(Clone, Copy, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ItemSort {
+    #[default]
+    Total,
+    Value,
+}
 
 #[derive(Serialize)]
 pub struct Holder {
@@ -108,7 +117,12 @@ struct Shared<'a> {
 }
 
 #[tauri::command]
-pub async fn items(app: AppHandle, query: String, ch: Option<String>) -> Items {
+pub async fn items(
+    app: AppHandle,
+    query: String,
+    ch: Option<String>,
+    sort: Option<ItemSort>,
+) -> Items {
     blocking(move || {
         let folders = state(&app).settings.lock().unwrap().folders();
         let accounts: Vec<(String, Vec<String>)> = folders
@@ -158,7 +172,14 @@ pub async fn items(app: AppHandle, query: String, ch: Option<String>) -> Items {
                 (!inv.is_empty()).then_some((name, inv))
             })
             .collect();
-        search(loaded, &lives, &known, &accounts, &query)
+        search(
+            loaded,
+            &lives,
+            &known,
+            &accounts,
+            &query,
+            sort.unwrap_or_default(),
+        )
     })
     .await
 }
@@ -291,7 +312,9 @@ fn search(
     names: &Known,
     accounts: &[(String, Vec<String>)],
     query: &str,
+    sort: ItemSort,
 ) -> Items {
+    let by_value = matches!(sort, ItemSort::Value);
     let q = query.trim().to_lowercase();
     let mut known: HashMap<i64, &str> = HashMap::new();
     for (_, inv) in &loaded {
@@ -361,13 +384,19 @@ fn search(
                 mail: count(&inv.mail),
                 auctions: count(&inv.auctions),
             };
-            row.total += holder.bags + holder.bank + holder.mail + holder.auctions;
-            row.holders.push(holder);
+            let held = holder.bags + holder.bank + holder.mail + holder.auctions;
+            if held > 0 {
+                row.total += held;
+                row.holders.push(holder);
+            }
         }
     }
     for bank in &shared {
         for (id, count) in bank.list {
             if !row_for(*id, &mut by_item) {
+                continue;
+            }
+            if *count <= 0 {
                 continue;
             }
             let row = by_item.get_mut(id).expect("row exists");
@@ -380,10 +409,16 @@ fn search(
             });
         }
     }
-    let mut rows: Vec<ItemRow> = by_item.into_values().collect();
+    let mut rows: Vec<ItemRow> = by_item.into_values().filter(|r| r.total > 0).collect();
+    let worth = |r: &ItemRow| r.price.as_ref().map(|p| p.copper.saturating_mul(r.total));
     rows.sort_by(|a, b| {
-        b.total
-            .cmp(&a.total)
+        let by_value = if by_value {
+            worth(b).cmp(&worth(a))
+        } else {
+            std::cmp::Ordering::Equal
+        };
+        by_value
+            .then(b.total.cmp(&a.total))
             .then(a.name.cmp(&b.name))
             .then(a.id.cmp(&b.id))
     });

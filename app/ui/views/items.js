@@ -92,10 +92,9 @@ function itemRow(r, view, maxValue) {
     <b class="it-total">${num(r.total)}</b><div class="it-price">${price}</div><div class="it-value">${worth}</div></div>`;
 }
 
-function itemList(view, into, sort) {
+function itemList(view, into) {
   const valueOf = (r) => (r.price ? r.price.copper * r.total : -1);
-  const rows = view.rows.slice();
-  if (sort === "value") rows.sort((a, b) => valueOf(b) - valueOf(a) || b.total - a.total);
+  const rows = view.rows;
   const maxValue = Math.max(...rows.map(valueOf), 1);
   const totals = WHERE.map(([label, c, f]) => [label, c, rows.reduce((a, r) => a + r.holders.reduce((n, h) => n + h[f], 0), 0)]);
   const shared = rows.reduce((a, r) => a + r.places.reduce((n, p) => n + p.count, 0), 0);
@@ -144,13 +143,13 @@ function recipeList(view, into) {
   }
 }
 
-function results(view, into, sort) {
+function results(view, into) {
   into.innerHTML = "";
   if (!view.rows.length && !view.recipes.length) {
     into.appendChild(el("div", "empty", "No items match."));
     return;
   }
-  if (view.rows.length) itemList(view, into, sort);
+  if (view.rows.length) itemList(view, into);
   if (view.recipes.length) recipeList(view, into);
 }
 
@@ -202,7 +201,7 @@ function sharedBanks(view) {
 }
 
 export async function render(body) {
-  const first = await invoke("items", { query: "", ch: null });
+  const first = await invoke("items", { query: "", ch: null, sort: "total" });
   body.innerHTML = "";
   if (!first.characters.length) {
     body.appendChild(el("div", "empty", "No bags or bank recorded yet."));
@@ -222,10 +221,10 @@ export async function render(body) {
   let seq = 0;
   let deb;
   let last = first;
-  const show = () => results(last, out, sort);
+  const show = () => results(last, out);
   const runSearch = async () => {
     const mine = ++seq;
-    const view = await invoke("items", { query: q.value, ch: scopeCh });
+    const view = await invoke("items", { query: q.value, ch: scopeCh, sort });
     if (mine !== seq) return;
     last = view;
     show();
@@ -258,7 +257,7 @@ export async function render(body) {
   bar.appendChild(
     segment("Sort items", [["total", "Most held"], ["value", "Most valuable"]], () => sort, (val) => {
       sort = val;
-      show();
+      runSearch();
     })
   );
   const out = el("div");
