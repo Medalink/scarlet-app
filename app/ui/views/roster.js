@@ -4,7 +4,7 @@
 
 import { invoke, state, el, elText, esc, displayName, num, dur, money, moneyHtml, dateStr, goal, shortDate, wireTips } from "../lib.js";
 import { countMarked, play } from "../motion.js";
-import { TIERS, recordTiles } from "./goals-section.js";
+import { FALLBACK_CAP, TIERS, recordTiles } from "./goals-section.js";
 import { openAs, paceTiles } from "./paces.js";
 import { CLASS_COLOR, className, raceName, day, hm, longDur, playTime, signed, empty, mod, mondayOf, axisTime, plural } from "./overview.js";
 
@@ -63,9 +63,9 @@ function ago(sec) {
 
 function capGoals(c) {
   const out = [];
-  if (c.level && c.cap > 0) {
+  if (c.level) {
     const eta = c.reach?.date ? `Level ${c.reach.level} ${c.reach.date}` : "";
-    out.push(goal(c.level, c.cap, { label: "Level", eta, count: false }));
+    out.push(goal(c.level, c.cap > 0 ? c.cap : FALLBACK_CAP, { label: "Level", eta, count: false }));
   }
   const caps = account?.chars.find((x) => x.name === c.name);
   if (caps?.skillsKnown) out.push(goal(caps.skillsMaxed, caps.skillsKnown, { label: "Skills maxed", count: false }));

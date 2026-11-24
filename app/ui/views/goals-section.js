@@ -6,7 +6,7 @@ import { paceTiles } from "./paces.js";
 
 export const TIERS = ["", "Hated", "Hostile", "Unfriendly", "Neutral", "Friendly", "Honored", "Revered", "Exalted"];
 const REPS_SHOWN = 6;
-const FALLBACK_CAP = 60;
+export const FALLBACK_CAP = 60;
 const EXALTED = 8;
 
 function mod(cls, title, ...kids) {
