@@ -370,7 +370,7 @@ struct Scan<'a> {
     last_death: Option<(i64, usize)>,
     gathered: Gathered,
     coin: i64,
-    coin_at: Option<i64>,
+    coin_windows: Vec<(i64, i64)>,
     casts_by_spell: HashMap<String, i64>,
     spec: String,
     bosses: i64,
@@ -440,7 +440,7 @@ impl<'a> Scan<'a> {
             last_death: None,
             gathered: Gathered::default(),
             coin: 0,
-            coin_at: None,
+            coin_windows: Vec::new(),
             casts_by_spell: HashMap::new(),
             spec: String::new(),
             bosses: 0,
@@ -716,14 +716,18 @@ impl<'a> Scan<'a> {
             }
             "LO" => {
                 self.gathered.loot(field(f, 0), field(f, 1), r.ms);
-                self.coin_at = field(f, 3)
-                    .split(',')
-                    .any(|t| t.starts_with("mx"))
-                    .then_some(r.ms);
+                self.coin_windows.retain(|w| r.ms - w.0 <= COIN_MS);
+                if let Some(copper) = window_coin(field(f, 3)) {
+                    self.coin_windows.push((r.ms, copper));
+                }
             }
             "M" => {
                 let copper = number(f, 0) - number(f, 1);
-                if copper > 0 && self.coin_at.take_if(|at| r.ms - *at <= COIN_MS).is_some() {
+                self.coin_windows.retain(|w| r.ms - w.0 <= COIN_MS);
+                if copper > 0
+                    && let Some(w) = self.coin_windows.iter_mut().find(|w| copper <= w.1)
+                {
+                    w.1 -= copper;
                     self.coin += copper;
                 }
             }
@@ -885,6 +889,13 @@ fn scan<'a>(f: &'a Facts<'a>, spans: &[(i64, i64)], full: bool) -> (Scan<'a>, Sc
     }
     let done = finish_scan(&mut s, spans);
     (s, done)
+}
+
+fn window_coin(items: &str) -> Option<i64> {
+    items
+        .split(',')
+        .find_map(|t| t.strip_prefix("mx")?.split('x').next()?.parse().ok())
+        .filter(|n| *n > 0)
 }
 
 /// What the character did over `spans`, the totals the pace and records of `goals` are made of.
