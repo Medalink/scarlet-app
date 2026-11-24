@@ -731,29 +731,23 @@ fn session_prefs(app: &AppHandle) -> SessionPrefs {
     }
 }
 
-/// The sessions of the list, newest first, each with the lite recap of its main character. A session the list has no
-/// recap for is left out unless it is open. The Sessions page and the lists that step between sessions both read
-/// this, so Older and Newer never reach a session the page hides.
-pub fn listed<'a>(
-    st: &'a Store,
+/// The sessions of the list, newest first: those with time recorded for their main character, and an open one. The
+/// Sessions page and the lists that step between sessions both read this, so Older and Newer never reach a session
+/// the page hides.
+pub fn listed(
+    st: &Store,
     prefs: &SessionPrefs,
     ch: Option<u32>,
     now: i64,
-) -> impl Iterator<
-    Item = (
-        crate::session_groups::Group,
-        Option<crate::recap::SessionRecap>,
-    ),
-> + 'a {
+) -> impl Iterator<Item = crate::session_groups::Group> {
     crate::session_groups::groups(st, prefs.mode, &prefs.marks, ch, now)
         .into_iter()
-        .filter_map(move |g| {
-            let recap = g
-                .chars()
-                .first()
-                .and_then(|main| crate::recap::lite_spans(st, *main, &g.spans_of(*main)));
-            (g.live || recap.is_some()).then_some((g, recap))
-        })
+        .filter(|g| g.live || !g.parts.is_empty())
+}
+
+fn lite_of(st: &Store, g: &crate::session_groups::Group) -> Option<crate::recap::SessionRecap> {
+    let main = *g.chars().first()?;
+    crate::recap::lite_spans(st, main, &g.spans_of(main))
 }
 
 /// The sessions of the chosen mode, newest first, without their recaps, with the prefs they were cut by. It lists the
@@ -765,7 +759,7 @@ pub async fn session_list(app: AppHandle, ch: Option<String>) -> SessionList {
         with_store(&app, |st| {
             let c = ch.and_then(|n| st.char_index(&n));
             let sessions = listed(st, &prefs, c, crate::run::now_ms())
-                .map(|(g, _)| span_of(st, &g))
+                .map(|g| span_of(st, &g))
                 .collect();
             SessionList { prefs, sessions }
         })
@@ -786,9 +780,10 @@ pub async fn session_cards(
         with_store(&app, |st| {
             let c = ch.and_then(|n| st.char_index(&n));
             let cards = listed(st, &prefs, c, crate::run::now_ms())
-                .filter(|(_, recap)| limit.is_none() || recap.is_some())
+                .map(|g| (lite_of(st, &g), g))
+                .filter(|(recap, _)| limit.is_none() || recap.is_some())
                 .take(limit.unwrap_or(usize::MAX))
-                .map(|(g, recap)| SessionCard {
+                .map(|(recap, g)| SessionCard {
                     span: span_of(st, &g),
                     recap,
                 })
