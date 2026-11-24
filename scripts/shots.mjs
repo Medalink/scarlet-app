@@ -1,5 +1,6 @@
 // A full-page screenshot of each view, from the real exe on a hidden desktop, for comparing with the design's renders.
-//   node scripts/shots.mjs --out <dir> [--fixture | --home <dir>] [--views a,b,c] [--char Name-Surname] [--mode auto|day|manual] [--upload]
+//   node scripts/shots.mjs --out <dir> [--fixture | --home <dir>] [--views a,b,c] [--char Name-Surname] [--mode auto|day|manual] [--run <from>-<to>] [--delay <ms>] [--upload]
+// --delay takes the run view that many ms after its entrance began, for a frame in the middle of it.
 // --fixture builds the e2e fixture and exports it; --home copies a Scarlet home (settings.json and its data folder) to
 // a temp folder under E:\Temp first, so the original is never written. Uploading is switched off unless --upload.
 import { spawnSync } from "node:child_process";
@@ -21,6 +22,7 @@ const { values } = parseArgs({
     run: { type: "string" },
     exe: { type: "string" },
     mode: { type: "string" },
+    delay: { type: "string" },
   },
 });
 if (!values.out || (!values.fixture && !values.home)) {
@@ -65,8 +67,14 @@ try {
   for (const name of names) {
     const hash = name === "run" ? run : name;
     await app.evaluate(`location.hash = ${JSON.stringify(hash)}`);
-    await sleep(values.upload ? 5000 : 1500);
-    const file = path.join(values.out, `${name.replace(/\//g, "-")}.png`);
+    const timed = values.delay !== undefined && name === "run";
+    if (timed) {
+      await app.until(`!!document.querySelector("#body .recap.play")`, "the page's entrance began", 10000);
+      await sleep(Number(values.delay));
+    } else {
+      await sleep(values.upload ? 5000 : 1500);
+    }
+    const file = path.join(values.out, `${name.replace(/\//g, "-")}${timed ? `-at-${values.delay}ms` : ""}.png`);
     await app.screenshot(file, { full: true });
     console.log(`${name}: ${file}`);
   }
