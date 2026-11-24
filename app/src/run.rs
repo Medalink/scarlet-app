@@ -84,6 +84,8 @@ pub struct RunSummary {
     played: i64,
     chars: Vec<String>,
     recaps: Vec<SessionRecap>,
+    /// How each recap's character did on its rates against its WoW runs, one list for each recap.
+    paces: Vec<Vec<scarlet::goals::Pace>>,
 }
 
 /// The summary of the run `[from, to]`, computed from the current store so a view
@@ -137,7 +139,7 @@ pub fn summary(
         .iter()
         .map(|s| (s.1 - s.0) / 1000)
         .sum();
-    let recaps = chars
+    let (recaps, paces) = chars
         .iter()
         .filter_map(|&c| {
             let mine: Vec<(i64, i64)> = rows
@@ -145,9 +147,12 @@ pub fn summary(
                 .filter(|r| r.0 == c)
                 .map(|r| (r.1, r.2))
                 .collect();
-            recap::build_spans(st, c, &mine)
+            Some((
+                recap::build_spans(st, c, &mine)?,
+                recap::paces(st, c, &mine),
+            ))
         })
-        .collect();
+        .unzip();
     RunSummary {
         from,
         to,
@@ -155,6 +160,7 @@ pub fn summary(
         played,
         chars: chars.into_iter().map(name_of).collect(),
         recaps,
+        paces,
     }
 }
 

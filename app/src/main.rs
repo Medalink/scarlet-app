@@ -115,6 +115,7 @@ fn main() {
             commands::timeline,
             commands::sessions,
             commands::session_cards,
+            commands::goals,
             commands::session_list,
             commands::map_list,
             commands::map_data,

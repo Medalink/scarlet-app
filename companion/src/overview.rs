@@ -363,7 +363,7 @@ fn round_s(ms: i64) -> i64 {
 /// balances (`S` field 13, `M` field 3) and the `ST` snapshot's copper; `M`
 /// lines without a balance move the last known one, and lines before the first
 /// anchor are walked back from it.
-fn balances(evs: &[Ev]) -> Vec<Option<i64>> {
+pub(crate) fn balances(evs: &[Ev]) -> Vec<Option<i64>> {
     let mut out = vec![None; evs.len()];
     let mut cur: Option<i64> = None;
     let mut first: Option<usize> = None;

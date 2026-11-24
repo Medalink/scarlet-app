@@ -1,7 +1,9 @@
 //! The session recap over the app's store. The builder is the companion's (`scarlet::recap`), so the app and
 //! `Recaps.lua` give the same numbers; this reads the store's events for it.
 
+use crate::session_groups::{SessionMode, groups};
 use crate::store::{Row, Store};
+use scarlet::goals::{Goals, Pace, Row as Run};
 use scarlet::recap::Tally;
 use scarlet::recap::{Events, Facts, Rec};
 pub use scarlet::recap::{SessionRecap, Title};
@@ -92,6 +94,29 @@ pub fn lite_spans(st: &Store, ch: u32, spans: &[(i64, i64)]) -> Option<SessionRe
 
 pub fn title_of(st: &Store, ch: u32, span: (i64, i64)) -> Title {
     with_facts(st, ch, false, |f| scarlet::recap::title_of(f, span))
+}
+
+/// The WoW runs of character `ch` with their rates and records, and its caps. Whatever mode the sessions list is in,
+/// the runs are the groups of `SessionMode::Auto`, so a record never moves when the mode changes.
+pub fn goals(st: &Store, ch: u32) -> Arc<Goals> {
+    if let Some(done) = st.goals().get(&ch) {
+        return done.clone();
+    }
+    let runs: Vec<Vec<(i64, i64)>> = groups(st, SessionMode::Auto, &[], Some(ch), 0)
+        .iter()
+        .map(|g| g.spans_of(ch))
+        .collect();
+    let made = Arc::new(with_facts(st, ch, false, |f| Goals::build(f, &runs)));
+    st.goals().insert(ch, made.clone());
+    made
+}
+
+/// How the character did over `spans` (ms) on each rate it has, against its WoW runs.
+pub fn paces(st: &Store, ch: u32, spans: &[(i64, i64)]) -> Vec<Pace> {
+    let goals = goals(st, ch);
+    let own = with_facts(st, ch, false, |f| Run::of(f, spans));
+    let Some(own) = own else { return Vec::new() };
+    goals.paces(goals.row_at(own.from, own.to).unwrap_or(&own))
 }
 
 /// The sessions of one character as tallies, for counting its feats.

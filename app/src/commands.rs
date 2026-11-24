@@ -472,6 +472,26 @@ fn overview_sync(app: AppHandle, ch: Option<String>) -> Option<CharOverview> {
     })
 }
 
+pub struct GoalsView(std::sync::Arc<scarlet::goals::Goals>);
+
+impl Serialize for GoalsView {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        self.0.view().serialize(s)
+    }
+}
+
+/// How far the chosen character is from each ceiling, and its records over its WoW runs (see `scarlet::goals`).
+#[tauri::command]
+pub async fn goals(app: AppHandle, ch: Option<String>) -> Option<GoalsView> {
+    blocking(move || {
+        with_store(&app, |st| {
+            let c = ch.and_then(|n| st.char_index(&n))?;
+            Some(GoalsView(crate::recap::goals(st, c)))
+        })
+    })
+    .await
+}
+
 /// `hay` contains `needle_lc` (already lowercase), ignoring ASCII case.
 /// Non-ASCII text falls back to a lowercase copy.
 fn contains_ci(hay: &str, needle_lc: &str) -> bool {

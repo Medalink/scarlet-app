@@ -14,6 +14,7 @@ pub mod featscore;
 pub mod fishing;
 pub mod foreverfishing;
 pub mod gamedir;
+pub mod goals;
 pub mod import;
 pub mod importarchive;
 pub mod inventory;

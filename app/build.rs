@@ -4,6 +4,7 @@ fn main() {
             "app_state",
             "addons",
             "overview",
+            "goals",
             "roster",
             "stats",
             "run_summary",

@@ -6,6 +6,7 @@ use crate::layers::{self, Layers};
 use scarlet::addons;
 use scarlet::archive::{self, Event};
 use scarlet::events::{self, Ev};
+use scarlet::goals::Goals;
 use scarlet::lifetime::{self, Lifetime};
 use scarlet::recap::Tally;
 use std::collections::{BTreeMap, HashMap, HashSet};
@@ -57,6 +58,7 @@ pub struct Store {
     /// The `P` positions (map, x, y) of every character in time order, kept apart from `events` for the recap's route.
     pub paths: Vec<Row>,
     tallies: Mutex<HashMap<u32, Arc<Vec<Tally>>>>,
+    goals: Mutex<HashMap<u32, Arc<Goals>>>,
     pub lifetimes: Vec<Lifetime>,
     /// Formatted timeline rows, built lazily on first Timeline access.
     lines: OnceLock<Vec<TLine>>,
@@ -328,6 +330,7 @@ impl Store {
             events: rows,
             paths,
             tallies: Mutex::default(),
+            goals: Mutex::default(),
             lifetimes,
             lines: OnceLock::new(),
             line_count,
@@ -376,6 +379,7 @@ impl Store {
             events: vec![],
             paths: vec![],
             tallies: Mutex::default(),
+            goals: Mutex::default(),
             lifetimes: vec![],
             lines: OnceLock::new(),
             line_count: 0,
@@ -392,6 +396,10 @@ impl Store {
 
     pub fn tallies(&self) -> std::sync::MutexGuard<'_, HashMap<u32, Arc<Vec<Tally>>>> {
         self.tallies.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub fn goals(&self) -> std::sync::MutexGuard<'_, HashMap<u32, Arc<Goals>>> {
+        self.goals.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     pub fn char_index(&self, name: &str) -> Option<u32> {

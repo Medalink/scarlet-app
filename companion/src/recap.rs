@@ -44,6 +44,7 @@ const MAX_SHEET_ASPECT: f64 = 2.5;
 const MILE_YD: f64 = 1760.0;
 const GATHER_TITLE: i64 = 20;
 const GATHER_LOOT_MS: i64 = 2_000;
+const COIN_MS: i64 = 1_500;
 const FISHING_BOBBER: &str = "35591";
 const HERB_SPELLS: [i64; 11] = [
     2_366, 2_368, 2_369, 2_371, 3_570, 11_993, 1_235_236, 1_240_949, 1_240_960, 1_240_971,
@@ -245,6 +246,21 @@ pub struct Spread {
     you: f64,
 }
 
+impl Spread {
+    /// The percentiles of `values`, which must not be empty, with `you` marked on them.
+    pub fn of(mut values: Vec<f64>, you: f64) -> Self {
+        values.sort_by(f64::total_cmp);
+        Spread {
+            p10: percentile(&values, 0.10),
+            p25: percentile(&values, 0.25),
+            p50: percentile(&values, 0.50),
+            p75: percentile(&values, 0.75),
+            p90: percentile(&values, 0.90),
+            you,
+        }
+    }
+}
+
 #[derive(Serialize)]
 pub struct Own {
     n: usize,
@@ -353,6 +369,8 @@ struct Scan<'a> {
     xp_at: Vec<(i64, i64)>,
     last_death: Option<(i64, usize)>,
     gathered: Gathered,
+    coin: i64,
+    coin_at: Option<i64>,
     casts_by_spell: HashMap<String, i64>,
     spec: String,
     bosses: i64,
@@ -421,6 +439,8 @@ impl<'a> Scan<'a> {
             xp_at: vec![],
             last_death: None,
             gathered: Gathered::default(),
+            coin: 0,
+            coin_at: None,
             casts_by_spell: HashMap::new(),
             spec: String::new(),
             bosses: 0,
@@ -694,7 +714,19 @@ impl<'a> Scan<'a> {
                 let zone = self.zone.clone().unwrap_or_default();
                 *self.quest_zones.entry(zone).or_default() += 1;
             }
-            "LO" => self.gathered.loot(field(f, 0), field(f, 1), r.ms),
+            "LO" => {
+                self.gathered.loot(field(f, 0), field(f, 1), r.ms);
+                self.coin_at = field(f, 3)
+                    .split(',')
+                    .any(|t| t.starts_with("mx"))
+                    .then_some(r.ms);
+            }
+            "M" => {
+                let copper = number(f, 0) - number(f, 1);
+                if copper > 0 && self.coin_at.take_if(|at| r.ms - *at <= COIN_MS).is_some() {
+                    self.coin += copper;
+                }
+            }
             "T" if field(f, 0) == "1" => self.flights += 1,
             "AC" => self.achievements += 1,
             "C" => {
@@ -853,6 +885,45 @@ fn scan<'a>(f: &'a Facts<'a>, spans: &[(i64, i64)], full: bool) -> (Scan<'a>, Sc
     }
     let done = finish_scan(&mut s, spans);
     (s, done)
+}
+
+/// What the character did over `spans`, the totals the pace and records of `goals` are made of.
+pub struct Activity {
+    pub played: i64,
+    pub level: [u32; 2],
+    pub xp: i64,
+    pub net: i64,
+    pub coin: i64,
+    pub kills: i64,
+    pub quests: i64,
+    pub gathers: i64,
+    pub items: i64,
+    pub deaths: i64,
+    /// The item looted most, its id and count.
+    pub top_item: Option<(i64, i64)>,
+}
+
+pub fn activity(f: &Facts, spans: &[(i64, i64)]) -> Activity {
+    let spans = union_spans(spans);
+    let (s, done) = scan(f, &spans, false);
+    let a = &s.agg;
+    Activity {
+        played: done.played,
+        level: s.level,
+        xp: a.xp,
+        net: a.earned - a.spent,
+        coin: s.coin,
+        kills: a.kills as i64,
+        quests: a.completed as i64,
+        gathers: s.gathered.total(),
+        items: s.looted.values().sum(),
+        deaths: a.deaths as i64,
+        top_item: s
+            .looted
+            .iter()
+            .max_by_key(|(id, n)| (**n, std::cmp::Reverse(**id)))
+            .map(|(id, n)| (*id, *n)),
+    }
 }
 
 pub fn title_of(f: &Facts, span: (i64, i64)) -> Title {
@@ -1197,19 +1268,8 @@ fn history(f: &Facts, start: i64, now: &Totals) -> (Vec<&'static str>, Option<Ow
         .iter()
         .enumerate()
         .map(|(i, (key, you))| {
-            let mut values: Vec<f64> = earlier.iter().map(|t| t.metrics()[i].1).collect();
-            values.sort_by(f64::total_cmp);
-            (
-                *key,
-                Spread {
-                    p10: percentile(&values, 0.10),
-                    p25: percentile(&values, 0.25),
-                    p50: percentile(&values, 0.50),
-                    p75: percentile(&values, 0.75),
-                    p90: percentile(&values, 0.90),
-                    you: *you,
-                },
-            )
+            let values: Vec<f64> = earlier.iter().map(|t| t.metrics()[i].1).collect();
+            (*key, Spread::of(values, *you))
         })
         .collect();
     (
