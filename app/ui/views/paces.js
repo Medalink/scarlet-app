@@ -14,13 +14,20 @@ const PACES = [
 
 export const paceName = (key) => PACES.find((p) => p[0] === key)?.[1] ?? key;
 
-/** The tiles for the rates `paces` holds, with each total over `played` seconds under its rate; null when there are none. */
-export function paceTiles(paces, played) {
+export const levelsOf = (band) => (band ? ` for levels ${band[0]}–${band[1]}` : "");
+
+/**
+ * The tiles for the rates `paces` holds, with each total over `played` seconds under its rate; null when there are
+ * none. `totals` replaces a key's total line. `onOpen` runs when a record's link is followed.
+ */
+export function paceTiles(paces, played, { totals = {}, onOpen = null } = {}) {
   const list = [];
   for (const [key, label, how, total] of PACES) {
     const p = paces.find((x) => x.key === key);
     if (!p) continue;
-    list.push(pace(p.rate, p.spread, { label, total: `${total((p.rate * played) / 3600)} in ${dur(played)}`, best: p.isBest, newBest: p.newBest, peak: p.best, peers: p.peers, qualifies: p.qualifies, ...how }));
+    const record = p.record ? { ...p.record, href: `#sessions/${p.record.from}-${p.record.to}` } : null;
+    const line = totals[key] ?? `${total((p.rate * played) / 3600)} in ${dur(played)}`;
+    list.push(pace(p.rate, p.spread, { label, total: line, best: p.isBest, newBest: p.newBest, peak: p.best, peers: p.peers, qualifies: p.qualifies, band: p.band, record, onOpen, ...how }));
   }
   return list.length ? tiles(list, list.length) : null;
 }

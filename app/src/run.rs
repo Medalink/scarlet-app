@@ -4,7 +4,7 @@
 use crate::commands;
 use crate::launch;
 use crate::recap::{self, SessionRecap};
-use crate::session_groups::{Part, groups};
+use crate::session_groups::{Part, SessionMode, groups};
 use crate::store::Store;
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
@@ -166,7 +166,8 @@ pub fn summary(
 
 /// The summary of a run, computed on demand. `ch` limits it to one character. `clip` cuts it to the session of the
 /// chosen mode that starts at `from`; when the chosen mode has no session starting there, such as after the mode
-/// changed, the summary is empty and never the whole run.
+/// changed, the summary is empty and never the whole run. `wow_run` cuts it to the WoW run of `ch` that is exactly
+/// `[from, to]`, whatever the chosen mode, when there is one: the span a record of `scarlet::goals` names.
 #[tauri::command]
 pub async fn run_summary(
     app: AppHandle,
@@ -174,6 +175,7 @@ pub async fn run_summary(
     to: i64,
     ch: Option<String>,
     clip: Option<bool>,
+    wow_run: Option<bool>,
 ) -> RunSummary {
     commands::blocking(move || {
         let (mode, marks) = {
@@ -185,11 +187,24 @@ pub async fn run_summary(
         };
         commands::with_store(&app, |st| {
             let c = ch.and_then(|n| st.char_index(&n));
-            let clipped = clip.unwrap_or(false).then(|| {
-                groups(st, mode, &marks, c, now_ms())
-                    .into_iter()
-                    .find(|g| g.from == from)
-                    .map_or_else(Vec::new, |g| g.parts)
+            let own_run = wow_run
+                .unwrap_or(false)
+                .then(|| {
+                    c.and_then(|c| {
+                        groups(st, SessionMode::Auto, &[], Some(c), 0)
+                            .into_iter()
+                            .find(|g| g.from == from && g.to == to)
+                            .map(|g| g.parts)
+                    })
+                })
+                .flatten();
+            let clipped = own_run.or_else(|| {
+                clip.unwrap_or(false).then(|| {
+                    groups(st, mode, &marks, c, now_ms())
+                        .into_iter()
+                        .find(|g| g.from == from)
+                        .map_or_else(Vec::new, |g| g.parts)
+                })
             });
             summary(st, from, to, c, clipped.as_deref())
         })

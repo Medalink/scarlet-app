@@ -111,12 +111,16 @@ pub fn goals(st: &Store, ch: u32) -> Arc<Goals> {
     made
 }
 
-/// How the character did over `spans` (ms) on each rate it has, against its WoW runs.
+/// How the character did over `spans` (ms) on each rate it has, against its WoW runs. Only when `spans` are exactly one
+/// of those runs can it be a best; any other stretch is shown against the runs without the mark.
 pub fn paces(st: &Store, ch: u32, spans: &[(i64, i64)]) -> Vec<Pace> {
     let goals = goals(st, ch);
     let own = with_facts(st, ch, false, |f| Run::of(f, spans));
     let Some(own) = own else { return Vec::new() };
-    goals.paces(goals.row_at(own.from, own.to).unwrap_or(&own))
+    match goals.row_of(&own) {
+        Some(run) => goals.paces(run, true),
+        None => goals.paces(&own, false),
+    }
 }
 
 /// The sessions of one character as tallies, for counting its feats.

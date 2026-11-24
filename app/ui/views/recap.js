@@ -1,8 +1,8 @@
 // The session recap of recap-app.html, drawn from `run_summary(...).recaps`: head, route and tiles, strip, feats and
 // comparison, time and experience, counts, moments, quests and loot.
 
-import { invoke, el, elText, num, dur, moneyHtml, displayName, distanceHtml, distanceText, tile, tiles, stack, bars, compare, strip, routeCard, wireTips } from "../lib.js";
-import { paceName, paceTiles } from "./paces.js";
+import { invoke, el, elText, num, dur, money, moneyHtml, displayName, distanceHtml, distanceText, tile, tiles, stack, bars, compare, strip, routeCard, wireTips } from "../lib.js";
+import { levelsOf, paceName, paceTiles } from "./paces.js";
 import { BY_KEY } from "../feats-catalog.js";
 import { GLYPHS, TIER_NAMES, svg } from "../glyphs.js";
 import { crest, tierChip, countText, amount } from "../featcard.js";
@@ -87,7 +87,7 @@ function head(recap, paces, run, nav, onAll, onWeb) {
   const records = paces.filter((p) => p.newBest && p.isBest);
   if (records.length) {
     const marks = el("p", "recap-new");
-    for (const p of records) marks.append(elText("span", "best new", `New best: ${paceName(p.key).toLowerCase()} an hour`));
+    for (const p of records) marks.append(elText("span", "best new", `New best: ${paceName(p.key).toLowerCase()} an hour${levelsOf(p.band)}`));
     text.append(marks);
   }
   const actions = el("div", "recap-actions");
@@ -142,14 +142,16 @@ function routePanel(recap) {
   return box;
 }
 
-function tileGrid(recap) {
+const totalXp = (recap) => Object.values(recap.xp).reduce((a, v) => a + v, 0);
+
+function tileGrid(recap, paces) {
   const c = recap.counters;
-  const xp = Object.values(recap.xp).reduce((a, v) => a + v, 0);
+  const xp = totalXp(recap);
   const list = [];
   if (xp) list.push(tile("Experience", num(xp), "", { size: "xl", count: [xp, num] }));
   if (c.kills) list.push(tile("Kills", num(c.kills), "", { size: "xl", count: [c.kills, num] }));
   const net = (c.earned ?? 0) - (c.spent ?? 0);
-  if (c.earned || c.spent) {
+  if ((c.earned || c.spent) && !paces.some((p) => p.key === "gold_h")) {
     list.push(tile("Gold", moneyHtml(net, true), `Earned ${moneyText(c.earned ?? 0)} · spent ${moneyText(c.spent ?? 0)}`, { size: "xl", count: [Math.abs(net), (v) => moneyHtml(Math.sign(net) * v, true)] }));
   }
   const yards = (c.foot ?? 0) + (c.walk ?? 0) + (c.mount ?? 0) + (c.swim ?? 0) + (c.fly ?? 0);
@@ -159,6 +161,7 @@ function tileGrid(recap) {
     const note = modes.map(([, yd, , word]) => [word, yd]).sort((a, b) => noteOrder.indexOf(a[0]) - noteOrder.indexOf(b[0])).map(([word, yd]) => `${distanceText(yd)} ${word}`).join(" · ");
     list.push(tile("Distance", distanceHtml(yards), note, { size: "xl", count: [yards, distanceHtml], extra: stack(modes.map(([n, v, k]) => [n, v, k, distanceText(v)]), { key: false, h: 8 }) }));
   }
+  if (list.length % 2) list[list.length - 1].style.gridColumn = "span 2";
   return tiles(list, 2);
 }
 
@@ -389,17 +392,22 @@ async function onTheWebsite(recap) {
 
 function draw(into, recap, paces, run, nav, onAll, onWeb) {
   into.replaceChildren(head(recap, paces, run, nav, onAll, onWeb));
-  const rates = paceTiles(paces, recap.played);
+  const c = recap.counters;
+  const totals = {};
+  if (c.earned || c.spent) totals.gold_h = `${money((c.earned ?? 0) - (c.spent ?? 0))} in ${dur(recap.played)} · earned ${moneyText(c.earned ?? 0)} · spent ${moneyText(c.spent ?? 0)}`;
+  const rates = paceTiles(paces, recap.played, { totals });
   if (rates) {
     rates.style.marginTop = "18px";
     into.append(rates);
   }
   const lead = el("div", "recap-lead");
-  lead.append(routePanel(recap), tileGrid(recap));
+  lead.append(routePanel(recap), tileGrid(recap, paces));
   into.append(lead);
-  const bar = stripPanel(recap);
-  bar.style.marginTop = "16px";
-  into.append(bar);
+  if (totalXp(recap) || recap.levels.length) {
+    const bar = stripPanel(recap);
+    bar.style.marginTop = "16px";
+    into.append(bar);
+  }
   const rows = [
     row("two", featsPanel(recap), comparePanel(recap)),
     row("three", timePanel(recap), experiencePanel(recap), killedPanel(recap)),

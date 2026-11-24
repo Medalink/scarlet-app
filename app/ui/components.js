@@ -214,14 +214,17 @@ export function goal(value, cap, { label = "", eta = "", size = "", color = "", 
  * A rate per hour played as a headline over the compare strip of the character's own history. `spread` is
  * `{ p10, p25, p50, p75, p90 }` or null: with null the strip is replaced by why there is none (`qualifies` false: the
  * session is under 15 minutes; else `peers` of the 3 needed). `peak` is the best of the history, `{ value, from }`;
- * `total` is the line under the rate.
+ * `total` is the line under the rate. `band` is `[low, high]`, the levels the history was drawn from, which every
+ * mention of a best then names; `record` is the all-time best when it is higher, `{ value, level, href }`.
  * `format(v)` gives HTML, `text(v)` plain text for the strip's hover.
  */
-export function pace(rate, spread, { label, unit = "an hour", total = "", format = num, text = (v) => num(v), best = false, newBest = false, peak = null, peers = 0, qualifies = true } = {}) {
+export function pace(rate, spread, { label, unit = "an hour", total = "", format = num, text = (v) => num(v), best = false, newBest = false, peak = null, peers = 0, qualifies = true, band = null, record = null, onOpen = null } = {}) {
   const t = el("div", "sc-tile sc-pace");
   const head = el("div", "sg-h");
   head.append(elText("span", "sc-label", label));
-  const flag = best && newBest ? "New best" : newBest ? "Best when set" : best ? "Best" : "";
+  const levels = band ? `levels ${band[0]}–${band[1]}` : "";
+  const scope = levels ? ` for ${levels}` : "";
+  const flag = best && newBest ? `New best${scope}` : newBest ? `Best when set${scope}` : best ? `Best${scope}` : "";
   if (flag) head.append(elText("span", `best${best && newBest ? " new" : ""}`, flag));
   const number = el("span", "sc-num sc-num-xl", `${format(rate)}<small>${unit}</small>`);
   counted(number, rate, (v) => `${format(v)}<small>${unit}</small>`);
@@ -238,7 +241,13 @@ export function pace(rate, spread, { label, unit = "an hour", total = "", format
   } else {
     t.append(elText("span", "sc-sub", qualifies ? `${peers} of 3 sessions to compare` : "Under 15 minutes"));
   }
-  if (peak && !best) t.append(elText("span", "sc-sub", `Best ${text(peak.value)} on ${shortDate(peak.from)}`));
+  if (peak && !best) t.append(elText("span", "sc-sub", `Best${levels ? ` at ${levels}` : ""}: ${text(peak.value)} · ${shortDate(peak.from)}`));
+  if (record) {
+    const line = elText(record.href ? "a" : "span", "sc-sub sc-pace-record", `Record ${text(record.value)} · level ${record.level}`);
+    if (record.href) line.href = record.href;
+    if (record.href && onOpen) line.onclick = onOpen;
+    t.append(line);
+  }
   return t;
 }
 

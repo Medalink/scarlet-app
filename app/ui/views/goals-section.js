@@ -77,8 +77,9 @@ function repsMod(reps, cls) {
   let all = false;
   const draw = () => {
     const shown = all ? reps : reps.filter((r) => r.tier < EXALTED).slice(0, REPS_SHOWN);
-    body.replaceChildren(goalList(shown.map((r) => goal(r.standing, r.to, { label: r.name, note: TIERS[r.tier], count: false }))));
-    if (reps.length > REPS_SHOWN) {
+    const bars = shown.map((r) => goal(r.standing - r.from, r.to - r.from, { label: r.name, note: TIERS[r.tier], count: false }));
+    body.replaceChildren(bars.length ? goalList(bars) : elText("p", "sc-note", "All exalted"));
+    if (all || shown.length < reps.length) {
       const more = elText("button", "linkbtn", all ? "Show the closest to exalted" : `Show all ${reps.length}`);
       more.type = "button";
       more.onclick = () => {
@@ -137,7 +138,7 @@ function recordsMod(records, onOpen) {
 export function goalsSheet(g, ov, eta, { atCap, onOpen }) {
   const sheet = el("div", "sheet goals-sheet");
   const cap = g.cap || ov.cap?.level || FALLBACK_CAP;
-  const latest = atCap && g.latest ? paceTiles(g.latest.paces, g.latest.played) : null;
+  const latest = atCap && g.latest ? paceTiles(g.latest.paces, g.latest.played, { onOpen }) : null;
   const records = recordsMod(g.records, onOpen);
   const rows = [];
   if (latest) rows.push(mod("w12 first last", `Latest run, ${shortDate(g.latest.from)}`, latest));

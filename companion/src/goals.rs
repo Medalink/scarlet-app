@@ -11,6 +11,7 @@ const MIN_PLAYED: i64 = 900;
 const MIN_PEERS: usize = 3;
 const BAND: u32 = 2;
 const EXALTED: i64 = 42_000;
+const BELOW_NEUTRAL: [(i64, i64); 3] = [(-42_000, -6_000), (-6_000, -3_000), (-3_000, 0)];
 const PROFESSIONS: [&str; 17] = [
     "Alchemy",
     "Blacksmithing",
@@ -111,8 +112,8 @@ impl Row {
         self.a.played >= MIN_PLAYED
     }
 
-    fn inside(&self, of: &Row) -> bool {
-        self.from >= of.from && self.to <= of.to
+    fn overlaps(&self, of: &Row) -> bool {
+        self.from < of.to && self.to > of.from
     }
 }
 
@@ -132,10 +133,21 @@ pub struct Pace {
     rate: f64,
     qualifies: bool,
     peers: usize,
+    band: Option<[u32; 2]>,
     spread: Option<Spread>,
     best: Option<Peak>,
+    record: Option<Peak>,
     is_best: bool,
     new_best: bool,
+}
+
+fn peak((r, v): (&Row, f64)) -> Peak {
+    Peak {
+        value: v,
+        from: r.from,
+        to: r.to,
+        level: r.a.level[0],
+    }
 }
 
 #[derive(Serialize)]
@@ -168,6 +180,7 @@ pub struct Rep {
     name: String,
     tier: u8,
     standing: i64,
+    from: i64,
     to: i64,
 }
 
@@ -245,7 +258,7 @@ struct Reading {
     cap: u32,
     skills: HashMap<String, (i64, i64)>,
     sheets: HashMap<String, (i64, i64)>,
-    reps: HashMap<String, [i64; 2]>,
+    reps: HashMap<String, [i64; 4]>,
     nodes: HashMap<String, (String, String, i64, i64)>,
     balance: Vec<(i64, String, Vec<String>)>,
     legacy: Option<(i64, i64, [i64; 3])>,
@@ -256,7 +269,9 @@ impl Reading {
         let name = |kind: char, id: &str| f.names.get(&name_key(kind, id)).cloned();
         match code {
             "S" => {
-                self.cap = number(fields, 13).max(0) as u32;
+                if let Ok(cap @ 1..) = field(fields, 13).parse::<u32>() {
+                    self.cap = cap;
+                }
                 self.balance.push((ms, code.into(), fields.to_vec()));
             }
             "M" | "ST" => self.balance.push((ms, code.into(), fields.to_vec())),
@@ -273,9 +288,15 @@ impl Reading {
                 );
             }
             "RF" => {
+                let standing = field(fields, 2).parse().unwrap_or(i64::MIN);
                 self.reps.insert(
                     field(fields, 0).to_string(),
-                    [number(fields, 1), number(fields, 2)],
+                    [
+                        number(fields, 1),
+                        standing,
+                        number(fields, 3),
+                        number(fields, 4),
+                    ],
                 );
             }
             "LN" => {
@@ -339,16 +360,25 @@ impl Reading {
         let mut out: Vec<Rep> = self
             .reps
             .iter()
-            .map(|(id, [tier, standing])| Rep {
-                id: id.clone(),
-                name: f
-                    .names
-                    .get(&name_key('f', id))
-                    .cloned()
-                    .unwrap_or_else(|| format!("Faction {id}")),
-                tier: (*tier).clamp(1, 8) as u8,
-                standing: (*standing).clamp(0, EXALTED),
-                to: EXALTED,
+            .map(|(id, [tier, standing, floor, ceiling])| {
+                let tier = (*tier).clamp(1, 8) as usize;
+                let (from, to) = match tier {
+                    1..=3 if floor < ceiling => (*floor, *ceiling),
+                    1..=3 => BELOW_NEUTRAL[tier - 1],
+                    _ => (0, EXALTED),
+                };
+                Rep {
+                    id: id.clone(),
+                    name: f
+                        .names
+                        .get(&name_key('f', id))
+                        .cloned()
+                        .unwrap_or_else(|| format!("Faction {id}")),
+                    tier: tier as u8,
+                    standing: (*standing).clamp(from, to),
+                    from,
+                    to,
+                }
             })
             .collect();
         out.sort_by(|a, b| {
@@ -430,8 +460,10 @@ impl Goals {
     }
 
     /// The row cut from exactly this run, when the run is one the goals were built from.
-    pub fn row_at(&self, from: i64, to: i64) -> Option<&Row> {
-        self.rows.iter().find(|r| r.from == from && r.to == to)
+    pub fn row_of(&self, own: &Row) -> Option<&Row> {
+        self.rows
+            .iter()
+            .find(|r| r.from == own.from && r.to == own.to && r.a.played == own.a.played)
     }
 
     fn near(&self, a: &Row, b: &Row) -> bool {
@@ -446,12 +478,33 @@ impl Goals {
     ) -> impl Iterator<Item = (&'a Row, f64)> + 'a {
         self.rows
             .iter()
-            .filter(move |p| p.qualifies() && !p.inside(of) && (!m.banded || self.near(of, p)))
+            .filter(move |p| p.qualifies() && !p.overlaps(of) && (!m.banded || self.near(of, p)))
             .filter_map(move |p| m.of(&p.a, self.cap).map(|v| (p, v)))
     }
 
-    /// How `row` did on each rate it has, against the runs of the same character that are not inside it.
-    pub fn paces(&self, row: &Row) -> Vec<Pace> {
+    fn band(&self, m: &Metric, row: &Row) -> Option<[u32; 2]> {
+        let level = row.a.level[0];
+        if !m.banded || level == 0 || (self.cap > 0 && level >= self.cap) {
+            return None;
+        }
+        let hi = level + BAND;
+        Some([
+            level.saturating_sub(BAND).max(1),
+            if self.cap > 0 { hi.min(self.cap) } else { hi },
+        ])
+    }
+
+    fn top(&self, value: impl Fn(&Row) -> Option<f64>) -> Option<(&Row, f64)> {
+        self.rows
+            .iter()
+            .filter(|r| r.qualifies())
+            .filter_map(|r| value(r).filter(|v| *v > 0.0).map(|v| (r, v)))
+            .max_by(|a, b| a.1.total_cmp(&b.1).then_with(|| b.0.from.cmp(&a.0.from)))
+    }
+
+    /// How `row` did on each rate it has, against the other runs of the same character that it does not overlap.
+    /// `exact` is true when `row` is one of the runs the goals were built from; only then can it be a best.
+    pub fn paces(&self, row: &Row, exact: bool) -> Vec<Pace> {
         METRICS
             .iter()
             .filter_map(|m| {
@@ -459,17 +512,17 @@ impl Goals {
                 let qualifies = row.qualifies();
                 let peers: Vec<(&Row, f64)> = self.peers(m, row).collect();
                 let enough = qualifies && peers.len() >= MIN_PEERS;
-                let peak = |(r, v): (&Row, f64)| Peak {
-                    value: v,
-                    from: r.from,
-                    to: r.to,
-                    level: r.a.level[0],
-                };
+                let band = self.band(m, row);
                 let best = peers
                     .iter()
                     .copied()
-                    .chain(qualifies.then_some((row, rate)))
-                    .max_by(|a, b| a.1.total_cmp(&b.1))
+                    .max_by(|a, b| a.1.total_cmp(&b.1).then_with(|| b.0.from.cmp(&a.0.from)));
+                let beaten = best
+                    .map_or(0.0, |b| b.1)
+                    .max(if qualifies { rate } else { 0.0 });
+                let record = band
+                    .and_then(|_| self.top(|r| m.of(&r.a, self.cap)))
+                    .filter(|(_, v)| *v > beaten)
                     .map(peak);
                 let earlier: Vec<f64> = peers
                     .iter()
@@ -481,10 +534,13 @@ impl Goals {
                     rate,
                     qualifies,
                     peers: peers.len(),
+                    band,
                     spread: enough.then(|| Spread::of(peers.iter().map(|p| p.1).collect(), rate)),
-                    best,
-                    is_best: enough && peers.iter().all(|p| rate > p.1),
-                    new_best: qualifies
+                    best: best.map(peak),
+                    record,
+                    is_best: exact && enough && peers.iter().all(|p| rate >= p.1),
+                    new_best: exact
+                        && qualifies
                         && earlier.len() >= MIN_PEERS
                         && earlier.iter().all(|v| rate > *v),
                 })
@@ -493,12 +549,7 @@ impl Goals {
     }
 
     fn records(&self) -> Vec<Record> {
-        let rows: Vec<&Row> = self.rows.iter().filter(|r| r.qualifies()).collect();
-        let top = |value: &dyn Fn(&Row) -> Option<f64>| {
-            rows.iter()
-                .filter_map(|r| value(r).filter(|v| *v > 0.0).map(|v| (*r, v)))
-                .max_by(|a, b| a.1.total_cmp(&b.1).then_with(|| b.0.from.cmp(&a.0.from)))
-        };
+        let top = |value: &dyn Fn(&Row) -> Option<f64>| self.top(value);
         let made = |key, (r, v): (&Row, f64)| Record {
             key,
             value: v,
@@ -554,7 +605,7 @@ impl Goals {
                     from: r.from,
                     to: r.to,
                     played: r.a.played,
-                    paces: self.paces(r),
+                    paces: self.paces(r, true),
                 }),
         }
     }
