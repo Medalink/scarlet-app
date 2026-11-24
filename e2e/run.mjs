@@ -47,7 +47,7 @@ const VIEWS = [
   { key: "legacy", shows: /Progression Gourmand · rank 1 of 3 .* Well Fed duration .* 0 1 15\.0 min — — .* 1 1 20\.0 min \+33% 33% /, never: /No Legacy lines recorded|Select a character/ },
   {
     key: "items",
-    shows: /^(?=.*Linen Cloth 2589 Testa Fixture 3 Warband bank \(E2EONE\) 20 Warband bank \(E2ETWO\) 5 28 42s ?00c 1s ?50c each Wool Cloth 2592 Guild bank 7 7 –)(?=.*Recipes 2× Linen Cloth 1× Bolt of Linen Cloth Testa Fixture)(?=.*Warband and guild banks Warband bank \(E2EONE\) 1 ?item Last read \d{4}-\d\d-\d\d \d\d:\d\d by Testa Fixture Balance 12g ?34s Warband bank \(E2ETWO\) 1 ?item Last read .* by Probe Lane Balance 5g ?00s Guild bank 1 ?item Last read .* by Probe Lane Balance 98g ?76s)(?!.*1s ?25c)/,
+    shows: /^(?=.*Linen Cloth 2589 3 looted Testa Fixture 3 Warband bank \(E2EONE\) 20 Warband bank \(E2ETWO\) 5 28 42s ?00c 1s ?50c each Wool Cloth 2592 Guild bank 7 7 –)(?=.*Recipes 2× Linen Cloth 1× Bolt of Linen Cloth Testa Fixture)(?=.*Warband and guild banks Warband bank \(E2EONE\) 1 ?item Last read \d{4}-\d\d-\d\d \d\d:\d\d by Testa Fixture Balance 12g ?34s Warband bank \(E2ETWO\) 1 ?item Last read .* by Probe Lane Balance 5g ?00s Guild bank 1 ?item Last read .* by Probe Lane Balance 98g ?76s)(?!.*1s ?25c)/,
     never: /No bags or bank recorded yet|No items match|Guild bank \(|account unknown/,
   },
   {
@@ -446,6 +446,42 @@ const CHECKS = [
   },
   {
     lane: "app",
+    name: "the Characters page draws each character's progress to its caps and a gold goal",
+    async run(ctx) {
+      const app = running(ctx);
+      await selectCharacter(app, "");
+      await open(app, "characters", /Last session/);
+      const drawn = await app.evaluate(`({ cards: document.querySelectorAll("#body .ch-card").length, levels: [...document.querySelectorAll("#body .ch-card .ch-caps .sc-goal .sg-n")].map((n) => n.textContent.replace(/\\s+/g, " ").trim()), gold: document.querySelectorAll("#body #r-gold-goals .sc-goal").length })`);
+      expectEqual("character cards", drawn.cards, CHARACTERS.length);
+      for (const level of ["6 / 60", "3 / 60"]) if (!drawn.levels.includes(level)) throw mismatch("a card's level goal", level, JSON.stringify(drawn.levels));
+      if (drawn.gold < 1) throw mismatch("goals under the gold figure", "at least one", String(drawn.gold));
+    },
+  },
+  {
+    lane: "app",
+    name: "the Loot page draws a goal for a notable drop not yet received",
+    async run(ctx) {
+      const app = running(ctx);
+      await selectCharacter(app, "");
+      await open(app, "loot", /Drop rates/);
+      const drawn = await app.evaluate(`[...document.querySelectorAll("#body .lt-chase .sc-goal")].map((g) => g.innerText.replace(/\\s+/g, " ").trim())`);
+      if (!drawn.some((g) => /Wool Cloth/.test(g) && /0 \/ 1/.test(g))) throw mismatch("a goal for Wool Cloth dropped and not received", "Wool Cloth 0 / 1", JSON.stringify(drawn));
+    },
+  },
+  {
+    lane: "app",
+    name: "the Items page draws the value held against its best and each item's farmed total",
+    async run(ctx) {
+      const app = running(ctx);
+      await selectCharacter(app, "");
+      await open(app, "items", /Value held/);
+      const drawn = await app.evaluate(`({ goal: document.querySelector("#body .it .sc-goal")?.innerText.replace(/\\s+/g, " ").trim() ?? "", farmed: [...document.querySelectorAll("#body .it-farm")].map((n) => n.textContent.trim()) })`);
+      if (!/4s ?50c \/ 4s ?50c.*Best/.test(drawn.goal)) throw mismatch("the value goal", "4s 50c / 4s 50c ... Best", drawn.goal);
+      if (!drawn.farmed.includes("3 looted")) throw mismatch("the farmed total of Linen Cloth", "3 looted", JSON.stringify(drawn.farmed));
+    },
+  },
+  {
+    lane: "app",
     name: "the run summary carries one titled recap for each character",
     async run(ctx) {
       const app = running(ctx);
@@ -654,7 +690,7 @@ const CHECKS = [
         await open(
           app,
           "items",
-          /Linen Cloth 2589 Testa Fixture 3 Warband bank \(account unknown, Probe Lane\) 5 Warband bank \(account unknown, Testa Fixture\) 20 28 42s ?00c 1s ?50c each .* Guild bank 1 ?item Last read .* by Probe Lane/,
+          /Linen Cloth 2589 3 looted Testa Fixture 3 Warband bank \(account unknown, Probe Lane\) 5 Warband bank \(account unknown, Testa Fixture\) 20 28 42s ?00c 1s ?50c each .* Guild bank 1 ?item Last read .* by Probe Lane/,
           /Warband bank \(E2E|Guild bank \(/,
         );
       } finally {
