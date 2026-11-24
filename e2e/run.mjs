@@ -18,8 +18,8 @@ const WINDOWS = process.platform === "win32";
 const USAGE = "usage: node e2e/run.mjs [--only cli|app] [--no-build] [--exe <scarlet-app.exe>] [--cli <scarlet>] [--keep <dir>]";
 const TESTA = CHARACTERS[0].name;
 const PROBE = CHARACTERS[1].name;
-const SHOWN = { testa: TESTA.replace("-", " "), probe: PROBE.replace("-", " "), grind: GRIND.name.replace("-", " ") };
-const OTHER_GRIND = new RegExp(ALT.name.replace("-", " "));
+const SHOWN = { testa: TESTA.replace("-", " "), probe: PROBE.replace("-", " "), grind: GRIND.name.replace("-", " "), alt: ALT.name.replace("-", " ") };
+const OTHER_GRIND = new RegExp(SHOWN.alt);
 const OTHER_CHARACTER = new RegExp(`${SHOWN.probe}|Kobold Vermin`);
 const OTHER_CHARACTER_ONLY = new Set(["character", "sessions", "log", "map", "loot", "data"]);
 
@@ -44,8 +44,8 @@ const VIEWS = [
   { key: "map", shows: /Elwynn Forest 12 points Westfall 10 points/, never: /No path points yet/ },
   { key: "loot", shows: /^(?=.*Drop rates .* Stonetusk Boar 1 corpse Chunk of Boar Meat 100% 1\/1 Linen Cloth 100% 1\/1)(?=.*Items received and rolls Common 3 Uncommon 1 Rare 1 Won 1 Testa Fixture Solo 3 1 Group members \(1\) 1 player 2)/, never: /No creature loot with an item list|No loot recorded yet/ },
   { key: "character", hash: "character/class", shows: /Spells cast most Heroic Strike 1/, never: /Select a character|Loading the class section/ },
-  { key: "character", hash: "character/talents", shows: /Points spent 3 \/ 4 .* Unspent 1 0 class · 1 spec Arms 3 \/ 4 75% 3 points Improved Heroic Strike 2 \/ 3 66% Deflection 2 \/ 2 Max .* Picked 1→2\/3/, never: /No talent lines recorded|Select a character/ },
-  { key: "legacy", shows: /^(?=.*Earned 2 \/ 65)(?=.*Spent 0 To spend 2)(?=.*Next ranks Progression: Gourmand 1 \/ 3)(?=.*Progression Gourmand 1 \/ 3 33% Rank Tooltip)(?=.*Well Fed duration .* 0 1 15\.0 min — — .* 1 1 20\.0 min \+33% 33% )/, never: /No Legacy lines recorded|Select a character/ },
+  { key: "character", hash: "character/talents", shows: /Points spent 3 \/ 4 .* Unspent 1 0 class · 1 spec Arms 3 Fury 0 Arms · 3 points Improved Heroic Strike 2 \/ 3 66% Deflection 2 \/ 2 Max Fury · 0 points No points spent\. .* Picked 1→2\/3/, never: /No talent lines recorded|Select a character/ },
+  { key: "legacy", shows: /^(?=.*Earned 2 \/ 65)(?=.*Spent 0 To spend 2)(?!.*Next ranks)(?!.*Ranks bought)(?=.*Progression Gourmand 1 \/ 3 33% Next rank costs 1 · Can afford Rank Tooltip)(?=.*Well Fed duration .* 0 1 15\.0 min — — .* 1 1 20\.0 min \+33% 33% )/, never: /No Legacy lines recorded|Select a character/ },
   {
     key: "items",
     shows: /^(?=.*Linen Cloth 2589 3 looted Testa Fixture 3 Warband bank \(E2EONE\) 20 Warband bank \(E2ETWO\) 5 28 42s ?00c 1s ?50c each Wool Cloth 2592 Guild bank 7 7 –)(?=.*Recipes 2× Linen Cloth 1× Bolt of Linen Cloth Testa Fixture)(?=.*Warband and guild banks Warband bank \(E2EONE\) 1 ?item Last read \d{4}-\d\d-\d\d \d\d:\d\d by Testa Fixture Balance 12g ?34s Warband bank \(E2ETWO\) 1 ?item Last read .* by Probe Lane Balance 5g ?00s Guild bank 1 ?item Last read .* by Probe Lane Balance 98g ?76s)(?!.*1s ?25c)/,
@@ -505,32 +505,30 @@ const CHECKS = [
   },
   {
     lane: "app",
-    name: "the Legacy page draws points earned, each tree and each talent as goals",
+    name: "the Legacy page draws points earned, and each talent once as a goal with the cost of its next rank",
     async run(ctx) {
       const app = running(ctx);
       await selectCharacter(app, TESTA);
       await open(app, "legacy", /Earned/);
       const lead = (await text(app, "#body .legacy-sheet .sc-goal.lg"))[0];
       expectEqual("the points goal", lead, "Earned 2 / 65 3%");
-      const goals = await text(app, "#body .legacy-sheet .sc-goal:not(.lg)");
-      if (!goals.some((g) => /^Progression 1 \/ 3 33%/.test(g))) throw mismatch("a goal for the Progression tree", "Progression 1 / 3 33%", JSON.stringify(goals));
-      if (!goals.some((g) => /^Progression: Gourmand 1 \/ 3 .*Can afford/.test(g))) throw mismatch("the next rank to buy", "Progression: Gourmand 1 / 3 ... Can afford", JSON.stringify(goals));
-      const node = await text(app, "#body .panel > .sc-goal");
-      if (!node.some((g) => /^Gourmand 1 \/ 3 33%/.test(g))) throw mismatch("a goal for the Gourmand talent", "Gourmand 1 / 3 33%", JSON.stringify(node));
+      expectEqual("the goals outside the points head", await text(app, "#body .sc-goal:not(.lg)"), ["Gourmand 1 / 3 33% Next rank costs 1 · Can afford"]);
     },
   },
   {
     lane: "app",
-    name: "the Talents page draws points spent against points available, each tab and each talent as goals",
+    name: "the Talents page draws points spent against the points left unspent, one split across the tabs and each talent as goals",
     async run(ctx) {
       const app = running(ctx);
       await selectCharacter(app, TESTA);
       await open(app, "character", /Points spent/, null, "character/talents");
-      expectEqual("the points goal", (await text(app, "#body .points-head .sc-goal.lg"))[0], "Points spent 3 / 4 75%");
+      expectEqual("the points goal: 3 spent and the 1 unspent point; the tabs' own available counts (0 and 3, the other tabs' points) are not points to spend", (await text(app, "#body .points-head .sc-goal.lg"))[0], "Points spent 3 / 4 75%");
+      expectEqual("the split across the tabs", await text(app, "#body .tab-split .sc-key span"), ["Arms 3", "Fury 0"]);
       const goals = await text(app, "#body .panel .sc-goal:not(.lg)");
-      for (const want of [/^Arms 3 \/ 4 75% 3 points/, /^Improved Heroic Strike 2 \/ 3 66%/, /^Deflection 2 \/ 2 Max/]) {
+      for (const want of [/^Improved Heroic Strike 2 \/ 3 66%/, /^Deflection 2 \/ 2 Max/]) {
         if (!goals.some((g) => want.test(g))) throw mismatch("a talent goal", String(want), JSON.stringify(goals));
       }
+      if (goals.some((g) => /^(Arms|Fury) /.test(g))) throw mismatch("goal bars for the tabs", "none", JSON.stringify(goals));
     },
   },
   {
@@ -589,6 +587,12 @@ const CHECKS = [
       if (/New best/.test(cells[cells.length - 1])) throw mismatch("the oldest run's summary", "no New best", cells[cells.length - 1]);
       await app.evaluate(`document.querySelectorAll("#body .lg-cell")[1].click()`);
       await app.until(`document.querySelectorAll("#body .lg-cell.on").length === 1`, "a run is picked");
+      await selectCharacter(app, "");
+      await app.until(`document.querySelectorAll("#body .lg-cell").length > 0 && [...document.querySelectorAll("#body .lg-cell")].every((c) => c.innerText.includes(${JSON.stringify(SHOWN.alt)}))`, "a summary of both characters");
+      expectEqual("summaries of both characters: one for each WoW run, not for each session", (await text(app, "#body .lg-cell")).length, GRIND.sessions.length);
+      const account = await text(app, "#body .lg-cell");
+      if (!account.every((c) => new RegExp(`^30m 0s .* ${SHOWN.grind}, ${SHOWN.alt} XP [\\d,]+ Gold 0 Kills 20`).test(c)) || !/XP 6,000 /.test(account[0])) throw mismatch("a WoW run of both characters", `30m 0s ... ${SHOWN.grind}, ${SHOWN.alt} XP 6,000 Gold 0 Kills 20 for the newest`, JSON.stringify(account));
+      await selectCharacter(app, GRIND.name);
     },
   },
   {

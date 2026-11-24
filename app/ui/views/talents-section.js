@@ -1,6 +1,6 @@
 // The talents section of Character: the selected character's build by tab, the order points were taken in, and respecs.
 
-import { invoke, el, esc, num, moneyHtml, dateTime, state, goal, tile, tiles } from "../lib.js";
+import { invoke, el, esc, num, moneyHtml, dateTime, state, goal, stack, tile, tiles } from "../lib.js";
 import { play } from "../motion.js";
 import { goalList } from "./goals-section.js";
 
@@ -20,6 +20,8 @@ const table = (head, rows) => {
   wrap.appendChild(t);
   return wrap;
 };
+
+const TAB_COLORS = ["--s-1", "--s-2", "--s-4"];
 
 const level = (v) => (v == null ? "—" : v);
 
@@ -49,14 +51,18 @@ function buildSection(body, build) {
     const head = el("div", "panel");
     head.style.marginTop = "12px";
     head.append(pointsHead(build, spent, total));
+    if (spent > 0) {
+      const split = stack(build.tabs.map((t, n) => [t.name || "Other talents", t.spent, TAB_COLORS[n % TAB_COLORS.length]]), { h: 10 });
+      split.classList.add("tab-split");
+      head.append(split);
+    }
     body.appendChild(head);
   }
   for (const tab of build.tabs) {
     const p = el("div", "panel");
     p.style.marginTop = "12px";
     const name = tab.name || "Other talents";
-    if (known && total > 0) p.append(goal(tab.spent, total, { label: name, count: false, note: `${num(tab.spent)} ${tab.spent === 1 ? "point" : "points"}` }));
-    else p.innerHTML = `<h3>${esc(name)} <span class="dim">· ${num(tab.spent)} ${tab.spent === 1 ? "point" : "points"}</span></h3>`;
+    p.innerHTML = `<h3>${esc(name)} <span class="dim">· ${num(tab.spent)} ${tab.spent === 1 ? "point" : "points"}</span></h3>`;
     if (!tab.nodes.length) {
       p.appendChild(el("div", "empty", "No points spent."));
     } else {

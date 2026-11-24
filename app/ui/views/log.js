@@ -8,19 +8,49 @@ const ROW_PX = 24;
 const ROWS_PER_PAGE = 500;
 const BRIEFS_SHOWN = 12;
 const MIN_PLAYED = 900;
+const RUN_GAP_MS = 5 * 60_000;
+const sum = (parts, key) => parts.reduce((a, p) => a + (p[key] ?? 0), 0);
 const QUALITY_LINE = /^(.*) is (poor|common|uncommon|rare|epic|legendary)$/;
 const METERS = [["xp", "XP", num], ["gold", "Gold", (v) => (v === 0 ? "0" : `${v > 0 ? "+" : ""}${money(v)}`)], ["kills", "Kills", num]];
 
 const clockOf = (ms) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
+function wowRuns(sessionsList) {
+  const runs = [];
+  for (const s of [...sessionsList].sort((a, b) => a.start - b.start)) {
+    const run = runs[runs.length - 1];
+    if (run && s.start <= run.to + RUN_GAP_MS) {
+      run.to = Math.max(run.to, s.end);
+      run.parts.push(s);
+    } else runs.push({ from: s.start, to: s.end, parts: [s] });
+  }
+  return runs;
+}
+
+function playedSeconds(parts) {
+  let total = 0;
+  let end = -Infinity;
+  for (const p of [...parts].sort((a, b) => a.start - b.start)) {
+    total += Math.max(0, p.end - Math.max(p.start, end));
+    end = Math.max(end, p.end);
+  }
+  return Math.floor(total / 1000);
+}
+
+function whoPlayed(parts) {
+  const time = new Map();
+  for (const p of parts) time.set(p.char_name, (time.get(p.char_name) ?? 0) + (p.end - p.start));
+  return [...time].sort((a, b) => b[1] - a[1]).map(([name]) => displayName(name)).join(", ");
+}
+
 async function briefsOf(sessionsList) {
   const goals = state.ch ? await invoke("goals", { ch: state.ch }).catch(() => null) : null;
   if (goals?.runs.length) return goals.runs.slice(0, BRIEFS_SHOWN);
-  return [...sessionsList]
-    .filter((s) => s.duration >= MIN_PLAYED)
-    .sort((a, b) => b.start - a.start)
-    .slice(0, BRIEFS_SHOWN)
-    .map((s) => ({ from: s.start, to: s.end, played: s.duration, xp: s.xp, gold: s.money, kills: s.kills, new_best: [], who: s.char_name }));
+  return wowRuns(sessionsList)
+    .map((r) => ({ from: r.from, to: r.to, played: playedSeconds(r.parts), xp: sum(r.parts, "xp"), gold: sum(r.parts, "money"), kills: sum(r.parts, "kills"), new_best: [], who: whoPlayed(r.parts) }))
+    .filter((b) => b.played >= MIN_PLAYED)
+    .sort((a, b) => b.from - a.from)
+    .slice(0, BRIEFS_SHOWN);
 }
 
 function briefCell(b, most, onPick) {
@@ -30,7 +60,7 @@ function briefCell(b, most, onPick) {
   cell.dataset.to = String(b.to);
   const head = el("span", "lg-head");
   head.append(elText("b", "", dur(b.played)), elText("span", "", `${shortDate(b.from)} ${clockOf(b.from)}`));
-  if (b.who) head.append(elText("span", "", displayName(b.who)));
+  if (b.who) head.append(elText("span", "", b.who));
   cell.append(head);
   for (const [key, label, show] of METERS) {
     const value = b[key];

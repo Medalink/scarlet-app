@@ -113,9 +113,10 @@ export const CHARACTERS = [
         [1, "SZ", WESTFALL, "Sentinel Hill", 5650, 4760],
         [3, "TP", 5540, 20],
         [4, "TY", 161, "Arms"],
+        [4, "TY", 162, "Fury"],
         [4, "SN", 7001, "Improved Heroic Strike"],
         [4, "SN", 7002, "Deflection"],
-        [5, "TG", "s", 1, 1, "", "", 1, "161:3:2", 0, 1, 1, ""],
+        [5, "TG", "s", 1, 1, "", "", 1, "161:3:0,162:0:3", 0, 1, 1, ""],
         [5, "TA", 1, 9001, 9001, 1, "", 3, 7001, 161, "s"],
         [5, "TA", 1, 9002, 9002, 2, "", 2, 7002, 161, "s"],
         [6, "TA", 1, 9001, 9001, 2, 1, 3, 7001, 161, "c"],
@@ -210,7 +211,7 @@ const GRIND_START = new Date(2026, 10, 13, 12).getTime() / 1000;
 const GRIND_DAY = 86400;
 const GRIND_RUN = 1500;
 const ALT_RUN = 1200;
-const ALT_OFFSET = 7200;
+const ALT_OFFSET = 600;
 
 const grindSession = (n, { offset = 0, run = GRIND_RUN } = {}) => {
   const kills = Array.from({ length: 10 }, (_, k) => [100 * (k + 1), [["K", 6, 1], ["X", 50 * (n + 1), 360, 1400, "k", 6]]]).flatMap(([at, rows]) => rows.map((row) => [at, ...row]));
@@ -227,7 +228,7 @@ const grindSession = (n, { offset = 0, run = GRIND_RUN } = {}) => {
 /** A character that played six runs of 25 minutes on six days, each earning more experience an hour than the last. */
 export const GRIND = { name: "Grind-Lane", account: "E2EGRIND", sessions: Array.from({ length: 6 }, (_, n) => grindSession(n)) };
 
-/** A second character that played 20 minutes on each of the same six days, two hours after `GRIND`. */
+/** A second character that played 20 minutes on each of the same six days, starting 10 minutes into the run of `GRIND`. */
 export const ALT = { name: "Alt-Lane", account: "E2EALT", sessions: Array.from({ length: 6 }, (_, n) => grindSession(n, { offset: ALT_OFFSET, run: ALT_RUN })) };
 
 const ADDON_LINES = [[20, "gm", "N", ELWYNN, 4390, 6700, 2447]];

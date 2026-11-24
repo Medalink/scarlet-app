@@ -974,6 +974,7 @@ main:has(.cv-banner) #pagetitle { display: none; }
 .panel > .sc-goal { margin-bottom: 4px; }
 .points-head { grid-template-columns: minmax(0, 3fr) minmax(160px, 1fr); align-items: end; gap: 28px; }
 @media (max-width: 760px) { .points-head { grid-template-columns: minmax(0, 1fr); } }
+.panel > .tab-split { margin-top: 18px; }
 .panel > .sc-goal + .scroll-x { margin-top: 12px; }
 .mod.w5 .goal-list { grid-template-columns: minmax(0, 1fr); }
 @media (max-width: 760px) {

@@ -2,7 +2,7 @@
 
 import { invoke, el, elText, esc, num, dateStr, dateTime, state, goal, tile, tiles } from "../lib.js";
 import { play } from "../motion.js";
-import { mod, label, goalList } from "./goals-section.js";
+import { mod } from "./goals-section.js";
 
 const table = (head, rows) => {
   const wrap = el("div", "scroll-x");
@@ -45,10 +45,16 @@ function measureTable(t) {
   return box;
 }
 
-function talentPanel(t) {
+function nextRank(t, legacy) {
+  if (!legacy || t.rank >= t.max_ranks) return {};
+  const cost = legacy.rank_cost;
+  return { note: `Next rank costs ${cost}`, eta: legacy.available >= cost ? "Can afford" : `${num(cost - legacy.available)} short` };
+}
+
+function talentPanel(t, legacy) {
   const p = el("div", "panel");
   p.style.marginTop = "12px";
-  if (t.max_ranks > 0) p.append(goal(t.rank, t.max_ranks, { label: t.name, count: false }));
+  if (t.max_ranks > 0) p.append(goal(t.rank, t.max_ranks, { label: t.name, count: false, ...nextRank(t, legacy) }));
   else p.innerHTML = `<h3>${esc(t.name)} <span class="dim">· rank ${t.rank}</span></h3>`;
   if (t.texts.length) {
     p.appendChild(
@@ -69,40 +75,16 @@ function talentPanel(t) {
   return p;
 }
 
-const TREES = ["Professions", "Adventure", "Progression"];
-
-function treeProgress(talents) {
-  return TREES.map((name) => {
-    const of = talents.filter((t) => t.tree === name && t.max_ranks > 0);
-    return { name, rank: of.reduce((a, t) => a + t.rank, 0), max: of.reduce((a, t) => a + t.max_ranks, 0) };
-  }).filter((t) => t.max > 0);
-}
-
-function nextRanks(talents, available, cost) {
-  return talents
-    .filter((t) => t.max_ranks > 0 && t.rank < t.max_ranks)
-    .sort((a, b) => a.max_ranks - a.rank - (b.max_ranks - b.rank) || b.rank - a.rank || a.name.localeCompare(b.name))
-    .slice(0, 6)
-    .map((t) => goal(t.rank, t.max_ranks, { label: `${t.tree}: ${t.name}`, count: false, note: `Next rank costs ${cost}`, eta: available >= cost ? "Can afford" : `${num(cost - available)} short` }));
-}
-
-function sheet(talents, legacy) {
+function sheet(legacy) {
   const box = el("div", "sheet goals-sheet legacy-sheet");
-  const trees = treeProgress(talents);
-  const spent = legacy ? legacy.trees.reduce((a, t) => a + t.spent, 0) : 0;
-  const head = [];
-  if (legacy) {
-    head.push(goal(legacy.earned, legacy.max, { size: "lg", label: "Earned" }));
-    head.push(tiles([tile("Spent", num(spent), "", { size: "md" }), tile("To spend", num(legacy.available), "", { size: "md" })], 2));
+  if (!legacy) {
+    box.append(mod("w12 first last", "Points", elText("p", "sc-empty", "No Legacy balance recorded")));
+    return box;
   }
-  const stack = el("div", "goal-stack");
-  stack.append(...head);
-  const first = mod("w5 first", "Points", head.length ? stack : elText("p", "sc-empty", "No Legacy balance recorded"));
-  const kids = [];
-  if (trees.length) kids.push(label("Ranks bought"), goalList(trees.map((t) => goal(t.rank, t.max, { label: t.name, count: false }))));
-  const next = legacy ? nextRanks(talents, legacy.available, legacy.rank_cost) : [];
-  if (next.length) kids.push(label("Next ranks"), goalList(next));
-  box.append(first, mod("w7 last", "Trees", ...(kids.length ? kids : [elText("p", "sc-empty", "No tree ranks recorded")])));
+  const spent = legacy.trees.reduce((a, t) => a + t.spent, 0);
+  const head = el("div", "goal-stack points-head");
+  head.append(goal(legacy.earned, legacy.max, { size: "lg", label: "Earned" }), tiles([tile("Spent", num(spent), "", { size: "md" }), tile("To spend", num(legacy.available), "", { size: "md" })], 2));
+  box.append(mod("w12 first last", "Points", head));
   return box;
 }
 
@@ -120,14 +102,15 @@ export async function render(body) {
     body.appendChild(el("div", "empty", "No Legacy lines recorded for this character."));
     return;
   }
-  body.appendChild(sheet(data.talents, goals?.caps.legacy ?? null));
+  const legacy = goals?.caps.legacy ?? null;
+  body.appendChild(sheet(legacy));
   let tree = null;
   for (const t of data.talents) {
     if (t.tree !== tree) {
       tree = t.tree;
       body.appendChild(el("h3", "section-title", esc(tree)));
     }
-    body.appendChild(talentPanel(t));
+    body.appendChild(talentPanel(t, legacy));
   }
   play(body);
 }
