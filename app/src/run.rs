@@ -158,8 +158,9 @@ pub fn summary(
     }
 }
 
-/// The summary of a run, computed on demand. `ch` limits it to one character and `clip` cuts it to the session of the
-/// chosen mode that starts at `from`.
+/// The summary of a run, computed on demand. `ch` limits it to one character. `clip` cuts it to the session of the
+/// chosen mode that starts at `from`; when the chosen mode has no session starting there, such as after the mode
+/// changed, the summary is empty and never the whole run.
 #[tauri::command]
 pub async fn run_summary(
     app: AppHandle,
@@ -178,15 +179,13 @@ pub async fn run_summary(
         };
         commands::with_store(&app, |st| {
             let c = ch.and_then(|n| st.char_index(&n));
-            let group = clip
-                .unwrap_or(false)
-                .then(|| {
-                    groups(st, mode, &marks, c, now_ms())
-                        .into_iter()
-                        .find(|g| g.from == from)
-                })
-                .flatten();
-            summary(st, from, to, c, group.as_ref().map(|g| g.parts.as_slice()))
+            let clipped = clip.unwrap_or(false).then(|| {
+                groups(st, mode, &marks, c, now_ms())
+                    .into_iter()
+                    .find(|g| g.from == from)
+                    .map_or_else(Vec::new, |g| g.parts)
+            });
+            summary(st, from, to, c, clipped.as_deref())
         })
     })
     .await
