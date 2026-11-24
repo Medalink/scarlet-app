@@ -91,7 +91,7 @@ const METRICS: [Metric; 6] = [
         key: "deaths_h",
         banded: true,
         ranked: false,
-        value: |a, _| (a.deaths > 0).then(|| per_hour(a.deaths, a)),
+        value: |a, _| Some(per_hour(a.deaths, a)),
     },
 ];
 
