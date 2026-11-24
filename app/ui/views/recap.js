@@ -2,6 +2,7 @@
 // comparison, time and experience, counts, moments, quests and loot.
 
 import { invoke, el, elText, num, dur, moneyHtml, displayName, distanceHtml, distanceText, tile, tiles, stack, bars, compare, strip, routeCard, wireTips } from "../lib.js";
+import { paceName, paceTiles } from "./paces.js";
 import { BY_KEY } from "../feats-catalog.js";
 import { GLYPHS, TIER_NAMES, svg } from "../glyphs.js";
 import { crest, tierChip, countText, amount } from "../featcard.js";
@@ -15,7 +16,6 @@ const clockOf = (sec) => {
 };
 const dayOf = (sec) => new Date(sec * 1000).toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
 const shortDay = (ms) => new Date(ms).toLocaleDateString([], { day: "numeric", month: "short" });
-const rate = (n, secs) => (secs > 0 ? n / (secs / 3600) : 0);
 
 const panel = (...kids) => {
   const p = el("section", "sc-panel");
@@ -80,10 +80,16 @@ function picker(nav, from) {
   return select;
 }
 
-function head(recap, run, nav, onAll, onWeb) {
+function head(recap, paces, run, nav, onAll, onWeb) {
   const box = el("div", "recap-head");
   const text = el("div");
   text.append(elText("h1", "sc-title", nav.exact && nav.mode === "day" ? dayOf(recap.start) : recap.title.text), subline(recap, run, nav));
+  const records = paces.filter((p) => p.newBest && p.isBest);
+  if (records.length) {
+    const marks = el("p", "recap-new");
+    for (const p of records) marks.append(elText("span", "best new", `New best: ${paceName(p.key).toLowerCase()} an hour`));
+    text.append(marks);
+  }
   const actions = el("div", "recap-actions");
   const from = nav.current?.from ?? run.from;
   const older = nav.cards.find((c) => c.from < from);
@@ -139,20 +145,19 @@ function routePanel(recap) {
 function tileGrid(recap) {
   const c = recap.counters;
   const xp = Object.values(recap.xp).reduce((a, v) => a + v, 0);
-  const best = (key) => (recap.bests.includes(key) ? "Best of the last 30 sessions" : "");
   const list = [];
-  if (xp) list.push(tile("Experience", num(xp), `${num(rate(xp, recap.played))} an hour`, { size: "xl", best: best("xp"), count: [xp, num] }));
-  if (c.kills) list.push(tile("Kills", num(c.kills), `${num(rate(c.kills, recap.played))} an hour`, { size: "xl", best: best("kills"), count: [c.kills, num] }));
+  if (xp) list.push(tile("Experience", num(xp), "", { size: "xl", count: [xp, num] }));
+  if (c.kills) list.push(tile("Kills", num(c.kills), "", { size: "xl", count: [c.kills, num] }));
   const net = (c.earned ?? 0) - (c.spent ?? 0);
   if (c.earned || c.spent) {
-    list.push(tile("Gold", moneyHtml(net, true), `Earned ${moneyText(c.earned ?? 0)} · spent ${moneyText(c.spent ?? 0)}`, { size: "xl", best: best("earned"), count: [Math.abs(net), (v) => moneyHtml(Math.sign(net) * v, true)] }));
+    list.push(tile("Gold", moneyHtml(net, true), `Earned ${moneyText(c.earned ?? 0)} · spent ${moneyText(c.spent ?? 0)}`, { size: "xl", count: [Math.abs(net), (v) => moneyHtml(Math.sign(net) * v, true)] }));
   }
   const yards = (c.foot ?? 0) + (c.walk ?? 0) + (c.mount ?? 0) + (c.swim ?? 0) + (c.fly ?? 0);
   if (yards) {
     const modes = [["Swimming", c.swim ?? 0, "--m-swim", "swum"], ["On foot", (c.foot ?? 0) + (c.walk ?? 0), "--m-foot", "on foot"], ["Mounted", (c.mount ?? 0) + (c.fly ?? 0), "--m-mount", "mounted"]].filter((m) => m[1] > 0);
     const noteOrder = ["on foot", "mounted", "swum"];
     const note = modes.map(([, yd, , word]) => [word, yd]).sort((a, b) => noteOrder.indexOf(a[0]) - noteOrder.indexOf(b[0])).map(([word, yd]) => `${distanceText(yd)} ${word}`).join(" · ");
-    list.push(tile("Distance", distanceHtml(yards), note, { size: "xl", best: best("distance"), count: [yards, distanceHtml], extra: stack(modes.map(([n, v, k]) => [n, v, k, distanceText(v)]), { key: false, h: 8 }) }));
+    list.push(tile("Distance", distanceHtml(yards), note, { size: "xl", count: [yards, distanceHtml], extra: stack(modes.map(([n, v, k]) => [n, v, k, distanceText(v)]), { key: false, h: 8 }) }));
   }
   return tiles(list, 2);
 }
@@ -215,8 +220,6 @@ function featsPanel(recap) {
 }
 
 const METRICS = [
-  ["xp_h", "XP an hour", (v) => num(v)],
-  ["kills_h", "Kills an hour", (v) => num(v)],
   ["quests_h", "Quests an hour", (v) => v.toFixed(1)],
   ["miles_h", "Miles an hour", (v) => v.toFixed(1)],
   ["deaths", "Deaths", (v) => num(v)],
@@ -384,8 +387,13 @@ async function onTheWebsite(recap) {
   return invoke("session_on_web", { character: recap.character, start: recap.start, end: recap.end }).catch(() => false);
 }
 
-function draw(into, recap, run, nav, onAll, onWeb) {
-  into.replaceChildren(head(recap, run, nav, onAll, onWeb));
+function draw(into, recap, paces, run, nav, onAll, onWeb) {
+  into.replaceChildren(head(recap, paces, run, nav, onAll, onWeb));
+  const rates = paceTiles(paces, recap.played);
+  if (rates) {
+    rates.style.marginTop = "18px";
+    into.append(rates);
+  }
   const lead = el("div", "recap-lead");
   lead.append(routePanel(recap), tileGrid(recap));
   into.append(lead);
@@ -408,11 +416,12 @@ export async function renderRecaps(body, run, nav) {
   const content = el("div");
   const onAll = () => window.__nav("sessions");
   let latest = 0;
-  const show = async (recap) => {
+  const show = async (i) => {
+    const recap = run.recaps[i];
     const mine = ++latest;
     const onWeb = await onTheWebsite(recap);
     if (mine !== latest) return;
-    draw(content, recap, run, nav, onAll, onWeb);
+    draw(content, recap, run.paces[i] ?? [], run, nav, onAll, onWeb);
     play(page, `${location.hash}:${recap.character}`);
   };
   if (run.recaps.length > 1) {
@@ -422,7 +431,7 @@ export async function renderRecaps(body, run, nav) {
       b.type = "button";
       b.onclick = () => {
         for (const o of seg.children) o.classList.toggle("on", o === b);
-        show(recap);
+        show(i);
       };
       seg.append(b);
     });
@@ -430,5 +439,5 @@ export async function renderRecaps(body, run, nav) {
   }
   page.append(content);
   body.append(page);
-  show(run.recaps[0]);
+  await show(0);
 }

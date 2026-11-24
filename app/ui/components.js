@@ -213,10 +213,11 @@ export function goal(value, cap, { label = "", eta = "", size = "", color = "", 
 /**
  * A rate per hour played as a headline over the compare strip of the character's own history. `spread` is
  * `{ p10, p25, p50, p75, p90 }` or null: with null the strip is replaced by why there is none (`qualifies` false: the
- * session is under 15 minutes; else `peers` of the 3 needed). `peak` is the best of the history, `{ value, from }`.
+ * session is under 15 minutes; else `peers` of the 3 needed). `peak` is the best of the history, `{ value, from }`;
+ * `total` is the line under the rate.
  * `format(v)` gives HTML, `text(v)` plain text for the strip's hover.
  */
-export function pace(rate, spread, { label, unit = "an hour", format = num, text = (v) => num(v), best = false, newBest = false, peak = null, peers = 0, qualifies = true } = {}) {
+export function pace(rate, spread, { label, unit = "an hour", total = "", format = num, text = (v) => num(v), best = false, newBest = false, peak = null, peers = 0, qualifies = true } = {}) {
   const t = el("div", "sc-tile sc-pace");
   const head = el("div", "sg-h");
   head.append(elText("span", "sc-label", label));
@@ -225,6 +226,7 @@ export function pace(rate, spread, { label, unit = "an hour", format = num, text
   const number = el("span", "sc-num sc-num-xl", `${format(rate)}<small>${unit}</small>`);
   counted(number, rate, (v) => `${format(v)}<small>${unit}</small>`);
   t.append(head, number);
+  if (total) t.append(elText("span", "sc-sub", total));
   if (spread) {
     const tenth = (v) => Math.round(v * 10) / 10;
     const you = tenth(rate);

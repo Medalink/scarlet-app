@@ -1085,6 +1085,8 @@ a.sc-session:hover { border-color: var(--line2); }
 .recap-actions select { height: 28px; padding: 0 8px; font-size: 13px; max-width: 300px; }
 .recap-sub { margin-top: 8px; font-size: 14.5px; color: var(--text); }
 .recap-sub b { color: var(--fg); font-weight: 600; }
+.recap-new { display: flex; flex-wrap: wrap; gap: 6px 20px; margin-top: 12px; }
+.recap-new .best { font-size: 14px; }
 .recap-route { position: relative; overflow: hidden; padding: 0; }
 .recap-route .sc-key { position: absolute; left: 14px; bottom: 10px; margin: 0; }
 .sc-panel > .sc-h { margin-bottom: 12px; }
