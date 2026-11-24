@@ -1,8 +1,9 @@
 // Items: what every character carries, where it is as a bar per item, the recipes they know as reagents to product,
 // and how fresh each container read is. The model comes from the `items` command.
 
-import { invoke, el, elText, esc, displayName, num, dateTime, moneyHtml, state, tile, tiles, wireTips } from "../lib.js";
+import { invoke, el, elText, esc, displayName, num, dateTime, money, moneyHtml, shortDate, goal, state, tile, tiles, wireTips } from "../lib.js";
 import { counted, play } from "../motion.js";
+import { openAs } from "./paces.js";
 
 const when = (secs) => (secs ? dateTime(secs * 1000) : "–");
 
@@ -62,6 +63,12 @@ function holdings(row, view) {
   return parts;
 }
 
+function farmLine(f) {
+  if (!f.record) return `<span class="it-farm">${num(f.total)} looted</span>`;
+  const { character, best, from, to } = f.record;
+  return `<a class="it-farm" href="#sessions/${from}-${to}" data-as="${esc(character)}">${num(f.total)} looted · most ${num(best)} in a session</a>`;
+}
+
 function itemRow(r, view, scale) {
   const parts = holdings(r, view);
   const segs = parts
@@ -87,7 +94,7 @@ function itemRow(r, view, scale) {
   const worth = r.price
     ? `<span class="it-v">${moneyHtml(value)}</span><small data-tip="Last auction price|${esc(when(r.price.at))}">${moneyHtml(r.price.copper)} each</small><span class="it-vbar"><i style="--w:${Math.max(2, (value / scale.value) * 100).toFixed(1)}%"></i></span>`
     : "–";
-  return `<div class="it-row"><div class="it-name"><b>${esc(r.name || `Item ${r.id}`)}</b> <span class="dim">${r.id}</span></div>
+  return `<div class="it-row"><div class="it-name"><b>${esc(r.name || `Item ${r.id}`)}</b> <span class="dim">${r.id}</span>${r.farmed ? farmLine(r.farmed) : ""}</div>
     <div class="it-where"><div class="sc-stack" style="width:${width.toFixed(1)}%">${segs}</div><div class="it-who">${who}${more > 0 ? `<span class="dim">+${num(more)} more</span>` : ""}</div></div>
     <b class="it-total">${num(r.total)}</b>${scale.priced ? `<div class="it-value">${worth}</div>` : ""}</div>`;
 }
@@ -162,6 +169,18 @@ function age(at, now) {
   const left = Math.max(0, 1 - s / FADED_SECS) * 100;
   const text = s < 3600 ? `${Math.max(1, Math.round(s / 60))} min` : s < 86400 ? `${Math.round(s / 3600)} h` : `${Math.round(s / 86400)} d`;
   return { c: s < FRESH_SECS ? "fresh" : s < DAY_OLD_SECS ? "day" : "stale", text, left };
+}
+
+function wealth(view) {
+  const w = view.worth;
+  if (!w || !w.value) return null;
+  const p = el("div", "panel");
+  p.innerHTML = "<h3>Value held</h3>";
+  const best = w.record?.value ?? 0;
+  const note = best > w.value ? `Best ${money(best)} on ${shortDate(w.record.at * 1000)}` : "";
+  p.append(goal(w.value, Math.max(best, w.value), { label: "Bags, bank, mail and auctions", format: moneyHtml, doneText: "Best", note }));
+  p.append(elText("p", "dim", `${num(w.priced)} of ${num(w.priced + w.unpriced)} kinds of item have a price`));
+  return p;
 }
 
 function carriers(view) {
@@ -278,6 +297,10 @@ export async function render(body) {
   );
   const out = el("div");
   out.style.marginTop = "10px";
+  out.addEventListener("click", (e) => {
+    const a = e.target.closest?.("a.it-farm");
+    if (a) openAs(a.dataset.as)();
+  });
   search.append(bar, out);
   show();
   q.oninput = () => {
@@ -285,7 +308,8 @@ export async function render(body) {
     deb = setTimeout(runSearch, 150);
   };
   const banks = sharedBanks(first);
-  page.append(search, carriers(first), ...(banks ? [banks] : []));
+  const held = wealth(first);
+  page.append(...(held ? [held] : []), search, carriers(first), ...(banks ? [banks] : []));
   body.append(page);
   play(page);
 }
