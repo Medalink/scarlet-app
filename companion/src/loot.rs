@@ -156,6 +156,27 @@ impl LootBook {
         &self.master
     }
 
+    pub fn quality_of(&self, item: &str) -> Option<u8> {
+        self.quality.get(item).copied()
+    }
+
+    /// Times this book's character received `item`, under any loot rule.
+    pub fn received(&self, item: &str) -> u64 {
+        self.receipts
+            .iter()
+            .filter(|((who, _, id), _)| *who == self.me && id == item)
+            .map(|(_, (count, _))| count)
+            .sum()
+    }
+
+    pub fn kills_of(&self, npc: &str) -> u64 {
+        self.kills
+            .iter()
+            .filter(|((id, _), _)| id == npc)
+            .map(|(_, n)| n)
+            .sum()
+    }
+
     fn receipt(&mut self, who: &str, item: &str, qty: u64) {
         if item.is_empty() {
             return;

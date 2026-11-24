@@ -9,6 +9,7 @@ mod browse;
 mod classpage;
 mod commands;
 mod discover;
+mod farm;
 mod feats;
 mod feats_catalog;
 mod items;
@@ -108,6 +109,7 @@ fn main() {
             addons::addons,
             commands::overview,
             roster::roster,
+            farm::account_goals,
             commands::stats,
             run::run_summary,
             run::take_wow_run,

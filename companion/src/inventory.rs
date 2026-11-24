@@ -80,7 +80,7 @@ pub fn newest_per<K: Ord, T>(
     newest
 }
 
-fn items(list: &str) -> impl Iterator<Item = (i64, i64)> + '_ {
+pub fn items(list: &str) -> impl Iterator<Item = (i64, i64)> + '_ {
     list.split(',').filter_map(|part| {
         let (id, n) = part.split_once(':')?;
         Some((id.trim().parse().ok()?, n.trim().parse().ok()?))

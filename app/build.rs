@@ -6,6 +6,7 @@ fn main() {
             "overview",
             "goals",
             "roster",
+            "account_goals",
             "stats",
             "run_summary",
             "take_wow_run",

@@ -11,6 +11,8 @@ const MIN_PLAYED: i64 = 900;
 const MIN_PEERS: usize = 3;
 const BAND: u32 = 2;
 const EXALTED: i64 = 42_000;
+const EXALTED_TIER: u8 = 8;
+const RARE: u8 = 3;
 const BELOW_NEUTRAL: [(i64, i64); 3] = [(-42_000, -6_000), (-6_000, -3_000), (-3_000, 0)];
 const PROFESSIONS: [&str; 17] = [
     "Alchemy",
@@ -120,10 +122,10 @@ impl Row {
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Peak {
-    value: f64,
-    from: i64,
-    to: i64,
-    level: u32,
+    pub value: f64,
+    pub from: i64,
+    pub to: i64,
+    pub level: u32,
 }
 
 #[derive(Serialize)]
@@ -174,7 +176,7 @@ pub struct Skill {
     kind: &'static str,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 pub struct Rep {
     id: String,
     name: String,
@@ -215,11 +217,65 @@ pub struct Caps {
 }
 
 #[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FarmPace {
+    rate: f64,
+    count: i64,
+    from: i64,
+    to: i64,
+    played: i64,
+    peers: usize,
+    spread: Option<Spread>,
+    best: Option<Peak>,
+    is_best: bool,
+}
+
+#[derive(Serialize)]
+pub struct Farmed {
+    pub id: i64,
+    pub name: String,
+    pub quality: Option<u8>,
+    pub total: i64,
+    pub first: [i64; 2],
+    pub record: Option<Peak>,
+    pub pace: Option<FarmPace>,
+}
+
+struct ItemStat {
+    total: i64,
+    first: [i64; 2],
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapSummary {
+    skills_known: usize,
+    skills_maxed: usize,
+    rep: Option<Rep>,
+}
+
+#[derive(Serialize)]
 pub struct Latest {
     from: i64,
     to: i64,
     played: i64,
     paces: Vec<Pace>,
+}
+
+impl Latest {
+    pub fn to(&self) -> i64 {
+        self.to
+    }
+}
+
+impl Record {
+    pub fn key(&self) -> &str {
+        self.key
+    }
+
+    pub fn value(&self) -> f64 {
+        self.value
+    }
 }
 
 #[derive(Serialize)]
@@ -235,6 +291,9 @@ pub struct Goals {
     cap: u32,
     peak: Option<(i64, i64)>,
     caps: Caps,
+    items: HashMap<i64, ItemStat>,
+    names: HashMap<i64, String>,
+    quality: HashMap<i64, u8>,
 }
 
 fn field(f: &[String], i: usize) -> &str {
@@ -262,6 +321,7 @@ struct Reading {
     nodes: HashMap<String, (String, String, i64, i64)>,
     balance: Vec<(i64, String, Vec<String>)>,
     legacy: Option<(i64, i64, [i64; 3])>,
+    quality: HashMap<i64, u8>,
 }
 
 impl Reading {
@@ -275,6 +335,11 @@ impl Reading {
                 self.balance.push((ms, code.into(), fields.to_vec()));
             }
             "M" | "ST" => self.balance.push((ms, code.into(), fields.to_vec())),
+            "IQ" => {
+                if let Ok(q) = field(fields, 1).parse::<u8>() {
+                    self.quality.insert(number(fields, 0), q);
+                }
+            }
             "SL" => {
                 if let Some(n) = name('k', field(fields, 0)) {
                     self.skills
@@ -451,12 +516,135 @@ impl Goals {
             reps: reading.reps(f),
             legacy: reading.legacy(),
         };
+        let mut items: HashMap<i64, ItemStat> = HashMap::new();
+        for r in &rows {
+            for (id, n) in &r.a.looted {
+                items
+                    .entry(*id)
+                    .or_insert(ItemStat {
+                        total: 0,
+                        first: [r.from, r.to],
+                    })
+                    .total += n;
+            }
+        }
+        let names = items
+            .keys()
+            .filter_map(|id| {
+                let name = f.names.get(&name_key('i', &id.to_string()))?;
+                Some((*id, name.clone()))
+            })
+            .collect();
         Goals {
             cap: reading.cap,
             peak: reading.peak(),
             rows,
             caps,
+            items,
+            names,
+            quality: reading.quality,
         }
+    }
+
+    pub fn farmed_totals(&self) -> impl Iterator<Item = (i64, i64)> + '_ {
+        self.items.iter().map(|(id, s)| (*id, s.total))
+    }
+
+    pub fn rare_items(&self) -> impl Iterator<Item = i64> + '_ {
+        self.items
+            .keys()
+            .copied()
+            .filter(|id| self.quality.get(id).is_some_and(|q| *q >= RARE))
+    }
+
+    pub fn farmed(&self, id: i64) -> Option<Farmed> {
+        let stat = self.items.get(&id)?;
+        let count = |r: &Row| {
+            r.a.looted
+                .iter()
+                .find(|(i, _)| *i == id)
+                .map_or(0, |(_, n)| *n)
+        };
+        let runs: Vec<(&Row, i64)> = self
+            .rows
+            .iter()
+            .filter(|r| r.qualifies())
+            .map(|r| (r, count(r)))
+            .filter(|(_, n)| *n > 0)
+            .collect();
+        let record = runs
+            .iter()
+            .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.from.cmp(&a.0.from)))
+            .map(|(r, n)| peak((r, *n as f64)));
+        let pace = runs.last().map(|(row, n)| {
+            let peers: Vec<(&Row, f64)> = runs
+                .iter()
+                .filter(|(p, _)| !p.overlaps(row))
+                .map(|(p, k)| (*p, per_hour(*k, &p.a)))
+                .collect();
+            let now = per_hour(*n, &row.a);
+            let enough = peers.len() >= MIN_PEERS;
+            FarmPace {
+                rate: now,
+                count: *n,
+                from: row.from,
+                to: row.to,
+                played: row.a.played,
+                peers: peers.len(),
+                spread: enough.then(|| Spread::of(peers.iter().map(|p| p.1).collect(), now)),
+                best: peers
+                    .iter()
+                    .copied()
+                    .max_by(|a, b| a.1.total_cmp(&b.1).then_with(|| b.0.from.cmp(&a.0.from)))
+                    .map(peak),
+                is_best: enough && peers.iter().all(|p| now >= p.1),
+            }
+        });
+        Some(Farmed {
+            id,
+            name: self.names.get(&id).cloned().unwrap_or_default(),
+            quality: self.quality.get(&id).copied(),
+            total: stat.total,
+            first: stat.first,
+            record,
+            pace,
+        })
+    }
+
+    pub fn summary(&self) -> CapSummary {
+        let nearness = |r: &&Rep| {
+            (
+                r.tier,
+                (r.standing - r.from) as f64 / (r.to - r.from).max(1) as f64,
+            )
+        };
+        CapSummary {
+            skills_known: self.caps.skills.len(),
+            skills_maxed: self.caps.skills.iter().filter(|s| s.rank >= s.max).count(),
+            rep: self
+                .caps
+                .reps
+                .iter()
+                .filter(|r| r.tier < EXALTED_TIER)
+                .max_by(|a, b| {
+                    let (x, y) = (nearness(a), nearness(b));
+                    x.0.cmp(&y.0).then(x.1.total_cmp(&y.1))
+                })
+                .cloned(),
+        }
+    }
+
+    pub fn latest(&self) -> Option<Latest> {
+        self.rows
+            .iter()
+            .rev()
+            .find(|r| r.qualifies())
+            .map(|r| Latest {
+                from: r.from,
+                to: r.to,
+                played: r.a.played,
+                paces: self.paces(r, true),
+            })
     }
 
     /// The row cut from exactly this run, when the run is one the goals were built from.
@@ -548,7 +736,7 @@ impl Goals {
             .collect()
     }
 
-    fn records(&self) -> Vec<Record> {
+    pub fn records(&self) -> Vec<Record> {
         let top = |value: &dyn Fn(&Row) -> Option<f64>| self.top(value);
         let made = |key, (r, v): (&Row, f64)| Record {
             key,
@@ -596,17 +784,7 @@ impl Goals {
             cap: self.cap,
             caps: &self.caps,
             records: self.records(),
-            latest: self
-                .rows
-                .iter()
-                .rev()
-                .find(|r| r.qualifies())
-                .map(|r| Latest {
-                    from: r.from,
-                    to: r.to,
-                    played: r.a.played,
-                    paces: self.paces(r, true),
-                }),
+            latest: self.latest(),
         }
     }
 }

@@ -2,7 +2,8 @@
 //! `inventory.json` the companion writes beside each character's overview.
 
 use crate::commands::{blocking, state, with_store};
-use scarlet::inventory::{Inventory, newest_per};
+use crate::store::Store;
+use scarlet::inventory::{self, Inventory, newest_per};
 use scarlet::lifetime::{Lifetime, Price};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -44,6 +45,20 @@ pub struct SeenPrice {
 }
 
 #[derive(Serialize)]
+pub struct RowRecord {
+    character: String,
+    best: f64,
+    from: i64,
+    to: i64,
+}
+
+#[derive(Serialize)]
+pub struct RowFarm {
+    total: i64,
+    record: Option<RowRecord>,
+}
+
+#[derive(Serialize)]
 pub struct ItemRow {
     id: i64,
     name: String,
@@ -51,6 +66,21 @@ pub struct ItemRow {
     holders: Vec<Holder>,
     places: Vec<Place>,
     price: Option<SeenPrice>,
+    farmed: Option<RowFarm>,
+}
+
+#[derive(Serialize)]
+pub struct Worth {
+    value: i64,
+    priced: usize,
+    unpriced: usize,
+    record: Option<WorthRecord>,
+}
+
+#[derive(Serialize)]
+pub struct WorthRecord {
+    value: i64,
+    at: i64,
 }
 
 #[derive(Serialize)]
@@ -104,6 +134,7 @@ pub struct Items {
     matched: usize,
     recipes: Vec<RecipeRow>,
     recipes_matched: usize,
+    worth: Option<Worth>,
 }
 
 struct Shared<'a> {
@@ -172,14 +203,18 @@ pub async fn items(
                 (!inv.is_empty()).then_some((name, inv))
             })
             .collect();
-        search(
+        let mut view = search(
             loaded,
             &lives,
             &known,
             &accounts,
             &query,
             sort.unwrap_or_default(),
-        )
+        );
+        with_store(&app, |st| {
+            decorate(st, &mut view, ch.as_deref(), query.trim().is_empty())
+        });
+        view
     })
     .await
 }
@@ -356,6 +391,7 @@ fn search(
                         kind: p.kind,
                         at: p.at,
                     }),
+                    farmed: None,
                 },
             );
         }
@@ -463,5 +499,106 @@ fn search(
         matched,
         recipes,
         recipes_matched,
+        worth: None,
+    }
+}
+
+fn field(f: &[String], i: usize) -> &str {
+    f.get(i).map_or("", String::as_str)
+}
+
+fn carried_worth(st: &Store, chars: &[u32]) -> Worth {
+    let mut prices: HashMap<i64, (i64, i64)> = HashMap::new();
+    for price in st.lifetimes.iter().flat_map(|life| &life.prices) {
+        if prices.get(&price.item).is_none_or(|(_, at)| price.at > *at) {
+            prices.insert(price.item, (price.copper, price.at));
+        }
+    }
+    let worth = |id: i64, n: i64| prices.get(&id).map_or(0, |(c, _)| c.saturating_mul(n));
+    type Lists = [BTreeMap<i64, i64>; 4];
+    let mut state: HashMap<u32, (Lists, Option<usize>)> = chars
+        .iter()
+        .map(|c| (*c, (Lists::default(), None)))
+        .collect();
+    let mut total = 0i64;
+    let mut best: Option<WorthRecord> = None;
+    for r in &st.events {
+        let Some((lists, last)) = state.get_mut(&r.ch) else {
+            continue;
+        };
+        if r.code != "BC" {
+            if r.code != "IN" {
+                *last = None;
+            }
+            continue;
+        }
+        let Some(kind) = ["b", "k", "m", "a"]
+            .iter()
+            .position(|k| *k == field(&r.fields, 0))
+        else {
+            continue;
+        };
+        if *last != Some(kind) {
+            total -= lists[kind]
+                .iter()
+                .map(|(id, n)| worth(*id, *n))
+                .sum::<i64>();
+            lists[kind].clear();
+        }
+        *last = Some(kind);
+        for (id, n) in inventory::items(field(&r.fields, 1)) {
+            *lists[kind].entry(id).or_default() += n;
+            total = total.saturating_add(worth(id, n));
+        }
+        if kind == 0 && best.as_ref().is_none_or(|b| total > b.value) {
+            best = Some(WorthRecord {
+                value: total,
+                at: r.ms.div_euclid(1000),
+            });
+        }
+    }
+    let held: BTreeSet<i64> = state
+        .values()
+        .flat_map(|(lists, _)| lists.iter().flat_map(|l| l.keys().copied()))
+        .collect();
+    let priced = held.iter().filter(|id| prices.contains_key(id)).count();
+    Worth {
+        value: total,
+        priced,
+        unpriced: held.len() - priced,
+        record: best.filter(|b| b.value > 0),
+    }
+}
+
+fn decorate(st: &Store, view: &mut Items, ch: Option<&str>, with_worth: bool) {
+    let chars: Vec<u32> = match ch.and_then(|n| st.char_index(n)) {
+        Some(c) => vec![c],
+        None => (0..st.chars.len() as u32).collect(),
+    };
+    let all: Vec<(u32, std::sync::Arc<scarlet::goals::Goals>)> = chars
+        .iter()
+        .map(|c| (*c, crate::recap::goals(st, *c)))
+        .collect();
+    for row in &mut view.rows {
+        let mut total = 0;
+        let mut record: Option<RowRecord> = None;
+        for (c, g) in &all {
+            let Some(f) = g.farmed(row.id) else { continue };
+            total += f.total;
+            if let Some(r) = f.record
+                && record.as_ref().is_none_or(|b| r.value > b.best)
+            {
+                record = Some(RowRecord {
+                    character: st.chars[*c as usize].clone(),
+                    best: r.value,
+                    from: r.from,
+                    to: r.to,
+                });
+            }
+        }
+        row.farmed = (total > 0).then_some(RowFarm { total, record });
+    }
+    if with_worth {
+        view.worth = Some(carried_worth(st, &chars));
     }
 }

@@ -4,6 +4,7 @@
 //! own state.
 
 use crate::commands::{blocking, with_store};
+use crate::farm::{Farming, farming};
 use scarlet::loot::{LootBook, Rule};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -61,6 +62,22 @@ pub struct LootView {
     rules: Vec<RuleOut>,
     drops: Vec<DropOut>,
     attribution: Vec<AttrOut>,
+    items: Vec<ItemInfo>,
+    kills: Vec<NpcKills>,
+    farming: Farming,
+}
+
+#[derive(Serialize)]
+pub struct ItemInfo {
+    item: String,
+    quality: Option<u8>,
+    received: u64,
+}
+
+#[derive(Serialize)]
+pub struct NpcKills {
+    npc: String,
+    kills: u64,
 }
 
 #[tauri::command]
@@ -144,7 +161,7 @@ fn loot_sync(app: AppHandle, ch: Option<String>) -> LootView {
         rules.sort_by_key(|r| (r.method != "solo", r.clone()));
         let at = |r: &Rule| rules.iter().position(|x| x == r).unwrap_or(0);
 
-        let drops_out = drops
+        let drops_out: Vec<DropOut> = drops
             .into_iter()
             .map(|((_, _, rule), mut d)| {
                 d.rule = at(&rule);
@@ -158,10 +175,46 @@ fn loot_sync(app: AppHandle, ch: Option<String>) -> LootView {
                 a
             })
             .collect();
+        let mut received: BTreeMap<&str, u64> = BTreeMap::new();
+        let mut kills: BTreeMap<&str, u64> = BTreeMap::new();
+        for d in &drops_out {
+            received.entry(d.item.as_str()).or_default();
+            kills.entry(d.npc.as_str()).or_default();
+        }
+        for book in books.values() {
+            for (item, n) in &mut received {
+                *n += book.received(item);
+            }
+            for (npc, n) in &mut kills {
+                *n += book.kills_of(npc);
+            }
+        }
+        let items = received
+            .into_iter()
+            .map(|(item, received)| ItemInfo {
+                quality: books.values().find_map(|b| b.quality_of(item)),
+                item: item.to_string(),
+                received,
+            })
+            .collect();
+        let kills = kills
+            .into_iter()
+            .map(|(npc, kills)| NpcKills {
+                npc: npc.to_string(),
+                kills,
+            })
+            .collect();
+        let chars: Vec<u32> = match only {
+            Some(c) => vec![c],
+            None => (0..st.chars.len() as u32).collect(),
+        };
         LootView {
             rules: rules.iter().map(RuleOut::from).collect(),
             drops: drops_out,
             attribution,
+            items,
+            kills,
+            farming: farming(st, &chars),
         }
     })
 }

@@ -912,6 +912,7 @@ pub struct Activity {
     pub deaths: i64,
     /// The item looted most, its id and count.
     pub top_item: Option<(i64, i64)>,
+    pub looted: Vec<(i64, i64)>,
 }
 
 pub fn activity(f: &Facts, spans: &[(i64, i64)]) -> Activity {
@@ -934,6 +935,7 @@ pub fn activity(f: &Facts, spans: &[(i64, i64)]) -> Activity {
             .iter()
             .max_by_key(|(id, n)| (**n, std::cmp::Reverse(**id)))
             .map(|(id, n)| (*id, *n)),
+        looted: s.looted.iter().map(|(id, n)| (*id, *n)).collect(),
     }
 }
 

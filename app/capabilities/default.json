@@ -22,6 +22,7 @@
     "allow-sessions",
     "allow-session-cards",
     "allow-goals",
+    "allow-account-goals",
     "allow-session-list",
     "allow-map-list",
     "allow-map-data",

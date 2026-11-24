@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-account-goals"
+description = "Enables the account_goals command without any pre-configured scope."
+commands.allow = ["account_goals"]
+
+[[permission]]
+identifier = "deny-account-goals"
+description = "Denies the account_goals command without any pre-configured scope."
+commands.deny = ["account_goals"]
