@@ -5,6 +5,7 @@ import { el, elText, num, dur, displayName } from "./lib.js";
 import { GLYPHS, svg } from "./glyphs.js";
 import { drawCrest } from "./crests.js";
 import { BY_KEY } from "./feats-catalog.js";
+import { counted } from "./motion.js";
 
 const HALF_MILE_YD = 880;
 const YARDS_PER_MILE = 1760;
@@ -52,11 +53,16 @@ export function wireTips() {
   });
 }
 
-/** A stat tile: label, the number (HTML so a unit can sit in a `<small>`), one note line. */
-export function tile(label, value, note, { size = "", best = "", extra = null } = {}) {
+/**
+ * A stat tile: label, the number (HTML so a unit can sit in a `<small>`), one note line. `count` is `[n, format]`: the
+ * number counts up from 0 to `n` when the page plays, `format(n)` giving its HTML.
+ */
+export function tile(label, value, note, { size = "", best = "", extra = null, count = null } = {}) {
   const t = el("div", "sc-tile");
   t.append(elText("span", "sc-label", label));
-  t.append(el("span", `sc-num${size ? ` sc-num-${size}` : ""}`, value));
+  const number = el("span", `sc-num${size ? ` sc-num-${size}` : ""}`, value);
+  if (count) counted(number, ...count);
+  t.append(number);
   if (note) t.append(elText("span", "sc-sub", note));
   if (extra) t.append(extra);
   if (best) t.append(elText("span", "best", best));
@@ -145,14 +151,15 @@ export function stack(rows, { key = true, h = 12 } = {}) {
 export function bars(rows) {
   const host = el("div", "sc-bars");
   const max = Math.max(...rows.map((r) => r[1]), 1);
-  for (const [label, value, text, c] of rows) {
+  rows.forEach(([label, value, text, c], n) => {
     const row = el("div", "row");
     const i = el("i");
     i.style.setProperty("--w", `${(value / max) * 100}%`);
+    i.style.setProperty("--n", String(n));
     if (c) i.style.setProperty("--c", `var(${c})`);
     row.append(elText("span", "", label), elText("b", "", text ?? num(value)), i);
     host.append(row);
-  }
+  });
   return host;
 }
 
@@ -202,9 +209,9 @@ export function strip(r, { compact = false } = {}) {
   r.zones.forEach((z, i) => {
     const x0 = x(z.at);
     const wd = x(z.at + z.secs) - x0;
-    root.append(svg("rect", { x: x0 + (i ? 1 : 0), y: 0, width: Math.max(1, wd - (i ? 1 : 0)), height: zh, fill: i % 2 ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.12)" }));
+    root.append(svg("rect", { class: "st-zone", x: x0 + (i ? 1 : 0), y: 0, width: Math.max(1, wd - (i ? 1 : 0)), height: zh, fill: i % 2 ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.12)" }));
     if (wd > z.name.length * 6.4 + 12) {
-      const t = svg("text", { x: x0 + 7, y: zh / 2 + 4, class: "strong" });
+      const t = svg("text", { x: x0 + 7, y: zh / 2 + 4, class: "strong st-late" });
       t.textContent = z.name;
       root.append(t);
     }
@@ -213,18 +220,18 @@ export function strip(r, { compact = false } = {}) {
   const bw = x(secs);
   xp.forEach((v, i) => {
     const h = Math.max(1, (v / max) * ph);
-    root.append(svg("rect", { x: x(i * secs) + 1, y: py + ph - h, width: Math.max(1, bw - 2), height: h, fill: v === max ? "#ff2d55" : "rgba(255,45,85,0.62)" }));
+    root.append(svg("rect", { class: "st-xp", style: `--i:${i}`, x: x(i * secs) + 1, y: py + ph - h, width: Math.max(1, bw - 2), height: h, fill: v === max ? "#ff2d55" : "rgba(255,45,85,0.62)" }));
   });
   root.append(svg("rect", { x: 0, y: py + ph, width: W, height: 1, fill: "rgba(255,255,255,0.13)" }));
   r.buckets.combat.forEach((c, i) => {
-    if (c > 0) root.append(svg("rect", { x: x(i * secs), y: cy, width: Math.max(1.5, bw * Math.min(1, c / secs)), height: 3, fill: "#c0102e" }));
+    if (c > 0) root.append(svg("rect", { class: "st-combat", style: `--i:${i}`, x: x(i * secs), y: cy, width: Math.max(1.5, bw * Math.min(1, c / secs)), height: 3, fill: "#c0102e" }));
   });
   for (const lv of r.levels) {
     const ex = x(lv.at);
-    root.append(svg("rect", { x: ex - 0.5, y: 0, width: 1, height: ey + 4, fill: "rgba(240,241,243,0.45)" }));
-    root.append(svg("rect", { x: ex - 5, y: ey + 3, width: 10, height: 10, fill: "#f0f1f3", transform: `rotate(45 ${ex} ${ey + 8})` }));
+    root.append(svg("rect", { class: "st-late", x: ex - 0.5, y: 0, width: 1, height: ey + 4, fill: "rgba(240,241,243,0.45)" }));
+    root.append(svg("rect", { class: "st-late", x: ex - 5, y: ey + 3, width: 10, height: 10, fill: "#f0f1f3", transform: `rotate(45 ${ex} ${ey + 8})` }));
     if (!compact) {
-      const t = svg("text", { x: ex + 11, y: ey + 12, class: "strong" });
+      const t = svg("text", { x: ex + 11, y: ey + 12, class: "strong st-late" });
       t.textContent = String(lv.level);
       root.append(t);
     }
@@ -232,7 +239,7 @@ export function strip(r, { compact = false } = {}) {
   for (const m of r.moments) {
     const ex = x(m.at);
     if (m.kind === "death") {
-      const g = svg("g", { transform: `translate(${ex - 7} ${ey + 1}) scale(0.6)`, fill: "none", stroke: "#f0f1f3", "stroke-width": 2.2, "stroke-linecap": "round", "stroke-linejoin": "round" });
+      const g = svg("g", { class: "st-late", transform: `translate(${ex - 7} ${ey + 1}) scale(0.6)`, fill: "none", stroke: "#f0f1f3", "stroke-width": 2.2, "stroke-linecap": "round", "stroke-linejoin": "round" });
       g.innerHTML = GLYPHS.deaths;
       root.append(g);
     } else if (m.kind === "feat") {
@@ -243,9 +250,10 @@ export function strip(r, { compact = false } = {}) {
       const mark = host.firstChild;
       mark.setAttribute("x", String(ex - 9));
       mark.setAttribute("y", String(ey - 1));
+      mark.classList.add("st-late");
       root.append(mark);
     } else {
-      root.append(svg("rect", { x: ex - 1.5, y: ey + 6.5, width: 3, height: 3, fill: "#8a8a93" }));
+      root.append(svg("rect", { class: "st-late", x: ex - 1.5, y: ey + 6.5, width: 3, height: 3, fill: "#8a8a93" }));
     }
   }
   if (!compact) {
@@ -282,13 +290,15 @@ export function strip(r, { compact = false } = {}) {
   return root;
 }
 
+let routes = 0;
+
 /**
  * The recorded path on a hairline grid: scarlet, newest brightest, flights dashed violet, a start ring, an end diamond
- * and a diamond at each level. `route.sheet` is the shape the addon reads: x, y pairs with the long side at 1000 and y
- * up, `aspect` (width over height), `breaks` (the 1-based point where each leg after the first starts) and `air` (true
- * at a point reached by a flight).
+ * and a diamond at each level. With `reveal` the path draws itself start to end when the page plays. `route.sheet` is
+ * the shape the addon reads: x, y pairs with the long side at 1000 and y up, `aspect` (width over height), `breaks`
+ * (the 1-based point where each leg after the first starts) and `air` (true at a point reached by a flight).
  */
-export function routeCard(route, { levels = [], height = 356 } = {}) {
+export function routeCard(route, { levels = [], height = 356, reveal = false } = {}) {
   const W = 640;
   const H = height;
   const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, width: "100%", class: "sc-svg", preserveAspectRatio: "xMidYMid slice" });
@@ -321,12 +331,20 @@ export function routeCard(route, { levels = [], height = 356 } = {}) {
     }
   }
   const step = Math.max(2, Math.ceil(pts.length / 6));
+  const line = svg("g", { class: "rt-line" });
+  if (reveal) {
+    const id = `rt-reveal-${++routes}`;
+    const path = svg("path", { class: "rt-reveal", d: `M${pts.map((p) => p.map((n) => n.toFixed(1)).join(" ")).join(" L")}`, pathLength: 1, fill: "none", stroke: "#fff", "stroke-width": 16, "stroke-linecap": "round", "stroke-linejoin": "round" });
+    root.append(svg("defs", {}, svg("mask", { id, maskUnits: "userSpaceOnUse", x: 0, y: 0, width: W, height: H }, path)));
+    line.setAttribute("mask", `url(#${id})`);
+  }
+  root.append(line);
   for (const run of runs) {
     const size = run.flown ? run.pts.length : step;
     for (let at = 0; at < run.pts.length - 1; at += size - 1) {
       const seg = run.pts.slice(at, at + size);
       const age = (run.end - run.pts.length + 1 + at + seg.length - 1) / Math.max(1, pts.length - 1);
-      root.append(
+      line.append(
         svg("polyline", {
           points: seg.map((p) => p.map((n) => n.toFixed(1)).join(",")).join(" "), fill: "none",
           stroke: run.flown ? "#9a7df2" : "#ff2d55", "stroke-width": run.flown ? 1.6 : 2, "stroke-dasharray": run.flown ? "5 5" : null,
@@ -340,9 +358,9 @@ export function routeCard(route, { levels = [], height = 356 } = {}) {
   root.append(svg("circle", { cx: first[0], cy: first[1], r: 4.5, fill: "#141416", stroke: "#f0f1f3", "stroke-width": 1.8 }));
   for (const lv of levels) {
     const p = pts[Math.min(pts.length - 1, Math.round(lv.frac * (pts.length - 1)))];
-    root.append(svg("rect", { x: p[0] - 4.5, y: p[1] - 4.5, width: 9, height: 9, fill: "#f0f1f3", stroke: "#141416", "stroke-width": 1.5, transform: `rotate(45 ${p[0]} ${p[1]})` }));
+    root.append(svg("rect", { class: "rt-level", style: `--at:${lv.frac.toFixed(3)}`, x: p[0] - 4.5, y: p[1] - 4.5, width: 9, height: 9, fill: "#f0f1f3", stroke: "#141416", "stroke-width": 1.5, transform: `rotate(45 ${p[0]} ${p[1]})` }));
   }
-  root.append(svg("rect", { x: last[0] - 5.5, y: last[1] - 5.5, width: 11, height: 11, fill: "#ff2d55", stroke: "#141416", "stroke-width": 2, transform: `rotate(45 ${last[0]} ${last[1]})` }));
+  root.append(svg("rect", { class: "rt-end", x: last[0] - 5.5, y: last[1] - 5.5, width: 11, height: 11, fill: "#ff2d55", stroke: "#141416", "stroke-width": 2, transform: `rotate(45 ${last[0]} ${last[1]})` }));
   return root;
 }
 
