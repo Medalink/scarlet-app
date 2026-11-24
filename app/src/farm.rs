@@ -62,19 +62,20 @@ fn scope(st: &Store, only: Option<u32>) -> Vec<u32> {
     }
 }
 
-/// The items looted most over `chars`, each drawn from the character who looted most of it, and the rare items by
-/// when they were first looted.
+/// The items looted most while farming them, each drawn from the character who looted most of it in the runs that
+/// farmed it, with that character's own total, and the rare items by when they were first looted.
 pub fn farming(st: &Store, chars: &[u32]) -> Farming {
     let all: Vec<(u32, std::sync::Arc<scarlet::goals::Goals>)> =
         chars.iter().map(|c| (*c, goals(st, *c))).collect();
-    let mut total: HashMap<i64, (i64, u32, i64)> = HashMap::new();
+    let mut chosen: HashMap<i64, (u32, i64, i64)> = HashMap::new();
     for (c, g) in &all {
-        for (id, n) in g.farmed_totals() {
-            let e = total.entry(id).or_insert((0, *c, 0));
-            e.0 += n;
-            if n > e.2 {
-                e.1 = *c;
-                e.2 = n;
+        for (id, total) in g.farmed_totals() {
+            let Some(count) = g.farming_count(id) else {
+                continue;
+            };
+            let e = chosen.entry(id).or_insert((*c, count, total));
+            if (count, total) > (e.1, e.2) {
+                *e = (*c, count, total);
             }
         }
     }
@@ -83,17 +84,16 @@ pub fn farming(st: &Store, chars: &[u32]) -> Farming {
         character: st.chars[c as usize].clone(),
         item,
     };
-    let mut ranked: Vec<(i64, (i64, u32, i64))> = total.into_iter().collect();
-    ranked.sort_by(|a, b| b.1.0.cmp(&a.1.0).then(a.0.cmp(&b.0)));
+    let mut ranked: Vec<(i64, (u32, i64, i64))> = chosen.into_iter().collect();
+    ranked.sort_by(|a, b| b.1.2.cmp(&a.1.2).then(a.0.cmp(&b.0)));
     let mut farmed = Vec::new();
-    for (id, (sum, c, _)) in ranked.iter().take(FARMED_LOOKED_AT) {
-        let Some(mut item) = by(*c).and_then(|g| g.farmed(*id)) else {
+    for (id, (c, _, _)) in ranked.iter().take(FARMED_LOOKED_AT) {
+        let Some(item) = by(*c).and_then(|g| g.farmed(*id)) else {
             continue;
         };
         if item.pace.is_none() || item.name.is_empty() {
             continue;
         }
-        item.total = *sum;
         farmed.push(named(*c, item));
         if farmed.len() == FARMED_SHOWN {
             break;
