@@ -51,11 +51,11 @@ function runsIn(sessions, character) {
 function subline(recap, run, nav) {
   const line = el("p", "recap-sub");
   line.append(elText("b", "", displayName(recap.character)));
-  if (nav.mode === "day") {
+  if (nav.exact && nav.mode === "day") {
     const n = runsIn(run.sessions, recap.character);
     line.append(` · ${n} ${n === 1 ? "session" : "sessions"} · ${dur(recap.played)} played`);
   } else {
-    line.append(` · ${dayOf(recap.start)} · ${clockOf(recap.start)} to ${nav.current?.live ? "now" : clockOf(recap.end)} · ${dur(recap.played)} played`);
+    line.append(` · ${dayOf(recap.start)} · ${clockOf(recap.start)} to ${nav.exact && nav.current?.live ? "now" : clockOf(recap.end)} · ${dur(recap.played)} played`);
   }
   return line;
 }
@@ -81,7 +81,7 @@ function picker(nav, from) {
 function head(recap, run, nav, onAll, onWeb) {
   const box = el("div", "recap-head");
   const text = el("div");
-  text.append(elText("h1", "sc-title", nav.mode === "day" ? dayOf(recap.start) : recap.title.text), subline(recap, run, nav));
+  text.append(elText("h1", "sc-title", nav.exact && nav.mode === "day" ? dayOf(recap.start) : recap.title.text), subline(recap, run, nav));
   const actions = el("div", "recap-actions");
   const from = nav.current?.from ?? run.from;
   const older = nav.cards.find((c) => c.from < from);

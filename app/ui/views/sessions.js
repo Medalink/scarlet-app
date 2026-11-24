@@ -126,7 +126,7 @@ async function renderRun(body, sub) {
     body.appendChild(el("div", "empty", exact?.live ? "Nothing recorded yet." : "Nothing was recorded while WoW ran."));
     return;
   }
-  await renderRecaps(body, run, { cards: current ? cards : [], current, mode: prefs.mode });
+  await renderRecaps(body, run, { cards: current ? cards : [], current, mode: prefs.mode, exact: Boolean(exact) });
   const row = await linkPrompt("recap");
   if (row && body.isConnected) body.append(row);
 }
