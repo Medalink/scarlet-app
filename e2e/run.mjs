@@ -34,20 +34,20 @@ const VIEWS = [
     shows: /^(?=.*Testa Fixture Level 6 Human Warrior Alliance in Westfall)(?=.*Whole life Quests completed 1,234 .* Titles known 3 .* Zone maps explored 3 .* Instance locks Blackfathom Deeps normal 1\/4 .* Lord Kazzak World boss)(?!.*Gnomeregan)/,
     never: /No characters recorded yet/,
   },
-  { key: "characters", shows: /^(?=.*Level target)(?=.*Testa Fixture)(?=.*Probe Lane)/, never: /No characters recorded yet/ },
+  { key: "characters", shows: /^(?=.*Last session)(?=.*Testa Fixture)(?=.*Probe Lane)/, never: /No characters recorded yet/ },
   { key: "feats", shows: FEATS_LOCAL, never: /No feats counted|Could not|refused|Copper|Silver|Legend\b|Poor/ },
   { key: "stats", shows: /^(?=.*1,605 Experience .* 2 Kills)(?=.*Travel and time)(?=.*Experience over time)(?=.*Top spells cast Heroic Strike 1)(?=.*Moving and standing)(?=.*Zones by time)/, never: /No recorded time yet/ },
   { key: "activity", shows: /Peak: [1-9]\d* events in an hour/, never: /Peak: 0 events|No events yet/ },
   { key: "log", shows: /kill Stonetusk Boar \(113\) by you/, never: /No events|Nothing recorded/ },
   { key: "sessions", shows: /^(?=.*2m in Westfall)(?=.*Level 5 to 6 in Elwynn Forest)(?=.*2m 10s · 2 kills · 1 quest · 1,605 XP)/, never: /No sessions yet\./ },
   { key: "map", shows: /Elwynn Forest 12 points Westfall 10 points/, never: /No path points yet/ },
-  { key: "loot", shows: /^(?=.*Drop rates .* Stonetusk Boar 1 corpse Linen Cloth 100% 1\/1 Chunk of Boar Meat 100% 1\/1)(?=.*Items received and rolls Common 3 Uncommon 1 Rare 1 Won 1 Fixture Stranger Solo 2 Testa Fixture Solo 3 1)/, never: /No creature loot with an item list|No loot recorded yet/ },
+  { key: "loot", shows: /^(?=.*Drop rates .* Stonetusk Boar 1 corpse Chunk of Boar Meat 100% 1\/1 Linen Cloth 100% 1\/1)(?=.*Items received and rolls Common 3 Uncommon 1 Rare 1 Won 1 Testa Fixture Solo 3 1 Group members \(1\) 1 player 2)/, never: /No creature loot with an item list|No loot recorded yet/ },
   { key: "character", hash: "character/class", shows: /Spells cast most Heroic Strike 1/, never: /Select a character|Loading the class section/ },
   { key: "character", hash: "character/talents", shows: /Arms · 3 points, 2 available .* Improved Heroic Strike 2\/3 Deflection 2\/2 .* Picked 1→2\/3/, never: /No talent lines recorded|Select a character/ },
   { key: "legacy", shows: /Progression Gourmand · rank 1 of 3 .* Well Fed duration .* 0 1 15\.0 min — — .* 1 1 20\.0 min \+33% 33% /, never: /No Legacy lines recorded|Select a character/ },
   {
     key: "items",
-    shows: /^(?=.*Linen Cloth 2589 Testa Fixture 3 Warband bank \(E2EONE\) 20 Warband bank \(E2ETWO\) 5 28 1s ?50c 42s ?00c Wool Cloth 2592 Guild bank 7 7 – –)(?=.*Recipes 2× Linen Cloth 1× Bolt of Linen Cloth Testa Fixture)(?=.*Warband and guild banks Warband bank \(E2EONE\) 1 ?item Last read \d{4}-\d\d-\d\d \d\d:\d\d by Testa Fixture Balance 12g ?34s Warband bank \(E2ETWO\) 1 ?item Last read .* by Probe Lane Balance 5g ?00s Guild bank 1 ?item Last read .* by Probe Lane Balance 98g ?76s)(?!.*1s ?25c)/,
+    shows: /^(?=.*Linen Cloth 2589 Testa Fixture 3 Warband bank \(E2EONE\) 20 Warband bank \(E2ETWO\) 5 28 42s ?00c 1s ?50c each Wool Cloth 2592 Guild bank 7 7 –)(?=.*Recipes 2× Linen Cloth 1× Bolt of Linen Cloth Testa Fixture)(?=.*Warband and guild banks Warband bank \(E2EONE\) 1 ?item Last read \d{4}-\d\d-\d\d \d\d:\d\d by Testa Fixture Balance 12g ?34s Warband bank \(E2ETWO\) 1 ?item Last read .* by Probe Lane Balance 5g ?00s Guild bank 1 ?item Last read .* by Probe Lane Balance 98g ?76s)(?!.*1s ?25c)/,
     never: /No bags or bank recorded yet|No items match|Guild bank \(|account unknown/,
   },
   {
@@ -171,8 +171,7 @@ const appState = (app) => app.evaluate(`(async () => (await import("/bridge.js")
 
 const headEvents = (app) => app.evaluate(`Number(/([\\d,]+) events/.exec(document.querySelector("#head-stats").textContent)?.[1].replace(/,/g, "") ?? NaN)`);
 
-async function startApp(ctx) {
-  const s = ctx.site.app;
+function prepareSite(ctx, s) {
   fs.mkdirSync(s.home, { recursive: true });
   writeWow(s.wow);
   const exported = exportSite(ctx, s);
@@ -189,9 +188,42 @@ async function startApp(ctx) {
       upload: { enabled: false, server: ctx.website.url },
     }),
   );
+}
+
+const booted = (app) => app.until(`document.querySelectorAll("#nav .item").length > 0 && document.querySelector("#pagetitle").textContent !== ""`, "the page booted", 10000);
+
+async function startApp(ctx) {
+  prepareSite(ctx, ctx.site.app);
   ctx.footprint = footprint();
-  ctx.app = await launch({ exe: ctx.exe, home: s.home, reducedMotion: true });
-  await ctx.app.until(`document.querySelectorAll("#nav .item").length > 0 && document.querySelector("#pagetitle").textContent !== ""`, "the page booted", 10000);
+  ctx.app = await launch({ exe: ctx.exe, home: ctx.site.app.home, reducedMotion: true });
+  await booted(ctx.app);
+}
+
+const ENTRANCE_PAGES = [
+  ["characters", "characters", /Last session/],
+  ["sessions", null, /\d[smhd] played/],
+];
+
+async function entrancePages(ctx, reducedMotion) {
+  const app = await launch({ exe: ctx.exe, home: ctx.site.motion.home, reducedMotion });
+  const pages = {};
+  let sawPlay = false;
+  try {
+    await booted(app);
+    const first = await app.evaluate(`(async () => (await (await import("/bridge.js")).invoke("session_list", { ch: null })).sessions[0])()`);
+    await app.evaluate(`window.__sawPlay = false; new MutationObserver(() => { if (document.querySelector("#body.play, #body .play")) window.__sawPlay = true; }).observe(document.body, { subtree: true, attributes: true, attributeFilter: ["class"] })`);
+    for (const [key, hash, shows] of ENTRANCE_PAGES) {
+      await app.evaluate(`window.__sawPlay = false`);
+      await open(app, key, shows, null, hash ?? `sessions/${first.from}-${first.to}`);
+      if (!reducedMotion) await app.until(`window.__sawPlay`, `${key} starts its entrance`, 1500).catch(() => null);
+      await app.until(`!document.querySelector("#body.play, #body .play")`, `${key} finishes its entrance`, 6000);
+      pages[key] = await app.evaluate(BODY);
+      sawPlay ||= await app.evaluate(`window.__sawPlay`);
+    }
+  } finally {
+    if ((await app.close()) === 3) ctx.breach = true;
+  }
+  return { pages, sawPlay };
 }
 
 const CHECKS = [
@@ -531,13 +563,27 @@ const CHECKS = [
   },
   {
     lane: "app",
+    name: "with motion on, the entrance ends on the numbers reduced motion shows",
+    async run(ctx) {
+      prepareSite(ctx, ctx.site.motion);
+      const moving = await entrancePages(ctx, false);
+      const still = await entrancePages(ctx, true);
+      expectEqual("the entrance ran with motion on", moving.sawPlay, true);
+      expectEqual("the entrance never ran under reduced motion", still.sawPlay, false);
+      for (const [key] of ENTRANCE_PAGES) {
+        if (moving.pages[key] !== still.pages[key]) throw mismatch(`${key} after its entrance`, excerpt(still.pages[key]), excerpt(moving.pages[key]));
+      }
+    },
+  },
+  {
+    lane: "app",
     name: "the character filter works",
     async run(ctx) {
       const app = running(ctx);
       await selectCharacter(app, "");
-      await open(app, "characters", new RegExp(`^(?=.*Level target)(?=.*${SHOWN.testa})(?=.*${SHOWN.probe})`));
+      await open(app, "characters", new RegExp(`^(?=.*Last session)(?=.*${SHOWN.testa})(?=.*${SHOWN.probe})`));
       await selectCharacter(app, PROBE);
-      await open(app, "character", /Probe Lane Level 3 Gnome Mage/, new RegExp(`Level target|Whole life|${SHOWN.testa}`));
+      await open(app, "character", /Probe Lane Level 3 Gnome Mage/, new RegExp(`Totals|Whole life|${SHOWN.testa}`));
     },
   },
   {
@@ -588,7 +634,7 @@ const CHECKS = [
         await open(
           app,
           "items",
-          /Linen Cloth 2589 Testa Fixture 3 Warband bank \(account unknown, Probe Lane\) 5 Warband bank \(account unknown, Testa Fixture\) 20 28 1s ?50c .* Guild bank 1 ?item Last read .* by Probe Lane/,
+          /Linen Cloth 2589 Testa Fixture 3 Warband bank \(account unknown, Probe Lane\) 5 Warband bank \(account unknown, Testa Fixture\) 20 28 42s ?00c 1s ?50c each .* Guild bank 1 ?item Last read .* by Probe Lane/,
           /Warband bank \(E2E|Guild bank \(/,
         );
       } finally {
@@ -771,7 +817,7 @@ async function main() {
   const dir = given.keep ? path.resolve(given.keep) : fs.mkdtempSync(path.join(os.tmpdir(), "scarlet-lane-"));
   fs.mkdirSync(dir, { recursive: true });
   const website = await listenWebsite();
-  const ctx = { dir, cli, exe, website, keep: Boolean(given.keep), app: null, site: { cli: site(path.join(dir, "cli")), app: site(path.join(dir, "app")) } };
+  const ctx = { dir, cli, exe, website, keep: Boolean(given.keep), app: null, site: { cli: site(path.join(dir, "cli")), app: site(path.join(dir, "app")), motion: site(path.join(dir, "motion")) } };
   writeWow(ctx.site.cli.wow);
 
   let result = { failed: 1, seconds: 0 };
