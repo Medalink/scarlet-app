@@ -323,7 +323,24 @@ pub fn export_new_all(wows: &[PathBuf], out: &Path) -> Result<bool, Box<dyn Erro
         );
     }
 
-    let touched: Vec<String> = runs.keys().cloned().collect();
+    let mut touched: Vec<String> = runs.keys().cloned().collect();
+    if overview_rev_differs(out) {
+        for name in own.iter().filter(|n| !runs.contains_key(*n)) {
+            let dir = out.join(name);
+            if !dir.join("payloads").is_dir() {
+                continue;
+            }
+            match load_events(&dir, name) {
+                Ok(evs) => {
+                    if let Err(e) = tables::write_char_tables(&evs, name, &dir.join("tables")) {
+                        eprintln!("scarlet: {name}: tables: {e}");
+                    }
+                }
+                Err(e) => eprintln!("scarlet: {name}: tables: {e}"),
+            }
+            touched.push(name.clone());
+        }
+    }
     refresh_imports(wows, out, &mut state, &touched, &own);
     let fishing_wrote = refresh_fishing(wows, out, &mut state);
     let counts_wrote = refresh_counts(wows, out, &mut state);
@@ -401,11 +418,15 @@ fn roster(out: &Path) -> Vec<String> {
     names
 }
 
-const OVERVIEW_REV: &str = "9";
+const OVERVIEW_REV: &str = "10";
+
+fn overview_rev_differs(out: &Path) -> bool {
+    fs::read_to_string(out.join("overview.rev")).map_or(true, |t| t.trim() != OVERVIEW_REV)
+}
 
 fn overview_rev_stale(out: &Path) -> bool {
     let file = out.join("overview.rev");
-    let stale = fs::read_to_string(&file).map_or(true, |t| t.trim() != OVERVIEW_REV);
+    let stale = overview_rev_differs(out);
     if stale && let Err(e) = fs::write(&file, OVERVIEW_REV) {
         eprintln!("scarlet: {}: {e}", file.display());
     }
