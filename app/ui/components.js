@@ -69,6 +69,13 @@ export function tile(label, value, note, { size = "", best = "", extra = null, c
   return t;
 }
 
+/** Tiles on one hairline grid; a tile is never a separate card. A last row that falls short is filled by the last tile. */
+export function fillRow(list, cols) {
+  const loose = cols ? list.length % cols : 0;
+  if (loose) list[list.length - 1].style.gridColumn = `span ${cols - loose + 1}`;
+  return list;
+}
+
 /** Tiles on one hairline grid; a tile is never a separate card. */
 export function tiles(list, cols = 4) {
   const g = el("div", "sc-grid");

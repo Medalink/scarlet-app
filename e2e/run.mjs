@@ -464,8 +464,8 @@ const CHECKS = [
       const app = running(ctx);
       await selectCharacter(app, "");
       await open(app, "loot", /Drop rates/);
-      const drawn = await app.evaluate(`[...document.querySelectorAll("#body .lt-chase .sc-goal")].map((g) => g.innerText.replace(/\\s+/g, " ").trim())`);
-      if (!drawn.some((g) => /Wool Cloth/.test(g) && /0 \/ 1/.test(g))) throw mismatch("a goal for Wool Cloth dropped and not received", "Wool Cloth 0 / 1", JSON.stringify(drawn));
+      const drawn = await app.evaluate(`[...document.querySelectorAll("#body .lt-chase .lt-miss")].map((g) => g.innerText.replace(/\\s+/g, " ").trim())`);
+      if (!drawn.some((g) => /Wool Cloth/.test(g) && /dropped 1/.test(g))) throw mismatch("a row for Wool Cloth dropped and not received", "Wool Cloth dropped 1", JSON.stringify(drawn));
     },
   },
   {

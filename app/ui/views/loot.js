@@ -1,7 +1,7 @@
 // Loot: what each player received as a quality-coloured bar per loot rule, with their rolls, and drop rates per
 // creature as chance bars.
 
-import { invoke, el, elText, state, esc, displayName, num, dur, stack, tiles, pace, goal, record, shortDate, wireTips } from "../lib.js";
+import { invoke, el, elText, state, esc, displayName, num, dur, stack, tiles, fillRow, pace, shortDate, wireTips } from "../lib.js";
 import { counted, play } from "../motion.js";
 import { openAs } from "./paces.js";
 
@@ -120,6 +120,12 @@ function creatureCard(c, view) {
   return `<section class="lt-creature"><div class="lt-head"><h4>${esc(c.name)}</h4><span>${num(c.corpses)} ${c.corpses === 1 ? "corpse" : "corpses"}</span></div><div class="sc-bars">${rows}</div>${c.chase.length ? `<div class="lt-chase" data-npc="${esc(c.npc)}"></div>` : ""}${more > 0 ? `<p class="dim">${num(more)} more ${more === 1 ? "item" : "items"}</p>` : ""}</section>`;
 }
 
+function chaseRow(x) {
+  const row = el("div", "lt-miss");
+  row.append(elText("span", "lt-miss-name", x.name), elText("span", "", `dropped ${num(x.drops)}`), elText("span", "lt-miss-odds", `${num(x.kills)} ${x.kills === 1 ? "kill" : "kills"} · about 1 in ${num(x.expected)}`));
+  return row;
+}
+
 function dropRates(view) {
   const p = panel("Drop rates");
   const list = creatures(view);
@@ -142,7 +148,7 @@ function dropRates(view) {
     grid.innerHTML = shown.map((c) => creatureCard(c, view)).join("");
     for (const slot of grid.querySelectorAll(".lt-chase")) {
       const c = shown.find((x) => x.npc === slot.dataset.npc);
-      slot.append(elText("p", "sc-label", "Dropped, not received"), ...c.chase.map((x) => goal(0, x.drops, { label: x.name, note: `${num(x.kills)} ${x.kills === 1 ? "kill" : "kills"} · about 1 in ${num(x.expected)}`, count: false })));
+      slot.append(elText("p", "sc-label", "Dropped, not received"), ...c.chase.map(chaseRow));
     }
     note.textContent = shown.length < hit.length && (f || expanded) ? `Showing ${CREATURE_LIMIT} of ${num(hit.length)}.` : "";
     all.hidden = Boolean(f) || expanded || hit.length <= CREATURE_TOP;
@@ -173,7 +179,14 @@ function farmTile(f) {
 }
 
 function firstTile(f) {
-  return record(f.name, shortDate(f.first[0]), "First looted", `#sessions/${f.first[0]}-${f.first[1]}`, { note: state.ch ? "" : displayName(f.character), onOpen: openAs(f.character) });
+  const a = el("a", "sc-tile sc-record sc-first");
+  a.href = `#sessions/${f.first[0]}-${f.first[1]}`;
+  a.onclick = openAs(f.character);
+  const name = elText("span", "sc-first-name", f.name);
+  if (QUALITY[f.quality]) name.style.color = `var(--q-${QUALITY[f.quality]})`;
+  a.append(name, elText("span", "sc-sub", `First looted ${shortDate(f.first[0])}`));
+  if (!state.ch) a.append(elText("span", "sc-sub", displayName(f.character)));
+  return a;
 }
 
 function farming(view) {
@@ -184,7 +197,7 @@ function farming(view) {
     p.append(elText("p", "sc-label", "Most looted, items an hour"), tiles(farmed.map(farmTile), Math.min(FARMED_COLUMNS, farmed.length)));
   }
   if (firsts.length) {
-    p.append(elText("p", "sc-label", "First rare drops"), tiles(firsts.map(firstTile), Math.min(FARMED_COLUMNS, firsts.length)));
+    p.append(elText("p", "sc-label", "First rare drops"), tiles(fillRow(firsts.map(firstTile), Math.min(FARMED_COLUMNS, firsts.length)), Math.min(FARMED_COLUMNS, firsts.length)));
   }
   return p;
 }

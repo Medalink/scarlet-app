@@ -1,7 +1,7 @@
 // The Character page's goals: how far the level, skills, reputations and Legacy are from their ceilings, the pace of
 // the latest run at the cap, and the character's records. Drawn from the `goals` command.
 
-import { el, elText, num, dur, moneyHtml, tiles, goal, record, shortDate } from "../lib.js";
+import { el, elText, num, dur, moneyHtml, tiles, fillRow, goal, record, shortDate } from "../lib.js";
 import { paceTiles } from "./paces.js";
 
 export const TIERS = ["", "Hated", "Hostile", "Unfriendly", "Neutral", "Friendly", "Honored", "Revered", "Exalted"];
@@ -130,9 +130,7 @@ export function recordTiles(records, { open, owner = null }) {
     list.push(record(name, show(r.value), when, r.span ? `#sessions/${r.span[0]}-${r.span[1]}` : "", { count: [r.value, show], note, onOpen: open(r) }));
   }
   const cols = Math.min(4, list.length);
-  const loose = cols ? list.length % cols : 0;
-  if (loose) list[list.length - 1].style.gridColumn = `span ${cols - loose + 1}`;
-  return list.length ? tiles(list, cols) : null;
+  return list.length ? tiles(fillRow(list, cols), cols) : null;
 }
 
 function recordsMod(records, onOpen) {

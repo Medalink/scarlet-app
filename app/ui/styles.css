@@ -1202,6 +1202,11 @@ a.sc-session:hover { border-color: var(--line2); }
 .sc-btn[hidden] { display: none; }
 .lt-chase { display: grid; gap: 12px; margin-top: 14px; padding-top: 10px; border-top: 1px solid var(--line); }
 .lt-chase > .sc-label { margin: 0; }
+.lt-miss { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 12px; font-size: 13.5px; color: var(--text); }
+.lt-miss-name { color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lt-miss-odds { grid-column: 1 / -1; font-size: 12.5px; color: var(--muted); }
+.sc-first { gap: 5px; }
+.sc-first-name { font: 750 22px/1.1 var(--display); color: var(--fg); overflow-wrap: anywhere; }
 .panel > .sc-label { margin: 18px 0 8px; }
 .panel > h3 + .sc-label { margin-top: 14px; }
 .gold-goals { display: grid; gap: 14px; margin: 14px 0 6px; }
