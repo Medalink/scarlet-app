@@ -63,6 +63,25 @@ function nextRank(t, legacy) {
   return { note: `Next rank costs ${cost}`, eta: legacy.available >= cost ? "Can afford" : `${num(cost - legacy.available)} short` };
 }
 
+const NUMBER = /(\d+(?:\.\d+)?)/;
+
+function mergedRankText(texts, held) {
+  if (texts.length < 2) return null;
+  const sorted = [...texts].sort((a, b) => a.rank - b.rank);
+  const split = sorted.map((x) => x.text.split(NUMBER));
+  const [first] = split;
+  if (split.some((parts) => parts.length !== first.length || parts.some((part, i) => i % 2 === 0 && part !== first[i]))) return null;
+  if (split.every((parts) => parts.every((part, i) => part === first[i]))) return null;
+  return first
+    .map((part, i) => {
+      if (i % 2 === 0) return esc(part);
+      const values = split.map((parts) => parts[i]);
+      if (values.every((v) => v === values[0])) return esc(values[0]);
+      return values.map((v, n) => (sorted[n].rank === held ? `<b>${esc(v)}</b>` : esc(v))).join("/");
+    })
+    .join("");
+}
+
 function talentCard(t, legacy) {
   const p = el("div", "panel leg-card");
   p.dataset.node = t.node_id;
@@ -73,7 +92,9 @@ function talentCard(t, legacy) {
   p.append(head);
   if (t.texts.length) {
     const texts = el("ul", "leg-texts");
-    for (const x of t.texts) texts.insertAdjacentHTML("beforeend", `<li${x.rank === t.rank ? ' class="current"' : ""}><b>Rank ${x.rank}</b><span>${esc(x.text)}</span></li>`);
+    const merged = mergedRankText(t.texts, t.rank);
+    if (merged) texts.insertAdjacentHTML("beforeend", `<li class="merged"><span>${merged}</span></li>`);
+    else for (const x of t.texts) texts.insertAdjacentHTML("beforeend", `<li${x.rank === t.rank ? ' class="current"' : ""}><b>Rank ${x.rank}</b><span>${esc(x.text)}</span></li>`);
     p.append(texts);
   }
   const bars = t.measure ? effectBars(t) : null;
