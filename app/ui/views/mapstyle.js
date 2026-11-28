@@ -650,11 +650,14 @@ export function drawMark(ctx, kind, x, y) {
   else if (kind === "camp") ring(() => { ctx.beginPath(); ctx.moveTo(0, -4.4); ctx.lineTo(4.6, 3.6); ctx.lineTo(-4.6, 3.6); ctx.closePath(); }, `rgba(${FG},0.9)`, 1.4);
   else if (kind === "found") { ring(() => { ctx.beginPath(); ctx.arc(0, 0, 4.2, 0, 6.3); }, `rgba(${FG},0.7)`, 1.1); ctx.fillStyle = `rgba(${FG},0.9)`; ctx.fillRect(-1, -1, 2, 2); }
   else if (kind === "teleport") ring(() => { ctx.beginPath(); ctx.arc(0, 0, 3.6, 0, 6.3); }, "rgba(255,107,142,0.95)", 1.4);
+  else if (kind === "paths") ring(() => { ctx.beginPath(); ctx.moveTo(-5, 3.5); ctx.quadraticCurveTo(-1, -6, 1, 0); ctx.quadraticCurveTo(3, 4, 5, -3.5); }, "rgb(255,45,85)", 1.5);
+  else if (kind === "met") { const g = ctx.createRadialGradient(0, 0, 0, 0, 0, 5.5); g.addColorStop(0, `rgba(${FG},0.9)`); g.addColorStop(1, `rgba(${FG},0)`); ctx.fillStyle = g; ctx.fillRect(-6, -6, 12, 12); }
+  else if (kind === "names") ring(() => { ctx.beginPath(); ctx.moveTo(-4.5, -2.5); ctx.lineTo(4.5, -2.5); ctx.moveTo(-4.5, 2.5); ctx.lineTo(2, 2.5); }, `rgba(${FG},0.85)`, 1.4);
   ctx.restore();
 }
 
 export const LAYERS = [
-  ["travel", "Flights and teleports"], ["deaths", "Deaths"], ["met", "Creatures met"], ["gather", "Gathering and fishing"],
+  ["paths", "Paths"], ["travel", "Flights and teleports"], ["deaths", "Deaths"], ["met", "Creatures met"], ["gather", "Gathering and fishing"],
   ["people", "NPCs"], ["quests", "Quests"], ["found", "Discovered"], ["camps", "Camps"], ["names", "Names"],
 ];
 

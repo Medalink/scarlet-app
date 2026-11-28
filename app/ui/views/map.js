@@ -5,7 +5,7 @@
 // a teleport as a dashed jump. The survey look draws the paths in one colour with place names and the
 // layers the buttons switch.
 
-import { invoke, el, num, esc, PALETTE, state, openmapMissing } from "../lib.js";
+import { invoke, el, dur, esc, PALETTE, state, openmapMissing } from "../lib.js";
 import { P, styleMap, mergeLabels, drawLabels, drawLayers, drawMark, LAYERS } from "./mapstyle.js";
 
 const CREDIT = "Map art © Blizzard Entertainment, read from your OpenMap install";
@@ -21,13 +21,13 @@ const LOOK_KEY = "scarlet.mapLook";
 
 // Which layers the survey look draws, by LAYERS key.
 const LAYERS_KEY = "scarlet.mapLayers";
-const layersOn = { names: true, travel: true, deaths: true, met: false, gather: true, people: false, quests: false, found: true, camps: true };
+const layersOn = { paths: true, names: true, travel: true, deaths: true, met: false, gather: true, people: false, quests: false, found: true, camps: true };
 try {
   const saved = JSON.parse(localStorage.getItem(LAYERS_KEY) || "{}");
   for (const [k] of LAYERS) if (typeof saved[k] === "boolean") layersOn[k] = saved[k];
 } catch {}
 // The mark drawn on a layer's button; the others have none.
-const SWATCH = { travel: "teleport", deaths: "death", gather: "gather", people: "npc", quests: "quest", found: "found", camps: "camp" };
+const SWATCH = { paths: "paths", met: "met", names: "names", travel: "teleport", deaths: "death", gather: "gather", people: "npc", quests: "quest", found: "found", camps: "camp" };
 
 // The art with its colours muted, the paths staying the brightest thing on the map.
 function darken(c, px, img) {
@@ -130,9 +130,11 @@ export async function render(body) {
   zFit.setAttribute("aria-label", "Reset zoom");
   zoomCtl.append(zIn, zOut, zFit);
 
-  stage.append(canvas, toggles, note, readout, zoomCtl);
+  stage.append(canvas, note, readout, zoomCtl);
   if (openmap) stage.appendChild(seg);
-  wrap.append(side, stage);
+  const main = el("div", "map-main");
+  main.append(toggles, stage);
+  wrap.append(side, main);
   body.appendChild(wrap);
 
   if (!maps.length) {
@@ -148,7 +150,7 @@ export async function render(body) {
     const item = el("button", "map-item" + (active ? " active" : ""));
     item.type = "button";
     if (active) item.setAttribute("aria-current", "true");
-    item.innerHTML = `<div>${esc(m.name)}</div><div class="pts">${num(m.points)} ${m.points === 1 ? "point" : "points"}</div>`;
+    item.innerHTML = `<div>${esc(m.name)}</div><div class="pts">${dur(m.seconds)}</div>`;
     item.onclick = () => {
       current = m.id;
       side.querySelectorAll(".map-item").forEach((i) => {
@@ -340,9 +342,8 @@ export async function render(body) {
       const rx = (v) => X(v / 100) / k, ry = (v) => Y(((v / 100) * art.asp)) / k;
       ctx.save();
       ctx.scale(k, k);
-      drawLayers(ctx, { ...layers, walks }, rx, ry, moving ? { ...layersOn, met: false } : layersOn, names);
-      // Names keep clear of the row of layer switches along the bottom.
-      if (layersOn.names) drawLabels(ctx, names, rx, ry, [0, 0, cw, ch - toggles.offsetHeight - 18]);
+      drawLayers(ctx, { ...layers, walks: layersOn.paths ? walks : [] }, rx, ry, moving ? { ...layersOn, met: false } : layersOn, names);
+      if (layersOn.names) drawLabels(ctx, names, rx, ry, [0, 0, cw, ch]);
       ctx.restore();
       return;
     }

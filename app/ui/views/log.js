@@ -1,7 +1,7 @@
 // Log: virtualized event log with Rust-side search, code chips, date range
 // and session jump.
 
-import { invoke, el, elText, state, clockExact, clockTime, exactStamp, dayTime, esc, num, dur, highlight, money, shortDay, displayName } from "../lib.js";
+import { invoke, el, elText, state, clockExact, clockTime, exactStamp, dayTime, dayHeading, esc, num, dur, highlight, money, shortDay, displayName } from "../lib.js";
 import { paceName } from "./paces.js";
 
 const ROW_PX = 24;
@@ -10,6 +10,8 @@ const BRIEFS_SHOWN = 12;
 const MIN_PLAYED = 900;
 const RUN_GAP_MS = 5 * 60_000;
 const sum = (parts, key) => parts.reduce((a, p) => a + (p[key] ?? 0), 0);
+const KINDS = { SZ: "subzone" };
+const kindOf = (r) => (r.word === r.code ? (KINDS[r.code] ?? r.code.toLowerCase()) : r.word);
 const QUALITY_LINE = /^(.*) is (poor|common|uncommon|rare|epic|legendary)$/;
 const METERS = [["xp", "XP", num], ["gold", "Gold", (v) => (v === 0 ? "0" : `${v > 0 ? "+" : ""}${money(v)}`)], ["kills", "Kills", num]];
 
@@ -99,21 +101,24 @@ export async function render(body) {
 
   const wrap = el("div", "tl-wrap");
 
-  const ctl = el("div", "row");
+  const ctl = el("div", "row tl-ctl");
   const q = el("input");
   q.placeholder = "Search events…";
   q.style.width = "220px";
   const from = el("input");
   from.type = "date";
-  from.title = "From date";
-  from.setAttribute("aria-label", "From date");
   const to = el("input");
   to.type = "date";
-  to.title = "To date";
-  to.setAttribute("aria-label", "To date");
+  const dates = el("span", "tl-dates");
+  dates.hidden = true;
+  for (const [label, input] of [["From", from], ["To", to]]) {
+    const field = el("label", "tl-date");
+    field.append(elText("span", "", label), input);
+    dates.append(field);
+  }
   const sess = el("select");
   sess.setAttribute("aria-label", "Session");
-  sess.innerHTML = `<option value="">Whole history</option>`;
+  sess.innerHTML = `<option value="">Whole history</option><option value="range">Date range</option>`;
   for (const s of sessionsList) {
     const o = el("option");
     o.value = s.index;
@@ -123,7 +128,7 @@ export async function render(body) {
   if (picked && picked.index != null) sess.value = String(picked.index);
   const clear = el("button", "btn", "Reset");
   clear.type = "button";
-  ctl.append(q, from, to, sess, clear);
+  ctl.append(q, sess, dates, clear);
 
   const codeBar = el("div", "tl-bar");
   const activeBar = el("div", "tl-active");
@@ -171,12 +176,15 @@ export async function render(body) {
   syncCodeBar();
 
   const scroll = el("div", "tl-scroll");
+  const day = el("div", "tl-day");
+  day.hidden = true;
   const view = el("div", "tl-abs");
-  scroll.appendChild(view);
+  scroll.append(day, view);
   const pick = (b, cell) => {
     ui.sessFrom = b.from - 1000;
     ui.sessTo = b.to + 1000;
     sess.value = "";
+    dates.hidden = true;
     wrap.querySelectorAll(".lg-cell.on").forEach((c) => c.classList.remove("on"));
     cell.classList.add("on");
     reset();
@@ -213,11 +221,18 @@ export async function render(body) {
     const f = { sig: ui.sig };
     const term = q.value.trim();
     if (ui.total === 0 && ui.pages.has(f.sig + ":0")) {
+      day.hidden = true;
       view.style.height = "auto";
       view.innerHTML = `<div class="empty" style="padding:14px">No matching events.</div>`;
       return;
     }
     view.style.height = Math.max(ui.total * ROW_PX, scroll.clientHeight) + "px";
+    const lead = ui.pages.get(f.sig + ":" + Math.floor(Math.floor(scroll.scrollTop / ROW_PX) / ROWS_PER_PAGE))?.[Math.floor(scroll.scrollTop / ROW_PX) % ROWS_PER_PAGE];
+    if (lead) {
+      day.textContent = dayHeading(lead.ms);
+      day.hidden = false;
+    }
+    const who = !state.ch;
     const first = Math.max(0, Math.floor(scroll.scrollTop / ROW_PX) - 4);
     const last = first + Math.ceil(scroll.clientHeight / ROW_PX) + 8;
     let html = "";
@@ -233,7 +248,8 @@ export async function render(body) {
       const textHtml = quality ? `${highlight(quality[1], term)} is <span class="tl-q" style="--c:var(--q-${quality[2]}, var(--muted))">${quality[2]}</span>` : r.text ? highlight(r.text, term) : "";
       html += `<div class="tl-row" style="top:${i * ROW_PX}px" data-code="${esc(r.code)}">
         <span class="tl-time" title="${exactStamp(r.ms)}">${clockExact(r.ms)}</span>
-        <span class="tl-word" title="Filter by ${esc(r.word)}">${esc(r.word)}</span>
+        <span class="tl-word" title="Filter by ${esc(kindOf(r))}">${esc(kindOf(r))}</span>
+        ${who ? `<span class="tl-who">${esc(displayName(r.who))}</span>` : ""}
         <span class="tl-text">${textHtml}</span>
       </div>`;
     }
@@ -262,11 +278,12 @@ export async function render(body) {
   let deb;
   q.oninput = () => { clearTimeout(deb); deb = setTimeout(reset, 200); };
   const unpick = () => wrap.querySelectorAll(".lg-cell.on").forEach((c) => c.classList.remove("on"));
-  from.onchange = () => { ui.sessFrom = ui.sessTo = null; sess.value = ""; unpick(); reset(); };
-  to.onchange = () => { ui.sessFrom = ui.sessTo = null; sess.value = ""; unpick(); reset(); };
+  from.onchange = () => { ui.sessFrom = ui.sessTo = null; unpick(); reset(); };
+  to.onchange = () => { ui.sessFrom = ui.sessTo = null; unpick(); reset(); };
   sess.onchange = () => {
     unpick();
-    if (sess.value === "") {
+    dates.hidden = sess.value !== "range";
+    if (sess.value === "" || sess.value === "range") {
       ui.sessFrom = ui.sessTo = null;
     } else {
       const s = sessionsList.find((x) => x.index === +sess.value);
@@ -281,6 +298,7 @@ export async function render(body) {
   clear.onclick = () => {
     q.value = "";
     from.value = to.value = "";
+    dates.hidden = true;
     ui.sessFrom = ui.sessTo = null;
     sess.value = "";
     unpick();
