@@ -2,7 +2,7 @@
 //   node e2e/run.mjs [--only cli|app] [--no-build] [--exe <scarlet-app.exe>] [--cli <scarlet>] [--keep <dir>]
 // Exit 0 when every check passes, 1 when one fails, 2 on a usage error, 3 when a window of the app was found on the
 // desktop in use.
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import crypto from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
@@ -127,6 +127,38 @@ const listenWebsite = () =>
       answer.end();
     });
     server.listen(0, "127.0.0.1", () => resolve({ server, seen, icons, url: `http://127.0.0.1:${server.address().port}` }));
+  });
+
+const listenUploads = () =>
+  new Promise((resolve) => {
+    const parts = [];
+    const bodyOf = (request) =>
+      new Promise((done) => {
+        const pieces = [];
+        request.on("data", (piece) => pieces.push(piece));
+        request.on("end", () => done(Buffer.concat(pieces)));
+      });
+    const server = http.createServer(async (request, answer) => {
+      const body = await bodyOf(request);
+      const reply = (json) => {
+        answer.setHeader("content-type", "application/json");
+        answer.end(JSON.stringify(json));
+      };
+      const route = request.url.replace("/api/v1", "");
+      if (route === "/installs") return reply({ install: { id: "e2e-install" } });
+      if (route === "/upload/sync") return reply({ match: false });
+      if (route === "/upload/manifest") return reply({ need: JSON.parse(zlib.zstdDecompressSync(body).toString()).parts.map((part) => part.id) });
+      if (route === "/upload/parts") {
+        const raw = zlib.zstdDecompressSync(body);
+        const here = [];
+        for (let at = 0; at < raw.length; at += 4 + raw.readUInt32LE(at)) here.push(raw.subarray(at + 4, at + 4 + raw.readUInt32LE(at)).toString());
+        parts.push(...here);
+        return reply({ stored: here.map((_, i) => i) });
+      }
+      answer.statusCode = 404;
+      return answer.end("{}");
+    });
+    server.listen(0, "127.0.0.1", () => resolve({ server, parts, url: `http://127.0.0.1:${server.address().port}` }));
   });
 
 const read = (file) => fs.readFileSync(file, "utf8");
@@ -614,6 +646,40 @@ const CHECKS = [
       const { marks, key } = storeMarks(s, BLANK.account);
       expectEqual("the marks after the upgrade", [marks[key], marks[`${key}#t`], marks[`${key}#addons#t`]], [2, 1795807200, 1795800000]);
       expectEqual("restart marks after the upgrade", Object.keys(marks).filter((k) => /#(?:restart|since)$/.test(k)), []);
+    },
+  },
+  {
+    lane: "cli",
+    name: "an upload carries the skills header line in the professions part and in no other",
+    async run(ctx) {
+      const s = ctx.site.upload;
+      writeTrades(s.wow, ctx.now);
+      expectEqual("exit code of the export", exportSite(ctx, s).code, 0);
+      const uploads = await listenUploads();
+      const settings = path.join(s.home, "settings.json");
+      fs.mkdirSync(s.home, { recursive: true });
+      const env = { ...process.env, SCARLET_UPLOAD_CRED: `Scarlet e2e ${process.pid}` };
+      const upload = (...args) =>
+        new Promise((done) => {
+          const child = spawn(ctx.cli, ["upload", ...args, "--out", s.out, "--settings", settings], { env, timeout: 60_000, windowsHide: true });
+          const said = { code: null, out: "", err: "" };
+          child.stdout.on("data", (piece) => (said.out += piece));
+          child.stderr.on("data", (piece) => (said.err += piece));
+          child.on("close", (code) => done({ ...said, code }));
+        });
+      try {
+        expectEqual("exit code of turning uploading on", (await upload("set", "--enable", "--server", uploads.url)).code, 0);
+        const sent = await upload("sync", "--character", upgraded(ctx.now).name);
+        expectEqual(`exit code of the upload (${sent.err})`, sent.code, 0);
+        expectMatch("the upload", sent.out, /\d+ parts of 2 sessions/);
+      } finally {
+        await upload("forget-identity");
+        uploads.server.close();
+      }
+      const grouped = uploads.parts.map((text) => ({ group: text.split("\n")[0].split("\t")[4], lines: text.split("\n").slice(1).filter(Boolean).map((line) => line.split("\t").slice(1)) }));
+      const headers = (group) => grouped.filter((part) => part.group === group).flatMap((part) => part.lines.filter(([code]) => code === "SV"));
+      expectEqual("the skills header lines in the professions parts", headers("professions").sort(), [["SV", "Professions", "0", ""], ["SV", "Professions", "1", ""], ["SV", "Weapon Skills", "0", "6"], ["SV", "Weapon Skills", "0", "6"]].sort());
+      expectEqual("skills header lines in any other part", grouped.filter((part) => part.group !== "professions").flatMap((part) => part.lines.filter(([code]) => code === "SV")), []);
     },
   },
   {
@@ -1493,7 +1559,7 @@ async function main() {
   const dir = given.keep ? path.resolve(given.keep) : fs.mkdtempSync(path.join(os.tmpdir(), "scarlet-lane-"));
   fs.mkdirSync(dir, { recursive: true });
   const website = await listenWebsite();
-  const ctx = { dir, cli, exe, website, keep: Boolean(given.keep), app: null, grind: null, full: null, trades: null, now: Date.now(), site: { cli: site(path.join(dir, "cli")), app: site(path.join(dir, "app")), motion: site(path.join(dir, "motion")), grind: site(path.join(dir, "grind")), full: site(path.join(dir, "full")), trades: site(path.join(dir, "trades")), reset: site(path.join(dir, "reset")), legacy: site(path.join(dir, "legacy")), restart: site(path.join(dir, "restart")), clock: site(path.join(dir, "clock")), blank: site(path.join(dir, "blank")) } };
+  const ctx = { dir, cli, exe, website, keep: Boolean(given.keep), app: null, grind: null, full: null, trades: null, now: Date.now(), site: { cli: site(path.join(dir, "cli")), app: site(path.join(dir, "app")), motion: site(path.join(dir, "motion")), grind: site(path.join(dir, "grind")), full: site(path.join(dir, "full")), trades: site(path.join(dir, "trades")), reset: site(path.join(dir, "reset")), legacy: site(path.join(dir, "legacy")), restart: site(path.join(dir, "restart")), clock: site(path.join(dir, "clock")), blank: site(path.join(dir, "blank")), upload: site(path.join(dir, "upload")) } };
   writeWow(ctx.site.cli.wow);
 
   let result = { failed: 1, seconds: 0 };
