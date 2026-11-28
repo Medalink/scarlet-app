@@ -283,6 +283,7 @@ export async function render(body) {
   sess.onchange = () => {
     unpick();
     dates.hidden = sess.value !== "range";
+    if (sess.value !== "range") from.value = to.value = "";
     if (sess.value === "" || sess.value === "range") {
       ui.sessFrom = ui.sessTo = null;
     } else {
