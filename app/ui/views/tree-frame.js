@@ -43,7 +43,7 @@ export function slot(node) {
   s.setAttribute("aria-label", text);
   s.append(el("span", "tf-init", state === "locked" ? LOCK : esc(initial(node.name))));
   if (node.icon && state !== "locked") s.append(icon(node.icon));
-  if (state !== "locked" && (node.max > 1 || node.rank > 0)) s.append(el("b", "tf-rank", `${node.rank}/${node.max}`));
+  if (state !== "locked" && node.max > 0) s.append(el("b", "tf-rank", `${node.rank}/${node.max}`));
   return s;
 }
 
@@ -78,7 +78,8 @@ function arrow(from, to, lit) {
 
 /**
  * Draws `nodes` (`{ id, col, row, name, icon, rank, max, locked, choices }`) on a grid at least `cols` by `rows`, and an
- * arrow for each `links` pair `[from, to]` of node ids, lit when the source holds a rank. A node with no cell goes on
+ * arrow for each `links` pair `[from, to]` of node ids, pointing down the tree (rightward within a row) as the in-game
+ * window draws it, once per pair however the client lists it, lit when its upper node holds a rank. A node with no cell goes on
  * the rows under the grid.
  */
 export function treeFrame(nodes, links, { cols = 4, rows = 0 } = {}) {
@@ -101,11 +102,16 @@ export function treeFrame(nodes, links, { cols = 4, rows = 0 } = {}) {
   frame.style.width = `${width * PITCH - GAP}px`;
   frame.style.height = `${height * PITCH - GAP}px`;
   const byId = new Map(all.map((n) => [String(n.id), n]));
-  const drawn = links
-    .map(([from, to]) => [byId.get(String(from)), byId.get(String(to))])
-    .filter(([a, b]) => a && b)
-    .map(([a, b]) => arrow(a, b, a.rank > 0))
-    .join("");
+  const downward = (a, b) => (a.row - b.row || a.col - b.col) <= 0;
+  const pairs = new Map();
+  for (const [from, to] of links) {
+    const a = byId.get(String(from));
+    const b = byId.get(String(to));
+    if (!a || !b) continue;
+    const [top, bottom] = downward(a, b) ? [a, b] : [b, a];
+    pairs.set(`${top.id}>${bottom.id}`, [top, bottom]);
+  }
+  const drawn = [...pairs.values()].map(([a, b]) => arrow(a, b, a.rank > 0)).join("");
   const lines = el("div", "tf-lines");
   lines.innerHTML = `<svg width="${width * PITCH - GAP}" height="${height * PITCH - GAP}" aria-hidden="true">${drawn}</svg>`;
   frame.append(lines);

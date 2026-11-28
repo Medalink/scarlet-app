@@ -538,9 +538,9 @@ const CHECKS = [
       expectEqual("every visible node of both tabs, on the grid: the typo'd 33300 reads as row 2", slots, [
         ["9001", "partial", "Improved Heroic Strike, rank 2 of 3", "2/3", "0px", "0px"],
         ["9002", "maxed", "Deflection, rank 2 of 2", "2/2", "0px", "72px"],
-        ["9003", "untaken", "Overpower, rank 0 of 1", "", "72px", "72px"],
-        ["9004", "untaken", "Slam, rank 0 of 1. Choice of Slam or Whirlwind", "", "216px", "144px"],
-        ["9010", "untaken", "Rampage, rank 0 of 1", "", "0px", "0px"],
+        ["9003", "untaken", "Overpower, rank 0 of 1", "0/1", "72px", "72px"],
+        ["9004", "untaken", "Slam, rank 0 of 1. Choice of Slam or Whirlwind", "0/1", "216px", "144px"],
+        ["9010", "untaken", "Rampage, rank 0 of 1", "0/1", "0px", "0px"],
         ["9011", "untaken", "Bloodthirst, rank 0 of 2", "0/2", "72px", "144px"],
       ]);
       expectEqual("the arrows: lit from a talent that holds a rank, unlit from one that holds none", await app.evaluate(`[...document.querySelectorAll("#body .tf-arrow")].map((a) => [a.dataset.from, a.dataset.to, a.classList.contains("lit")])`), [["9001", "9002", true], ["9010", "9011", false]]);
