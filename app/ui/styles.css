@@ -835,11 +835,12 @@ table.alts th.gap, table.alts td.gap { padding-left: 28px; }
 .tp-pick.held .tp-name { color: var(--muted); }
 @media (max-width: 760px) { .tp-level { grid-template-columns: minmax(0, 1fr); } }
 .rs-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; }
-.rs-card { display: grid; gap: 4px; padding: 12px 14px; border: 1px solid var(--line2); border-left: 3px solid var(--alt-3); border-radius: 4px; background: var(--panel); }
-.rs-card.reset, .rs-card.spec-change { border-left-color: var(--alt-2); }
-.rs-card.refund { border-left-color: var(--alt-1); }
+.rs-card { display: grid; gap: 4px; padding: 12px 14px; border: 1px solid var(--line2); border-radius: 4px; background: var(--panel); --kind: var(--alt-3); }
+.rs-card.reset, .rs-card.spec-change { --kind: var(--alt-2); }
+.rs-card.refund { --kind: var(--alt-1); }
 .rs-when { color: var(--muted); font-size: 12.5px; }
 .rs-kind { color: var(--fg); font-size: 14.5px; }
+.rs-kind::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--kind); margin-right: 7px; vertical-align: 1px; }
 .rs-points { color: var(--text); font-size: 13.5px; }
 .rs-points b { font: 700 24px/1 var(--display); color: var(--fg); margin-right: 3px; }
 .rs-facts, .rs-cost { color: var(--muted); font-size: 12.5px; }
