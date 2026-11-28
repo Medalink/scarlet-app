@@ -11,7 +11,7 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { launch } from "./cdp.mjs";
 import zlib from "node:zlib";
-import { ALT, CHARACTERS, ELWYNN, FISHING, GRIND, GUILD, LATER, RESET, WESTFALL, fullBuild, lineCount, savedVariablesPath, trades, writeFullBuild, writeGrind, writeReset, writeTrades, writeWow } from "./scenario.mjs";
+import { ALT, CHARACTERS, ELWYNN, FISHING, GRIND, GUILD, LATER, RESET, WESTFALL, collapsed, dropped, fullBuild, german, lineCount, savedVariablesPath, trades, writeFullBuild, writeGrind, writeReset, writeTrades, writeWow } from "./scenario.mjs";
 
 const REPO = path.resolve(import.meta.dirname, "..");
 const WINDOWS = process.platform === "win32";
@@ -294,8 +294,8 @@ async function tradesApp(ctx) {
   return ctx.trades;
 }
 
-const tradesSkills = async (app, pick) =>
-  JSON.parse(await app.evaluate(`(async () => { const skills = (await (await import("/bridge.js")).invoke("goals", { ch: "Trades-Fixture" })).caps.skills; return JSON.stringify(${pick}); })()`));
+const tradesSkills = async (app, pick, ch = "Trades-Fixture") =>
+  JSON.parse(await app.evaluate(`(async () => { const skills = (await (await import("/bridge.js")).invoke("goals", { ch: ${JSON.stringify(ch)} })).caps.skills; return JSON.stringify(${pick}); })()`));
 
 const skillGroups = (app) =>
   app.evaluate(`(() => {
@@ -1225,6 +1225,45 @@ const CHECKS = [
       expectEqual("skills still learned after a baseline with only Swords", skills, ["Herbalism", "Mining", "Swords"]);
       const roster = JSON.parse(await app.evaluate(`(async () => JSON.stringify((await (await import("/bridge.js")).invoke("roster")).chars.find((c) => c.name === "Trades-Fixture").professions.map((p) => p.name).sort()))()`));
       expectEqual("the roster's professions", roster, ["Herbalism", "Mining"]);
+    },
+  },
+  {
+    lane: "app",
+    name: "the only profession dropped, read as an expanded and empty Professions header, shows as unlearned once, and a collapsed Secondary Skills header whose skills are known changes nothing",
+    async run(ctx) {
+      const app = await tradesApp(ctx);
+      const character = dropped(ctx.now);
+      await selectCharacter(app, character.name);
+      const held = character.sessions[0].start * 1000 + 6000;
+      await open(app, "character", /Unlearned/, /Select a character/);
+      const groups = await skillGroups(app);
+      expectEqual("the unlearned group", groups.Unlearned, [`Alchemy 225 / 225 Last held ${daysAgo(held)} days ago`]);
+      expectEqual("skills still learned", Object.entries(groups).filter(([title]) => title !== "Unlearned").flatMap(([, rows]) => rows.map((r) => r.split(" ")[0])).sort(), ["Cooking", "Swords"]);
+      const goals = await tradesSkills(app, `skills.map((s) => [s.name, s.unlearned && [s.unlearned.last_held_ms, s.unlearned.rank, s.unlearned.max]]).sort()`, character.name);
+      expectEqual("the skills of the goals command", goals, [["Alchemy", [held, 225, 225]], ["Cooking", null], ["Swords", null]]);
+    },
+  },
+  {
+    lane: "app",
+    name: "a profession whose header is collapsed in the later baseline stays learned",
+    async run(ctx) {
+      const app = await tradesApp(ctx);
+      const character = collapsed(ctx.now);
+      const skills = await tradesSkills(app, `skills.filter((s) => !s.unlearned).map((s) => s.name).sort()`, character.name);
+      expectEqual("skills still learned", skills, ["Alchemy", "Cooking", "Swords"]);
+      await selectCharacter(app, character.name);
+      await open(app, "character", /Alchemy/, /Select a character/);
+      expectEqual("a group for unlearned skills", (await skillGroups(app)).Unlearned, undefined);
+    },
+  },
+  {
+    lane: "app",
+    name: "older data from a client in another language still finds a skill's category by its id, and both ids of a profession are one skill",
+    async run(ctx) {
+      const app = await tradesApp(ctx);
+      const character = german(ctx.now);
+      const goals = await tradesSkills(app, `skills.map((s) => [s.name, Boolean(s.unlearned)]).sort()`, character.name);
+      expectEqual("the skills of the goals command", goals, [["Alchimie", true], ["Kräuterkunde", false], ["Schwerter", false]]);
     },
   },
   {

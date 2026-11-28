@@ -327,6 +327,88 @@ export const trades = (now = Date.now()) => ({
   ],
 });
 
+const HEADED = [
+  [43, "Swords", 6],
+  [171, "Alchemy", 11],
+  [2937, "Alchemy", 11],
+  [185, "Cooking", 9],
+  [2939, "Cooking", 9],
+];
+
+const headedSession = (start, headers) =>
+  session(start, [
+    [0, "S", "1.15.8", "WARRIOR", "Human", 20, "Alliance", "0.9.0", 1, "Forever", 1, 11508, 5, 3600, 3843, 60],
+    [1, "Z", ELWYNN, 0, "none", 0, "Elwynn Forest", "Goldshire"],
+    ...headers.flatMap(([title, expanded, held]) => [
+      ...held.flatMap(([id, rank, max]) => {
+        const [, name, category] = HEADED.find(([n]) => n === id);
+        return [[5, "KN", id, name, category], [6, "SL", id, rank, max, 0, "s"]];
+      }),
+      [6, "SV", title, expanded ? 0 : 1, [...new Set(held.map(([id]) => HEADED.find(([n]) => n === id)[2]))].sort((a, b) => a - b).join(",")],
+    ]),
+    [60, "ES"],
+  ]);
+
+const ALCHEMY = [[171, 225, 225], [2937, 225, 225]];
+const COOKING = [[185, 120, 225], [2939, 120, 225]];
+const SWORDS = [[43, 90, 200]];
+
+/**
+ * A character that listed Swords, Alchemy and Cooking under the headers of the skills list with every header expanded,
+ * then listed only Swords with the Professions header expanded and empty and the Secondary Skills header collapsed.
+ * Its times are counted back from `now`.
+ */
+export const dropped = (now = Date.now()) => ({
+  name: "Dropped-Fixture",
+  account: "E2EDROPPED",
+  sessions: [
+    headedSession(noonDaysAgo(now, 4), [["Weapon Skills", true, SWORDS], ["Secondary Skills", true, COOKING], ["Professions", true, ALCHEMY]]),
+    headedSession(noonDaysAgo(now, 2), [["Weapon Skills", true, SWORDS], ["Secondary Skills", false, []], ["Professions", true, []]]),
+  ],
+});
+
+/** The same first session as `dropped`, then a read with the Professions header collapsed. */
+export const collapsed = (now = Date.now()) => ({
+  name: "Collapsed-Fixture",
+  account: "E2ECOLLAPSED",
+  sessions: [
+    headedSession(noonDaysAgo(now, 4), [["Weapon Skills", true, SWORDS], ["Secondary Skills", true, COOKING], ["Professions", true, ALCHEMY]]),
+    headedSession(noonDaysAgo(now, 2), [["Weapon Skills", true, SWORDS], ["Secondary Skills", true, COOKING], ["Professions", false, []]]),
+  ],
+});
+
+const GERMAN = [
+  [43, "Schwerter", 6],
+  [171, "Alchimie", 11],
+  [2937, "Alchimie", 11],
+  [182, "Kräuterkunde", 11],
+  [2944, "Kräuterkunde", 11],
+];
+
+const germanSession = (start, held) =>
+  session(start, [
+    [0, "S", "1.15.8", "WARRIOR", "Human", 20, "Alliance", "0.9.0", 1, "Forever", 1, 11508, 5, 3600, 3843, 60],
+    [1, "Z", ELWYNN, 0, "none", 0, "Elwynn Forest", "Goldshire"],
+    ...held.flatMap(([id, rank, max]) => {
+      const [, name, category] = GERMAN.find(([n]) => n === id);
+      return [[5, "KN", id, name, category], [6, "SL", id, rank, max, 0, "s"]];
+    }),
+    [60, "ES"],
+  ]);
+
+/**
+ * A character on a German client, with no header lines (an older addon): Schwerter, Alchimie and Kräuterkunde, then
+ * Schwerter and Kräuterkunde. The names its skills carry differ from the ones other characters wrote for the same ids.
+ */
+export const german = (now = Date.now()) => ({
+  name: "Deutsch-Fixture",
+  account: "E2EGERMAN",
+  sessions: [
+    germanSession(noonDaysAgo(now, 4), [[43, 90, 200], ...[171, 2937].map((id) => [id, 225, 225]), ...[182, 2944].map((id) => [id, 100, 300])]),
+    germanSession(noonDaysAgo(now, 2), [[43, 92, 200], ...[182, 2944].map((id) => [id, 110, 300])]),
+  ],
+});
+
 const ADDON_LINES = [[20, "gm", "N", ELWYNN, 4390, 6700, 2447]];
 
 const text = (lines) => {
@@ -537,12 +619,13 @@ export function writeFullBuild(wow, now = Date.now()) {
   return wow;
 }
 
-/** Writes a World of Warcraft folder that holds `trades(now)` alone. */
+/** Writes a World of Warcraft folder that holds `trades(now)`, `dropped(now)`, `collapsed(now)` and `german(now)`. */
 export function writeTrades(wow, now = Date.now()) {
-  const character = trades(now);
-  const file = savedVariablesPath(wow, character);
-  fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, savedVariables(character, null));
+  for (const character of [trades(now), dropped(now), collapsed(now), german(now)]) {
+    const file = savedVariablesPath(wow, character);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, savedVariables(character, null));
+  }
   fs.mkdirSync(path.join(wow, "_forever_", "Interface", "AddOns", "Scarlet"), { recursive: true });
   return wow;
 }

@@ -120,6 +120,7 @@ pub fn word(code: &str) -> &str {
         "SC" => "stat",
         "SL" => "skillline",
         "KN" => "skillname",
+        "SV" => "skillheader",
         "WS" => "statistic",
         "WN" => "statname",
         "AP" => "achpoints",
@@ -1549,6 +1550,14 @@ fn details(code: &str, f: &[String], names: &HashMap<String, String>) -> String 
                 s.push_str(" (baseline)");
             }
             s
+        }
+        "SV" => {
+            let held = if g(1) == "1" { "collapsed" } else { "expanded" };
+            if g(2).is_empty() {
+                format!("{} {held}", g(0))
+            } else {
+                format!("{} {held}, categories {}", g(0), g(2))
+            }
         }
         "WS" => {
             let v = g(1);

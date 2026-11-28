@@ -389,12 +389,19 @@ fn tree_name(id: &str) -> &'static str {
     }
 }
 
+struct Header {
+    name: String,
+    collapsed: bool,
+    categories: HashSet<i64>,
+}
+
 #[derive(Default)]
 struct Baseline {
     ms: i64,
     names: HashSet<String>,
     categories: HashSet<i64>,
     changed: HashSet<String>,
+    headers: Vec<Header>,
 }
 
 #[derive(Default)]
@@ -402,7 +409,10 @@ struct Reading {
     cap: u32,
     skills: HashMap<String, (i64, i64)>,
     held_ms: HashMap<String, i64>,
+    own_name: HashMap<String, String>,
     category: HashMap<String, i64>,
+    ids: HashMap<String, HashSet<String>>,
+    header_categories: HashMap<String, HashSet<i64>>,
     gone: HashMap<String, i64>,
     baseline: Option<Baseline>,
     sheets: HashMap<String, (i64, i64)>,
@@ -431,22 +441,44 @@ impl Reading {
                 }
             }
             "KN" => {
+                let id = field(fields, 0);
+                if !field(fields, 1).is_empty() {
+                    self.own_name
+                        .insert(id.to_string(), field(fields, 1).to_string());
+                }
                 if let Ok(category) = field(fields, 2).parse::<i64>() {
-                    self.category.insert(field(fields, 1).to_string(), category);
+                    self.category.insert(id.to_string(), category);
                 }
             }
+            "SV" => {
+                let baseline = self.baseline.get_or_insert_with(Baseline::default);
+                baseline.headers.push(Header {
+                    name: field(fields, 0).to_string(),
+                    collapsed: field(fields, 1) != "0",
+                    categories: field(fields, 2)
+                        .split(',')
+                        .filter_map(|c| c.parse().ok())
+                        .collect(),
+                });
+            }
             "SL" => {
-                if let Some(n) = name('k', field(fields, 0)) {
+                let id = field(fields, 0);
+                let known = self.own_name.get(id).cloned().or_else(|| name('k', id));
+                if let Some(n) = known {
                     self.skills
                         .insert(n.clone(), (number(fields, 1), number(fields, 2)));
                     self.held_ms.insert(n.clone(), ms);
+                    self.ids
+                        .entry(n.clone())
+                        .or_default()
+                        .insert(id.to_string());
                     self.gone.remove(&n);
                     let baseline = self.baseline.get_or_insert_with(Baseline::default);
                     if field(fields, 4) == "s" {
                         if baseline.names.is_empty() {
                             baseline.ms = ms;
                         }
-                        if let Some(category) = self.category.get(&n) {
+                        if let Some(category) = self.category.get(id) {
                             baseline.categories.insert(*category);
                         }
                         baseline.names.insert(n);
@@ -505,20 +537,48 @@ impl Reading {
         let Some(baseline) = self.baseline.take() else {
             return;
         };
+        for header in baseline.headers.iter().filter(|h| !h.collapsed) {
+            self.header_categories
+                .entry(header.name.clone())
+                .or_default()
+                .extend(&header.categories);
+        }
         if baseline.names.is_empty() {
             return;
         }
-        for name in self.skills.keys() {
-            if baseline.names.contains(name) || baseline.changed.contains(name) {
-                continue;
-            }
-            if self
-                .category
-                .get(name)
-                .is_some_and(|c| baseline.categories.contains(c))
-            {
-                self.gone.entry(name.clone()).or_insert(baseline.ms);
-            }
+        let may_hide = |category: i64| {
+            baseline.headers.iter().any(|h| {
+                h.collapsed
+                    && self
+                        .header_categories
+                        .get(&h.name)
+                        .is_none_or(|known| known.contains(&category))
+            })
+        };
+        let seen = |category: i64| {
+            baseline.categories.contains(&category)
+                || baseline
+                    .headers
+                    .iter()
+                    .any(|h| !h.collapsed && h.categories.contains(&category))
+                || (!baseline.headers.is_empty() && !may_hide(category))
+        };
+        let gone: Vec<String> = self
+            .skills
+            .keys()
+            .filter(|name| !baseline.names.contains(*name) && !baseline.changed.contains(*name))
+            .filter(|name| {
+                self.ids
+                    .get(*name)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|id| self.category.get(id))
+                    .any(|category| seen(*category))
+            })
+            .cloned()
+            .collect();
+        for name in gone {
+            self.gone.entry(name).or_insert(baseline.ms);
         }
     }
 
