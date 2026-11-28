@@ -293,7 +293,7 @@ function accountBlock(model) {
   let picked = (model.feats.find((f) => f.tier > 0) ?? model.feats[0])?.key ?? null;
   const draw = () => {
     const onPick = (f) => ((picked = f.key), draw());
-    rows.replaceChildren(collectionRow("Account", model.feats, { draw: { crest: (f) => cardCrest(f, 48), note: progressNote }, picked, onPick }));
+    rows.replaceChildren(collectionRow("Feats", model.feats, { draw: { crest: (f) => cardCrest(f, 48), note: progressNote }, picked, onPick }));
     side.replaceChildren(detail(model.feats.find((f) => f.key === picked)));
   };
   draw();

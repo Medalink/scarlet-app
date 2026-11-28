@@ -1582,3 +1582,5 @@ button.feat-row:hover .feat-row-name { color: var(--soft); }
 .feat-ladder .rung { grid-template-columns: 34px 82px minmax(0, 1fr); }
 .feat-ladder .rung:not(.got):not(.next) { opacity: 0.55; }
 .feat-ladder .rung.next { color: var(--fg); }
+
+.recap-lead.solo > .sc-empty { padding: 2px 0 0; }

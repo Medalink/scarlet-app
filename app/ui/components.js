@@ -298,7 +298,8 @@ export function strip(r, { compact = false } = {}) {
   const py = zh + 6;
   const cy = py + ph + 4;
   const ey = cy + 11;
-  const H = ey + (compact ? 18 : 22) + (compact ? 0 : 16);
+  const marked = r.moments.length > 0 || r.levels.length > 0;
+  const H = compact && !marked ? cy + 8 : ey + (compact ? 18 : 22) + (compact ? 0 : 16);
   const root = svg("svg", { viewBox: `0 0 ${W} ${H}`, width: "100%", class: "sc-svg", "data-own": "" });
   root.style.aspectRatio = `${W} / ${H}`;
   r.zones.forEach((z, i) => {
