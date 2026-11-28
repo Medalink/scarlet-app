@@ -56,6 +56,8 @@ fn home_from_args() {
     }
 }
 
+const WINDOW_ZOOM: f64 = 1.15;
+
 fn main() {
     home_from_args();
     // The background copy that opens Scarlet when WoW Forever starts; no window, no Tauri.
@@ -195,13 +197,14 @@ fn main() {
             .decorations(false)
             .shadow(true)
             .background_color(tauri::window::Color(0x14, 0x14, 0x16, 255))
-            .inner_size(1280.0, 840.0)
-            .min_inner_size(960.0, 620.0);
+            .inner_size(1280.0 * WINDOW_ZOOM, 840.0 * WINDOW_ZOOM)
+            .min_inner_size(960.0, 620.0)
+            .zoom_hotkeys_enabled(true);
             if let Some(dir) = settings::webview_data() {
                 std::fs::create_dir_all(&dir).ok();
                 window = window.data_directory(dir);
             }
-            window.build()?;
+            window.build()?.set_zoom(WINDOW_ZOOM)?;
 
             scarlet::upload::api::set_agent(
                 "scarlet-app",

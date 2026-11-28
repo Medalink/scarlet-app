@@ -19,6 +19,19 @@ import * as system from "./views/system.js";
 import { openSetup } from "./setup.js";
 import { webState, footLine } from "./link.js";
 
+const SCROLLBAR_SHOWN_MS = 900;
+const scrollbarTimers = new WeakMap();
+document.addEventListener(
+  "scroll",
+  (event) => {
+    const box = event.target instanceof Element ? event.target : document.documentElement;
+    box.classList.add("scrolling");
+    clearTimeout(scrollbarTimers.get(box));
+    scrollbarTimers.set(box, setTimeout(() => box.classList.remove("scrolling"), SCROLLBAR_SHOWN_MS));
+  },
+  { capture: true, passive: true },
+);
+
 const VIEWS = {
   sessions: ["Sessions", sessions],
   feats: ["Feats", feats],

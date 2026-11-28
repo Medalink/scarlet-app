@@ -181,7 +181,6 @@ select { max-width: 280px; }
   flex-direction: column;
   padding: 10px 0 12px;
   overflow-y: auto;
-  scrollbar-width: thin;
 }
 
 #nav .nav-group {
@@ -721,8 +720,9 @@ ul, ol { list-style: none; }
 .note { color: var(--muted); font-size: 14px; margin-top: 14px; line-height: 1.6; max-width: 70ch; }
 
 ::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: #3a3a43; border: 2px solid var(--bg); border-radius: 5px; }
-::-webkit-scrollbar-thumb:hover { background: #4a4a54; }
+::-webkit-scrollbar-thumb { background: transparent; border: 2px solid transparent; background-clip: padding-box; border-radius: 5px; }
+.scrolling::-webkit-scrollbar-thumb { background-color: #3a3a43; }
+::-webkit-scrollbar-thumb:hover { background-color: #4a4a54; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-corner { background: transparent; }
 
