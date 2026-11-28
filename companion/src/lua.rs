@@ -230,9 +230,16 @@ impl<'a> P<'a> {
         while let Some(c) = self.peek() {
             match c {
                 b'0'..=b'9' => self.i += 1,
-                b'.' | b'e' | b'E' => {
+                b'.' => {
                     float = true;
                     self.i += 1;
+                }
+                b'e' | b'E' => {
+                    float = true;
+                    self.i += 1;
+                    if matches!(self.peek(), Some(b'-' | b'+')) {
+                        self.i += 1;
+                    }
                 }
                 _ => break,
             }
