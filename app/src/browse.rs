@@ -13,8 +13,9 @@ use windows_sys::Win32::System::Com::{
 };
 use windows_sys::Win32::UI::Shell::{
     BIF_EDITBOX, BIF_NEWDIALOGSTYLE, BIF_RETURNONLYFSDIRS, BROWSEINFOW, SHBrowseForFolderW,
-    SHGetPathFromIDListW,
+    SHGetPathFromIDListW, ShellExecuteW,
 };
+use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 use windows_sys::core::GUID;
 
 const CLSID_FILE_OPEN_DIALOG: GUID = GUID {
@@ -129,7 +130,7 @@ unsafe fn pick_modern(owner: isize, title: &[u16]) -> Result<Option<PathBuf>, ()
     picked
 }
 
-fn pick_folder(owner: isize) -> Option<PathBuf> {
+fn pick_folder(owner: isize, heading: &'static str) -> Option<PathBuf> {
     std::thread::spawn(move || {
         // SAFETY: COM is started and stopped on this thread around the one dialog.
         unsafe {
@@ -141,7 +142,7 @@ fn pick_folder(owner: isize) -> Option<PathBuf> {
                 return None;
             }
         }
-        let title = wide("Choose the folder that contains _forever_");
+        let title = wide(heading);
         let path = match unsafe { pick_modern(owner, &title) } {
             Ok(chosen) => chosen,
             Err(()) => {
@@ -189,9 +190,55 @@ pub async fn browse_wow(app: AppHandle) -> Result<Option<String>, String> {
         .get_webview_window("main")
         .and_then(|w| w.hwnd().ok())
         .map_or(0, |h| h.0 as isize);
-    blocking(move || match pick_folder(owner) {
+    blocking(move || match pick_folder(owner, "Choose the folder that contains _forever_") {
         None => Ok(None),
         Some(p) => wow_root(&p).map(|r| Some(r.display().to_string())),
+    })
+    .await
+}
+
+/// Opens the folder picker for the data folder. None: closed without a choice.
+#[tauri::command]
+pub async fn browse_data(app: AppHandle) -> Option<String> {
+    let owner = app
+        .get_webview_window("main")
+        .and_then(|w| w.hwnd().ok())
+        .map_or(0, |h| h.0 as isize);
+    blocking(move || {
+        pick_folder(owner, "Choose the data folder").map(|p| p.display().to_string())
+    })
+    .await
+}
+
+/// Shows a folder, or the folder that holds a file, in Explorer.
+#[tauri::command]
+pub async fn open_folder(path: String) -> Result<(), String> {
+    blocking(move || {
+        let given = PathBuf::from(&path);
+        let dir = if given.is_dir() {
+            given
+        } else {
+            given.parent().map(Path::to_path_buf).unwrap_or_default()
+        };
+        if !dir.is_dir() {
+            return Err(format!("{} does not exist.", dir.display()));
+        }
+        // SAFETY: both strings are NUL-terminated and outlive the call; the other arguments are null.
+        let rc = unsafe {
+            ShellExecuteW(
+                std::ptr::null_mut(),
+                wide("open").as_ptr(),
+                wide(&dir.display().to_string()).as_ptr(),
+                std::ptr::null(),
+                std::ptr::null(),
+                SW_SHOWNORMAL,
+            )
+        } as usize;
+        if rc > 32 {
+            Ok(())
+        } else {
+            Err(format!("Windows could not open the folder (code {rc})."))
+        }
     })
     .await
 }

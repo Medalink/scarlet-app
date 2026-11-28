@@ -2,23 +2,24 @@
 // The model comes from the `roster` command. Section order: totals, characters by game
 // account, gold and transfers, played together, play time by day, time per level, professions.
 
-import { invoke, state, el, elText, esc, displayName, num, dur, money, moneyHtml, dayKey, shortDay, weekdayDay, dayTime, weekStart, stampHtml, goal, wireTips } from "../lib.js";
+import { invoke, state, el, elText, esc, displayName, num, dur, money, moneyHtml, dayKey, shortDay, weekdayDay, weekStart, stampHtml, goal, wireTips, lineChart, wireLineCharts } from "../lib.js";
 import { countMarked, play } from "../motion.js";
 import { FALLBACK_CAP, TIERS, recordTiles } from "./goals-section.js";
 import { openAs, paceTiles } from "./paces.js";
 import { CLASS_COLOR, className, raceName, longDur, playTime, signed, empty, mod, axisTime, plural } from "./overview.js";
 
 const DAYS = 30;
+const DAY_TICKS = 6;
 const TRANSFER_ROWS = 8;
 const TONES = 8;
 
 let data = null;
 let account = null;
-let clients = 0;
 let transfersAll = false;
 let entering = false;
 
 const tone = (i) => `var(--alt-${(i % TONES) + 1})`;
+const hue = (i) => CLASS_COLOR[data.chars[i].class] || tone(i);
 const sum = (rows, f) => rows.reduce((a, r) => a + f(r), 0);
 const named = (c) => `<span class="who-c"><i class="dot-c" style="background:${CLASS_COLOR[c.class] || "var(--muted)"}"></i>${esc(displayName(c.name))}</span>`;
 const nameOf = (name) => {
@@ -26,7 +27,7 @@ const nameOf = (name) => {
   return c ? named(c) : esc(displayName(name));
 };
 const key = () =>
-  `<ul class="key">${data.chars.map((c, i) => `<li><i style="background:${tone(i)}"></i>${esc(displayName(c.name))}</li>`).join("")}</ul>`;
+  `<ul class="key">${data.chars.map((c, i) => `<li><i style="background:${hue(i)}"></i>${esc(displayName(c.name))}</li>`).join("")}</ul>`;
 
 function pick(name) {
   document.querySelector("#char").value = name;
@@ -42,9 +43,8 @@ function totals() {
     ["Played", longDur(sum(data.chars, (c) => c.played))],
     ["Gold", moneyHtml(sum(data.chars, (c) => c.money || 0) + data.warband)],
     ["This week", playTime(week)],
-    ["WoW clients running", num(clients)],
   ];
-  return `<section class="week"><div><h2>Totals</h2></div>${cells.map(([l, v]) => `<dl><dt>${l}</dt><dd>${v}</dd></dl>`).join("")}</section>`;
+  return `<section class="week" style="--n:${cells.length}"><div><h2>Totals</h2></div>${cells.map(([l, v]) => `<dl><dt>${l}</dt><dd>${v}</dd></dl>`).join("")}</section>`;
 }
 
 
@@ -107,32 +107,31 @@ const combined = () => data.gold.series.map(([t, m]) => ({ t, m }));
 function goldMod() {
   const total = sum(data.chars, (c) => c.money || 0) + data.warband;
   const pts = combined();
-  const plot =
-    pts.length > 1
-      ? `<div class="gold-plot"><svg id="r-gold" viewBox="0 0 300 100" preserveAspectRatio="none"></svg>
-        <div class="gold-axis"><span>${shortDay(pts[0].t * 1000)}</span><span>${shortDay(pts[pts.length - 1].t * 1000)}</span></div></div>
-        <p class="readout" id="r-gold-out"></p>`
-      : "";
+  const plot = pts.length > 1 ? `<p class="sc-label gold-what">Gold held by all characters</p>${lineChart(pts.map((p) => [p.t * 1000, p.m]), "#d9b25f", 120, money)}` : "";
   const nets = data.chars.map((c) => sum(c.sessions, (x) => x[2] - x[3]));
   const swing = Math.max(...nets.map(Math.abs), 1);
   const biggest = Math.max(...data.chars.map((c) => c.money || 0), data.warband, 1);
-  const share = (v) => (total > 0 ? `${Math.round((v / total) * 100)}%` : "");
+  const share = (v) => {
+    const pct = total > 0 ? (v / total) * 100 : 0;
+    return pct >= 1 ? `${Math.round(pct)}%` : pct > 0 ? "Under 1%" : "";
+  };
   const balance = (v) =>
     `<div class="gl-bal"><div class="gl-t"><span data-to="${v}" data-as="money">${moneyHtml(v)}</span><b>${share(v)}</b></div><i style="--w:${v ? Math.max(1, (v / biggest) * 100) : 0}%"></i></div>`;
   const flow = (v, cls, label) => (v ? `<span class="gl-${cls}" data-tip="${label}|${esc(money(v))}">${moneyHtml(v)} <small>${cls}</small></span>` : `<span class="gl-${cls} none">–</span>`);
+  const moved = data.chars.some((c) => c.received || c.sent);
   const rows = data.chars
     .map((c, i) => {
       const n = nets[i];
       const side = n < 0 ? "neg" : "pos";
       return `<div class="gl-row"><span class="gl-who">${named(c)}</span>${c.money == null ? `<span class="dim">–</span>` : balance(c.money)}
         <div class="gl-net"><div class="gl-t">${signed(n)}</div><span class="gl-div"><i class="${side}" style="--w:${(Math.abs(n) / swing) * 50}%"></i></span></div>
-        <div class="gl-io">${flow(c.received, "in", "Received from your other characters")}${flow(c.sent, "out", "Sent to your other characters")}</div></div>`;
+        ${moved ? `<div class="gl-io">${flow(c.received, "in", "Received from your other characters")}${flow(c.sent, "out", "Sent to your other characters")}</div>` : ""}</div>`;
     })
     .join("");
-  const warband = data.warband ? `<div class="gl-row"><span class="who-c">Warband bank</span>${balance(data.warband)}<span class="dim">–</span><span></span></div>` : "";
-  const head = `<div class="gl-row gl-head"><span>Character</span><span>Balance and share</span><span>Net without transfers</span><span>Received and sent</span></div>`;
-  const table = `<div class="gl-list">${head}${rows}${warband}</div>`;
-  return mod("w8 first", "Gold", `<p class="big">${moneyHtml(total)}</p><div class="gold-goals" id="r-gold-goals"></div>${plot}${table}`);
+  const warband = data.warband ? `<div class="gl-row"><span class="who-c">Warband bank</span>${balance(data.warband)}<span class="dim">–</span>${moved ? "<span></span>" : ""}</div>` : "";
+  const head = `<div class="gl-row gl-head"><span>Character</span><span>Balance and share</span><span>Net without transfers</span>${moved ? "<span>Received and sent</span>" : ""}</div>`;
+  const table = `<div class="gl-list${moved ? "" : " no-io"}">${head}${rows}${warband}</div>`;
+  return mod(data.transfers.length ? "w8 first" : "w12 first last", "Gold", `<p class="big">${moneyHtml(total)}</p><div class="gold-goals" id="r-gold-goals"></div>${plot}${table}`);
 }
 
 function fillGoldGoals(body) {
@@ -164,38 +163,8 @@ function recordsSheet() {
   return sheet;
 }
 
-function wireGold(body) {
-  const svg = body.querySelector("#r-gold");
-  if (!svg) return;
-  const out = body.querySelector("#r-gold-out");
-  const pts = combined();
-  const lo = Math.min(...pts.map((p) => p.m));
-  const hi = Math.max(...pts.map((p) => p.m));
-  const gx = (i) => (i / (pts.length - 1)) * 300;
-  const gy = (m) => 94 - ((m - lo) / (hi - lo || 1)) * 86;
-  const line = pts.map((p, i) => `${i ? "L" : "M"}${gx(i).toFixed(1)} ${gy(p.m).toFixed(1)}`).join("");
-  svg.innerHTML = `<path d="${line}L300 100L0 100Z" class="g-area"/>
-    <path d="${line}" class="g-line" vector-effect="non-scaling-stroke"/>
-    <line id="r-gold-x" y1="0" y2="100" class="g-cross" vector-effect="non-scaling-stroke" visibility="hidden"/>`;
-  const rest = () => {
-    out.innerHTML = `Between ${moneyHtml(lo)} and ${moneyHtml(hi)} across all characters`;
-    svg.querySelector("#r-gold-x").setAttribute("visibility", "hidden");
-  };
-  svg.addEventListener("pointermove", (e) => {
-    const r = svg.getBoundingClientRect();
-    const i = Math.max(0, Math.min(pts.length - 1, Math.round(((e.clientX - r.left) / r.width) * (pts.length - 1))));
-    const cross = svg.querySelector("#r-gold-x");
-    cross.setAttribute("x1", gx(i));
-    cross.setAttribute("x2", gx(i));
-    cross.setAttribute("visibility", "visible");
-    out.innerHTML = `<b>${dayTime(pts[i].t * 1000)}</b> · ${moneyHtml(pts[i].m)}`;
-  });
-  svg.addEventListener("pointerleave", rest);
-  rest();
-}
-
 function transfersMod() {
-  if (!data.transfers.length) return mod("w4 last", "Transfers between your characters", empty("No money moved between your characters"));
+  if (!data.transfers.length) return "";
   const shown = transfersAll ? data.transfers : data.transfers.slice(0, TRANSFER_ROWS);
   const rows = shown
     .map(
@@ -215,7 +184,7 @@ function transfersMod() {
 const PAIRS_AS_BARS = 3;
 
 function pairsMod() {
-  if (!data.pairs.length) return mod("w12 first last", "Played together", empty("None of your characters were online or grouped together."));
+  if (!data.pairs.length) return "";
   const longest = Math.max(...data.pairs.map((p) => p.together), 1);
   const lead = (p) => (p.together ? `${longDur(p.together)} online together` : "No time online together");
   const group = (p) => (p.grouped ? `, ${longDur(p.grouped)} grouped` : "");
@@ -240,12 +209,16 @@ function pairsMod() {
 
 
 function dayBuckets() {
-  const start = new Date();
-  start.setHours(0, 0, 0, 0);
-  start.setDate(start.getDate() - (DAYS - 1));
-  const days = Array.from({ length: DAYS }, (_, i) => {
-    const d = new Date(start);
-    d.setDate(start.getDate() + i);
+  const first = Math.min(...data.chars.flatMap((c) => c.sessions.map((x) => x[0] * 1000)));
+  const earliest = new Date();
+  earliest.setHours(0, 0, 0, 0);
+  earliest.setDate(earliest.getDate() - (DAYS - 1));
+  const begin = new Date(Number.isFinite(first) ? Math.max(first, earliest.getTime()) : earliest.getTime());
+  begin.setHours(0, 0, 0, 0);
+  const span = Math.round((Date.now() - begin.getTime()) / 86_400_000) + 1;
+  const days = Array.from({ length: Math.min(DAYS, Math.max(1, span)) }, (_, i) => {
+    const d = new Date(begin);
+    d.setDate(begin.getDate() + i);
     return { t: d.getTime(), key: dayKey(d.getTime()), per: data.chars.map(() => 0), total: 0 };
   });
   const at = new Map(days.map((d, i) => [d.key, i]));
@@ -263,18 +236,17 @@ function dayBuckets() {
 function daysMod() {
   const days = dayBuckets();
   const max = Math.max(...days.map((d) => d.total), 0);
-  if (!max) return mod("w12 first last", "Play time by day", empty(`No sessions in the last ${DAYS} days`));
+  if (!max) return "";
   const bars = days
     .map((d) => {
       const segs = d.per
-        .map((p, ci) => (p ? `<i style="height:${(p / max) * 100}%;background:${tone(ci)}"></i>` : ""))
+        .map((p, ci) => (p ? `<i style="height:${(p / max) * 100}%;background:${hue(ci)}"></i>` : ""))
         .join("");
       return `<div class="xp-bar">${segs}</div>`;
     })
     .join("");
-  const ticks = days
-    .map((d, i) => `<span>${(DAYS - 1 - i) % 5 === 0 && i < DAYS - 1 ? shortDay(d.t) : ""}</span>`)
-    .join("");
+  const step = Math.max(1, Math.ceil(days.length / DAY_TICKS));
+  const ticks = days.map((d, i) => `<span>${i % step === 0 ? shortDay(d.t) : ""}</span>`).join("");
   return mod(
     "w12 first last",
     "Play time by day",
@@ -290,9 +262,14 @@ function wireDays(body) {
   if (!bars) return;
   const days = dayBuckets();
   const out = body.querySelector("#r-days-out");
-  const read = (i, live) => {
+  const rest = () => {
+    [...bars.children].forEach((b) => b.classList.remove("on"));
+    bars.classList.remove("has-on");
+    out.textContent = "";
+  };
+  const read = (i) => {
     [...bars.children].forEach((b, k) => b.classList.toggle("on", k === i));
-    bars.classList.toggle("has-on", !!live);
+    bars.classList.add("has-on");
     const d = days[i];
     const who = d.per
       .map((p, ci) => [p, ci])
@@ -305,16 +282,15 @@ function wireDays(body) {
     const r = bars.getBoundingClientRect();
     return Math.max(0, Math.min(days.length - 1, Math.floor(((e.clientX - r.left) / r.width) * days.length)));
   };
-  bars.addEventListener("pointermove", (e) => read(at(e), true));
-  bars.addEventListener("pointerleave", () => read(days.length - 1));
-  read(days.length - 1);
+  bars.addEventListener("pointermove", (e) => read(at(e)));
+  bars.addEventListener("pointerleave", rest);
 }
 
 
 function levelsMod() {
   const cap = Math.max(...data.chars.map((c) => Math.max(c.cap, c.level)), 0);
   const top = Math.max(...data.chars.flatMap((c) => c.levels.map((l) => l[1])), 0);
-  if (cap < 2 || !top) return mod("w12 first last", "Time per level", empty("No full level recorded from start to finish."));
+  if (cap < 2 || !top) return "";
   const X = (lv) => ((lv - 1) / (cap - 1)) * 1000;
   const Y = (p) => 10 + (1 - p / top) * 200;
   const lines = data.chars
@@ -322,8 +298,8 @@ function levelsMod() {
       const pts = [...c.levels].sort((a, b) => a[0] - b[0]);
       const path = pts.map(([lv, p], k) => `${k ? "L" : "M"}${X(lv).toFixed(1)} ${Y(p).toFixed(1)}`).join("");
       const dots = pts.map(([lv, p]) => `M${X(lv).toFixed(1)} ${Y(p).toFixed(1)}h0.01`).join("");
-      return `<path d="${path}" class="lv-line" style="stroke:${tone(i)}" vector-effect="non-scaling-stroke"/>
-        <path d="${dots}" class="lv-dot" style="stroke:${tone(i)}" vector-effect="non-scaling-stroke"/>`;
+      return `<path d="${path}" class="lv-line" style="stroke:${hue(i)}" vector-effect="non-scaling-stroke"/>
+        <path d="${dots}" class="lv-dot" style="stroke:${hue(i)}" vector-effect="non-scaling-stroke"/>`;
     })
     .join("");
   const marks = [1, ...Array.from({ length: Math.floor(cap / 10) }, (_, k) => (k + 1) * 10)];
@@ -375,7 +351,7 @@ function professionsMod() {
   const counts = new Map();
   for (const c of data.chars) for (const s of c.professions) counts.set(s.name, (counts.get(s.name) || 0) + 1);
   const names = [...counts.keys()].sort((a, b) => counts.get(b) - counts.get(a) || a.localeCompare(b));
-  if (!names.length) return mod("w12 first last", "Professions", empty("No professions recorded"));
+  if (!names.length) return "";
   const cards = names
     .map((n) => {
       const skills = data.chars
@@ -406,12 +382,12 @@ function draw(body) {
   if (records) body.append(records);
   body.insertAdjacentHTML(
     "beforeend",
-    `${totals()}<div class="sheet">${data.group_by_account ? data.groups.map(groupMod).join("") : charactersMod()}${goldMod()}${transfersMod()}${pairsMod()}${daysMod()}${levelsMod()}${professionsMod()}</div>`
+    `${totals()}<div class="sheet">${data.group_by_account ? data.groups.map(groupMod).join("") : charactersMod()}${[goldMod(), transfersMod(), pairsMod(), daysMod(), levelsMod(), professionsMod()].join("")}</div>`
   );
   fillCaps(body);
   fillGoldGoals(body);
   countMarked(body, { money: moneyHtml, num });
-  wireGold(body);
+  wireLineCharts(body);
   wireDays(body);
   wireLevels(body);
   body.querySelectorAll("[data-pick]").forEach((row) => {
@@ -440,7 +416,7 @@ function draw(body) {
 
 export async function render(body) {
   wireTips();
-  [data, clients, account] = await Promise.all([invoke("roster"), invoke("wow_clients").catch(() => 0), invoke("account_goals").catch(() => null)]);
+  [data, account] = await Promise.all([invoke("roster"), invoke("account_goals").catch(() => null)]);
   entering = true;
   draw(body);
 }

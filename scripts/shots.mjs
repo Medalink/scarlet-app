@@ -3,7 +3,7 @@
 // --click <selector> opens the first element it matches after each view is shot, and shoots the page that opens, printing its address and its first words.
 // --clip <selector> [--nth n] cuts each shot to the nth element the selector matches, with 12 px around it.
 // --delay takes the run view that many ms after its entrance began, for a frame in the middle of it; every other shot
-// is taken with reduced motion, so the numbers and bars are final. --width lays the page out that many CSS px wide.
+// is taken with reduced motion, so the numbers and bars are final. --width lays the page out that many CSS px wide. --fit shoots the window as it is, without growing the page to its content.
 // --fixture builds the e2e fixture and exports it; --grind does the same for the fixture of one character with six long runs; --home copies a Scarlet home (settings.json and its data folder) to
 // a temp folder under E:\Temp first, so the original is never written. Uploading is switched off unless --upload.
 import { spawnSync } from "node:child_process";
@@ -30,6 +30,7 @@ const { values } = parseArgs({
     width: { type: "string" },
     clip: { type: "string" },
     click: { type: "string" },
+    fit: { type: "boolean" },
     nth: { type: "string" },
   },
 });
@@ -72,7 +73,7 @@ try {
   const names = (values.views ?? "system,sessions,run,feats,character,character/class,character/talents,stats,map,loot,characters,items,activity,log,data,settings").split(",");
   if (values.char) await app.evaluate(`(() => { const s = document.querySelector("#char"); s.value = ${JSON.stringify(values.char)}; s.dispatchEvent(new Event("change")); })()`);
   if (values.width) await app.viewport(Number(values.width), 900);
-  await app.evaluate(`(() => { const s = document.createElement("style"); s.textContent = "html,body,#shell,main,#body{height:auto!important;overflow:visible!important}body{display:block!important}#shell{display:flex;min-height:calc(100vh - 54px)}#nav{min-height:calc(100vh - 54px)}"; document.head.append(s); })()`);
+  if (!values.fit) await app.evaluate(`(() => { const s = document.createElement("style"); s.textContent = "html,body,#shell,main,#body{height:auto!important;overflow:visible!important}body{display:block!important}#shell{display:flex;min-height:calc(100vh - 54px)}#nav{min-height:calc(100vh - 54px)}"; document.head.append(s); })()`);
   for (const name of names) {
     const hash = name === "run" ? run : name;
     const asked = Date.now();
@@ -93,7 +94,7 @@ try {
     }
     const file = path.join(values.out, `${name.replace(/\//g, "-")}${timed ? `-at-${values.delay}ms` : ""}.png`);
     const rect = values.clip ? await app.evaluate(`(() => { const e = [...document.querySelectorAll(${JSON.stringify(values.clip)})].at(${Number(values.nth ?? 0)}); if (!e) return null; const r = e.getBoundingClientRect(); return { x: Math.max(0, r.left + scrollX - 12), y: Math.max(0, r.top + scrollY - 12), width: r.width + 24, height: r.height + 24 }; })()`) : null;
-    await app.screenshot(file, rect ? { clip: rect } : { full: true });
+    await app.screenshot(file, rect ? { clip: rect } : values.fit ? {} : { full: true });
     console.log(`${name}: ${file} (drawn in ${drawnMs} ms)`);
     if (values.click) {
       const opened = await app.evaluate(`(() => { const e = document.querySelector(${JSON.stringify(values.click)}); if (!e) return false; e.click(); return true; })()`);

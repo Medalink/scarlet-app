@@ -1,6 +1,6 @@
 // Settings: one page per topic, chosen by the tabs at the top and by the hash (#settings/updates).
 
-import { invoke, el, esc, listen, displayName, openmapMissing, makeSwitch, setSwitch, stampHtml } from "../lib.js";
+import { invoke, el, elText, esc, listen, displayName, openmapMissing, makeSwitch, setSwitch, stampHtml } from "../lib.js";
 import { openSetup } from "../setup.js";
 import { renderUpload } from "./upload.js";
 import { renderUpdates, renderAddon, watchProblems, refreshProblems } from "./updates.js";
@@ -35,46 +35,42 @@ export async function render(body, sub) {
   await PAGES.find(([k]) => k === key)[2](page);
 }
 
-// WoW folder and data folder, what is missing on this PC, where they are stored, and starting with WoW.
 async function general(body) {
   body.innerHTML = "";
   const s = await invoke("get_settings");
   watchProblems();
 
-  const form = el("div");
-  form.innerHTML = `
-    <div class="field"><label for="set-wow">WoW folder</label></div>
-    <div class="field"><label for="set-data">Data folder</label></div>
-    <button class="btn primary" id="save">Save</button>
-    <div class="status" id="st"></div>
-    <div class="note" id="where"></div>`;
-  form.querySelector("#where").textContent = s.keep_off_c
-    ? `Settings are in ${s.file}. The data folder must not be on C:.`
-    : `Settings are in ${s.file}.`;
-  const [wow, data] = form.querySelectorAll(".field");
-  const wowIn = el("input");
-  wowIn.id = "set-wow";
-  wowIn.value = s.wow;
+  const boxes = el("div");
+  body.appendChild(boxes);
+
+  const data = el("div", "field");
+  data.style.marginTop = "22px";
+  data.innerHTML = `<label for="set-data">Data folder</label>`;
   const dataIn = el("input");
   dataIn.id = "set-data";
   dataIn.value = s.data;
-  const wowRow = el("div", "row");
-  const browse = el("button", "btn", "Browse…");
-  browse.type = "button";
-  wowRow.append(wowIn, browse);
-  wow.appendChild(wowRow);
-  data.appendChild(dataIn);
-  body.appendChild(form);
+  const dataRow = el("div", "row");
+  const browseData = el("button", "btn", "Browse…");
+  browseData.type = "button";
+  const save = el("button", "btn primary", "Save");
+  save.type = "button";
+  save.id = "save";
+  dataRow.append(dataIn, browseData, save);
+  data.appendChild(dataRow);
+  if (s.keep_off_c) data.appendChild(el("div", "dim", "The data folder must not be on C:."));
+  const st = el("div", "status");
+  st.id = "st";
+  body.append(data, st);
 
-  // The picker blocks until it closes. A folder without _forever_ is not saved; the line says why.
-  browse.onclick = async () => {
-    const st = form.querySelector("#st");
+  browseData.onclick = async () => {
+    const picked = await invoke("browse_data");
+    if (picked) dataIn.value = picked;
+  };
+  save.onclick = async () => {
     st.className = "status";
-    st.textContent = "";
+    st.textContent = "Saving…";
     try {
-      const picked = await invoke("browse_wow");
-      if (picked === null) return;
-      await invoke("set_settings", { wow: picked, data: dataIn.value });
+      await invoke("set_settings", { wow: s.wow, data: dataIn.value });
       await general(body);
       await refreshProblems();
       const done = body.querySelector("#st");
@@ -125,27 +121,18 @@ async function general(body) {
   again.style.marginTop = "22px";
   again.onclick = () => openSetup();
   body.appendChild(again);
-  const boxes = el("div");
-  boxes.style.marginTop = "22px";
-  body.appendChild(boxes);
-  await drawBoxes(body, boxes, s, dataIn);
 
-  form.querySelector("#save").onclick = async () => {
-    const st = form.querySelector("#st");
-    st.className = "status";
-    st.textContent = "Saving…";
-    try {
-      await invoke("set_settings", { wow: wowIn.value, data: dataIn.value });
-      await general(body);
-      await refreshProblems();
-      const done = body.querySelector("#st");
-      done.className = "status ok";
-      done.textContent = "Saved.";
-    } catch (e) {
-      st.className = "status err";
-      st.textContent = String(e);
-    }
-  };
+  const where = el("div", "settings-file");
+  const open = el("button", "btn", "Open");
+  open.type = "button";
+  open.onclick = () => invoke("open_folder", { path: s.file }).catch((e) => {
+    st.className = "status err";
+    st.textContent = String(e);
+  });
+  where.append(elText("span", "dim", `Settings file ${s.file}`), open);
+  body.appendChild(where);
+
+  await drawBoxes(body, boxes, s, dataIn);
 }
 
 let boxesRedraw = null;
@@ -169,27 +156,30 @@ async function drawBoxes(body, box, s, dataIn) {
   }
   const list = await invoke("wow_folders");
   const extra = list.filter((f) => !f.primary).map((f) => f.path);
-  const save = async (more) => {
-    await invoke("set_settings", { wow: s.wow, data: dataIn.value, moreWow: more });
+  const save = async (wow, more) => {
+    await invoke("set_settings", { wow, data: dataIn.value, moreWow: more });
     await general(body);
   };
   box.innerHTML = "";
   const st = el("div", "status");
-  const addFolder = async () => {
+  const pick = async (apply) => {
     st.className = "status";
     st.textContent = "";
     try {
       const picked = await invoke("browse_wow");
       if (picked === null) return;
       if (list.some((f) => f.path.toLowerCase() === picked.toLowerCase())) return;
-      await save([...extra, picked]);
+      await apply(picked);
     } catch (e) {
       st.className = "status err";
       st.textContent = String(e);
     }
   };
   const head = el("div", "split-head");
-  head.innerHTML = `<span>WoW folders</span><span>${list.reduce((n, f) => n + f.running, 0)} running</span>`;
+  const add = el("button", "btn", "Add folder");
+  add.type = "button";
+  add.onclick = () => pick((picked) => save(s.wow, [...extra, picked]));
+  head.append(el("span", "", "WoW folders"), add);
   box.appendChild(head);
   for (const f of list) {
     const card = el("div", "wowbox");
@@ -200,14 +190,23 @@ async function drawBoxes(body, box, s, dataIn) {
     state.textContent = f.problem ? f.problem : f.running ? `${f.running} running` : "Not running";
     state.classList.toggle("on", f.running > 0 && !f.problem);
     top.append(title, state);
-    const ctl = el("button", "btn", f.primary ? "+" : "×");
+    const ctl = el("button", "btn", f.primary ? "Browse…" : "Remove");
     ctl.type = "button";
-    ctl.setAttribute("aria-label", f.primary ? "Add a WoW folder" : "Remove this folder");
-    if (f.primary) ctl.onclick = addFolder;
-    else ctl.onclick = () => save(extra.filter((p) => p !== f.path)).catch(() => {});
+    ctl.setAttribute("aria-label", f.primary ? "Choose another WoW folder" : "Remove this folder");
+    if (f.primary) ctl.onclick = () => pick((picked) => save(picked));
+    else ctl.onclick = () => save(s.wow, extra.filter((p) => p !== f.path)).catch(() => {});
     top.appendChild(ctl);
     card.appendChild(top);
     for (const a of f.addon) {
+      if (a.manager === "missing") {
+        const line = el("div", "wb-missing");
+        const install = el("button", "btn", "Install addon");
+        install.type = "button";
+        install.onclick = () => (location.hash = "settings/addon");
+        line.append(elText("span", "", addonText(a)), install);
+        card.appendChild(line);
+        continue;
+      }
       const line = el("div", "dim");
       line.textContent = addonText(a);
       card.appendChild(line);
@@ -217,14 +216,19 @@ async function drawBoxes(body, box, s, dataIn) {
       none.textContent = "No game accounts yet.";
       card.appendChild(none);
     }
-    const t = el("table");
-    for (const a of f.accounts) {
-      const tr = el("tr");
-      const when = a.saved ? stampHtml(a.saved * 1000) : "No recording yet";
-      tr.innerHTML = `<td>${esc(a.name)}</td><td>${a.characters.length ? esc(a.characters.map(displayName).join(", ")) : ""}</td><td class="dim">${when}</td>`;
-      t.appendChild(tr);
+    if (f.accounts.length) {
+      const t = el("table");
+      t.innerHTML = `<thead><tr><th>Account</th><th>Characters</th><th>Last read</th></tr></thead>`;
+      const tb = el("tbody");
+      for (const a of f.accounts) {
+        const tr = el("tr");
+        const when = a.saved ? stampHtml(a.saved * 1000) : "No recording yet";
+        tr.innerHTML = `<td>${esc(a.name)}</td><td>${a.characters.length ? esc(a.characters.map(displayName).join(", ")) : ""}</td><td class="dim">${when}</td>`;
+        tb.appendChild(tr);
+      }
+      t.appendChild(tb);
+      card.appendChild(t);
     }
-    if (f.accounts.length) card.appendChild(t);
     box.appendChild(card);
   }
   box.appendChild(st);

@@ -77,6 +77,8 @@ pub struct MapInfo {
     id: u32,
     name: String,
     points: u64,
+    /// Seconds on the map: the gaps between its recorded positions, ignoring gaps over two minutes.
+    seconds: u64,
 }
 
 #[tauri::command]
@@ -120,6 +122,8 @@ fn maps_dir(st: &Store) -> std::path::PathBuf {
     st.data_dir.parent().unwrap_or(&st.data_dir).join("maps")
 }
 
+const MAP_GAP_MS: i64 = 120_000;
+
 fn maps_of(st: &Store, ch: Option<u32>) -> Vec<MapInfo> {
     let mut counts: BTreeMap<u32, u64> = BTreeMap::new();
     for pl in st.polylines.iter().filter(|pl| !pl.dash) {
@@ -134,10 +138,28 @@ fn maps_of(st: &Store, ch: Option<u32>) -> Vec<MapInfo> {
         }
         *counts.entry(pl.map).or_default() += pl.pts.len() as u64;
     }
-    counts
+    let mut seconds: BTreeMap<u32, u64> = BTreeMap::new();
+    let mut last: HashMap<u32, (i64, u32)> = HashMap::new();
+    for r in &st.paths {
+        if ch.is_some_and(|cc| r.ch != cc) {
+            continue;
+        }
+        let Some(map) = r.fields.first().and_then(|m| m.parse::<u32>().ok()) else {
+            continue;
+        };
+        if let Some(&(at, was)) = last.get(&r.ch)
+            && was == map
+            && (0..=MAP_GAP_MS).contains(&(r.ms - at))
+        {
+            *seconds.entry(map).or_default() += ((r.ms - at) / 1000) as u64;
+        }
+        last.insert(r.ch, (r.ms, map));
+    }
+    let mut maps: Vec<MapInfo> = counts
         .into_iter()
         .map(|(id, points)| MapInfo {
             id,
+            seconds: seconds.get(&id).copied().unwrap_or(0),
             // The client's own map name, then the zone seen while on the map.
             name: st
                 .map_index
@@ -153,7 +175,14 @@ fn maps_of(st: &Store, ch: Option<u32>) -> Vec<MapInfo> {
                 .unwrap_or_else(|| format!("Map {id}")),
             points,
         })
-        .collect()
+        .collect();
+    maps.sort_by(|a, b| {
+        b.seconds
+            .cmp(&a.seconds)
+            .then(b.points.cmp(&a.points))
+            .then(a.id.cmp(&b.id))
+    });
+    maps
 }
 
 /// The art for one map as raw bytes, empty when there is none.
@@ -604,6 +633,7 @@ pub struct TRow {
     ms: i64,
     code: String,
     word: String,
+    who: String,
     text: String,
 }
 
@@ -650,6 +680,7 @@ pub async fn timeline(
                         ms: l.ms,
                         code: l.code.clone(),
                         word: l.word.clone(),
+                        who: st.chars.get(l.ch as usize).cloned().unwrap_or_default(),
                         text: l.text.clone(),
                     });
                 }

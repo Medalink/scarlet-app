@@ -1,6 +1,6 @@
 // Data: sizes, export, combat-log compression and the watcher switch, then the lines other addons wrote.
 
-import { invoke, el, num, bytes, state, esc, displayName, stampHtml, makeSwitch, setSwitch } from "../lib.js";
+import { invoke, el, elText, num, bytes, state, esc, displayName, exactStamp, dayTime, stampHtml, makeSwitch, setSwitch, tile, tiles } from "../lib.js";
 
 let lastStatus = "";
 let lastStatusClass = "status";
@@ -13,7 +13,7 @@ async function renderStored(body) {
   exp.type = "button";
   const logs = el("button", "btn", "Compress combat logs");
   logs.type = "button";
-  const sw = makeSwitch("Watch SavedVariables", false);
+  const sw = makeSwitch("Export when WoW saves", false);
   actions.append(exp, logs, sw);
   body.appendChild(actions);
 
@@ -24,22 +24,25 @@ async function renderStored(body) {
   sizes.style.marginTop = "16px";
   body.appendChild(sizes);
 
+  const st = state.store;
+  if (st) {
+    const open = el("button", "btn", "Open folder");
+    open.type = "button";
+    open.onclick = () => invoke("open_folder", { path: st.data_dir }).catch((e) => {
+      status.className = "status err";
+      status.textContent = String(e);
+    });
+    const folder = el("div", "data-folder");
+    folder.append(elText("span", "sc-label", "Data folder"), elText("span", "data-path", st.data_dir), open, elText("span", "dim", `${num(st.events)} ${st.events === 1 ? "event" : "events"} loaded`));
+    body.appendChild(folder);
+  }
+
   async function refresh() {
     const s = await invoke("sizes");
     setSwitch(sw, s.watch);
     sizes.innerHTML = "";
-    const cards = [
-      ["SavedVariables", `${s.sv_files} ${s.sv_files === 1 ? "file" : "files"} · ${bytes(s.sv_bytes)}`],
-      ["Payloads", bytes(s.payload_bytes)],
-      ["Compression ratio", s.ratio ? `${s.ratio.toFixed(1)}×` : "—"],
-      ["Auto-export", s.watch ? "On" : "Off"],
-    ];
-    for (const [label, value] of cards) {
-      sizes.insertAdjacentHTML(
-        "beforeend",
-        `<div class="card"><div class="value">${value}</div><div class="label">${label}</div></div>`
-      );
-    }
+    const notes = [`${s.sv_files} ${s.sv_files === 1 ? "file" : "files"} · SavedVariables ${bytes(s.sv_bytes)}`, `Payloads ${bytes(s.payload_bytes)}`, s.ratio ? `${s.ratio.toFixed(1)}× compression` : ""];
+    sizes.append(tiles([tile("Stored", bytes(s.sv_bytes + s.payload_bytes), notes, { size: "xl" })], 1));
   }
 
   exp.onclick = async () => {
@@ -81,14 +84,6 @@ async function renderStored(body) {
     }
   };
 
-  const st = state.store;
-  if (st) {
-    body.insertAdjacentHTML(
-      "beforeend",
-      `<div class="note">Data folder ${esc(st.data_dir)} · ${num(st.events)} ${st.events === 1 ? "event" : "events"} loaded. When watching is on, Scarlet exports automatically whenever WoW saves.</div>`
-    );
-  }
-
   await refresh();
 }
 
@@ -99,7 +94,7 @@ function panel(title) {
 }
 
 function summary(view) {
-  const p = panel("Addons recorded");
+  const p = el("div", "panel");
   const rows = view.keys
     .map(
       (k) => `<tr><td>${esc(k.label)}</td><td class="num">${num(k.lines)}</td>
@@ -131,7 +126,7 @@ function recent(view) {
     const hit = view.lines.filter((l) => !pick.value || l.key === pick.value);
     tb.innerHTML = hit
       .map(
-        (l) => `<tr><td class="dim">${stampHtml(l.ms)}</td><td>${esc(l.label)}</td>
+        (l) => `<tr><td class="dim" title="${exactStamp(l.ms)}">${dayTime(l.ms)}</td><td>${esc(l.label)}</td>
           <td class="dim">${esc(displayName(l.character))}</td><td>${esc(l.text)}</td></tr>`,
       )
       .join("");
@@ -148,20 +143,15 @@ function recent(view) {
 async function renderOther(body) {
   const view = await invoke("addons", { ch: state.ch });
   body.innerHTML = "";
-  if (!view.total) {
-    const p = panel("Addons recorded");
-    p.appendChild(el("div", "empty", "No lines from other addons recorded yet."));
-    body.appendChild(p);
-    return;
-  }
-  body.appendChild(summary(view));
-  body.appendChild(recent(view));
+  if (!view.total) return false;
+  body.append(el("h3", "section-title", "Lines from other addons"), summary(view), recent(view));
+  return true;
 }
 
 export async function render(body) {
   body.innerHTML = "";
   const stored = el("div");
   const other = el("div");
-  body.append(stored, el("h3", "section-title", "Lines from other addons"), other);
+  body.append(stored, other);
   await Promise.all([renderStored(stored), renderOther(other)]);
 }

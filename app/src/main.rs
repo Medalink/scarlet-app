@@ -148,6 +148,8 @@ fn main() {
             ops::get_settings,
             ops::set_settings,
             browse::browse_wow,
+            browse::browse_data,
+            browse::open_folder,
             ops::save_view,
             ops::set_open_with_wow,
             ops::set_group_by_account,
