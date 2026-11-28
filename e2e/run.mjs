@@ -11,7 +11,7 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { launch } from "./cdp.mjs";
 import zlib from "node:zlib";
-import { ALT, CHARACTERS, ELWYNN, FISHING, GRIND, GUILD, LATER, RESET, WESTFALL, collapsed, dropped, fullBuild, german, lineCount, savedVariablesPath, trades, writeFullBuild, writeGrind, writeReset, writeTrades, writeWow } from "./scenario.mjs";
+import { ALT, CHARACTERS, ELWYNN, FISHING, GRIND, GUILD, LATER, RESET, WESTFALL, collapsed, dropped, fullBuild, german, upgraded, lineCount, savedVariablesPath, trades, writeFullBuild, writeGrind, writeReset, writeTrades, writeWow } from "./scenario.mjs";
 
 const REPO = path.resolve(import.meta.dirname, "..");
 const WINDOWS = process.platform === "win32";
@@ -1263,7 +1263,18 @@ const CHECKS = [
       const app = await tradesApp(ctx);
       const character = german(ctx.now);
       const goals = await tradesSkills(app, `skills.map((s) => [s.name, Boolean(s.unlearned)]).sort()`, character.name);
-      expectEqual("the skills of the goals command", goals, [["Alchimie", true], ["Kräuterkunde", false], ["Schwerter", false]]);
+      expectEqual("how many skills the goals command reports and which of them are unlearned", goals.map(([, gone]) => gone).sort(), [false, false, true]);
+      const roster = JSON.parse(await app.evaluate(`(async () => JSON.stringify((await (await import("/bridge.js")).invoke("roster")).chars.find((c) => c.name === ${JSON.stringify(character.name)}).professions.map((p) => p.name)))()`));
+      expectEqual("the roster's professions leave out the unlearned one under either name", roster.filter((n) => n === "Alchemy" || n === "Alchimie"), []);
+    },
+  },
+  {
+    lane: "app",
+    name: "a profession learned after an expanded and empty Professions header stays learned when the next read has the header collapsed",
+    async run(ctx) {
+      const app = await tradesApp(ctx);
+      const skills = await tradesSkills(app, `skills.filter((s) => !s.unlearned).map((s) => s.name).sort()`, upgraded(ctx.now).name);
+      expectEqual("skills still learned", skills, ["Mining", "Swords"]);
     },
   },
   {

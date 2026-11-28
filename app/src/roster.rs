@@ -300,10 +300,11 @@ fn own_transfers(moves: Vec<Move>, names: &[String]) -> Vec<Transfer> {
 fn skills(latest: HashMap<u32, (i64, i64)>, st: &Store, unlearned: &HashSet<&str>) -> Vec<Skill> {
     let mut best: HashMap<String, (i64, i64)> = HashMap::new();
     for (id, (rank, max)) in latest {
-        let Some(name) = st.names.get(&name_key('k', &id.to_string())) else {
+        let id_text = id.to_string();
+        let Some(name) = st.names.get(&name_key('k', &id_text)) else {
             continue;
         };
-        if !PROFESSIONS.contains(&name.as_str()) || unlearned.contains(name.as_str()) {
+        if !PROFESSIONS.contains(&name.as_str()) || unlearned.contains(id_text.as_str()) {
             continue;
         }
         let e = best.entry(name.clone()).or_insert((0, 0));
@@ -584,7 +585,7 @@ fn build(st: &Store, accounts: Vec<(String, Vec<String>)>, group_by_account: boo
                     .filter(|(_, l)| l.complete && l.share.p > 0)
                     .map(|(lv, l)| [i64::from(*lv), l.share.p])
                     .collect(),
-                professions: skills(rows, st, &goals.unlearned_names().collect()),
+                professions: skills(rows, st, &goals.unlearned_ids().collect()),
                 sent: sent[i],
                 received: received[i],
                 account: groups

@@ -385,6 +385,8 @@ const GERMAN = [
   [2944, "Kräuterkunde", 11],
 ];
 
+
+
 const germanSession = (start, held) =>
   session(start, [
     [0, "S", "1.15.8", "WARRIOR", "Human", 20, "Alliance", "0.9.0", 1, "Forever", 1, 11508, 5, 3600, 3843, 60],
@@ -406,6 +408,37 @@ export const german = (now = Date.now()) => ({
   sessions: [
     germanSession(noonDaysAgo(now, 4), [[43, 90, 200], ...[171, 2937].map((id) => [id, 225, 225]), ...[182, 2944].map((id) => [id, 100, 300])]),
     germanSession(noonDaysAgo(now, 2), [[43, 92, 200], ...[182, 2944].map((id) => [id, 110, 300])]),
+  ],
+});
+
+/**
+ * A character whose first read after the addon wrote header lines showed the Professions header expanded and empty, who
+ * then learned Mining, and whose next read has the Professions header collapsed.
+ */
+export const upgraded = (now = Date.now()) => ({
+  name: "Upgraded-Fixture",
+  account: "E2EUPGRADED",
+  sessions: [
+    session(noonDaysAgo(now, 4), [
+      [0, "S", "1.15.8", "WARRIOR", "Human", 20, "Alliance", "0.9.0", 1, "Forever", 1, 11508, 5, 3600, 3843, 60],
+      [1, "Z", ELWYNN, 0, "none", 0, "Elwynn Forest", "Goldshire"],
+      [5, "KN", 43, "Swords", 6],
+      [6, "SL", 43, 90, 200, 0, "s"],
+      [6, "SV", "Weapon Skills", 0, "6"],
+      [6, "SV", "Professions", 0, ""],
+      [30, "KN", 186, "Mining", 11],
+      [31, "SL", 186, 1, 75, 0, ""],
+      [60, "ES"],
+    ]),
+    session(noonDaysAgo(now, 2), [
+      [0, "S", "1.15.8", "WARRIOR", "Human", 20, "Alliance", "0.9.0", 1, "Forever", 1, 11508, 5, 3600, 3843, 60],
+      [1, "Z", ELWYNN, 0, "none", 0, "Elwynn Forest", "Goldshire"],
+      [5, "KN", 43, "Swords", 6],
+      [6, "SL", 43, 92, 200, 0, "s"],
+      [6, "SV", "Weapon Skills", 0, "6"],
+      [6, "SV", "Professions", 1, ""],
+      [60, "ES"],
+    ]),
   ],
 });
 
@@ -621,7 +654,7 @@ export function writeFullBuild(wow, now = Date.now()) {
 
 /** Writes a World of Warcraft folder that holds `trades(now)`, `dropped(now)`, `collapsed(now)` and `german(now)`. */
 export function writeTrades(wow, now = Date.now()) {
-  for (const character of [trades(now), dropped(now), collapsed(now), german(now)]) {
+  for (const character of [trades(now), dropped(now), collapsed(now), german(now), upgraded(now)]) {
     const file = savedVariablesPath(wow, character);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, savedVariables(character, null));

@@ -213,6 +213,8 @@ pub struct Skill {
     max: i64,
     kind: &'static str,
     unlearned: Option<Unlearned>,
+    #[serde(skip)]
+    ids: Vec<String>,
 }
 
 /// A skill the character no longer lists: its rank and maximum on its last line, the time of that line, and the time
@@ -537,7 +539,11 @@ impl Reading {
         let Some(baseline) = self.baseline.take() else {
             return;
         };
-        for header in baseline.headers.iter().filter(|h| !h.collapsed) {
+        for header in baseline
+            .headers
+            .iter()
+            .filter(|h| !h.collapsed && !h.name.is_empty() && !h.categories.is_empty())
+        {
             self.header_categories
                 .entry(header.name.clone())
                 .or_default()
@@ -582,36 +588,56 @@ impl Reading {
         }
     }
 
-    fn skills(&self) -> Vec<Skill> {
-        let mut out: Vec<Skill> = self
-            .skills
-            .iter()
-            .filter(|(n, (_, max))| *max > 1 && !n.starts_with("Language:"))
-            .map(|(n, (rank, max))| Skill {
-                name: n.clone(),
-                rank: *rank,
-                max: *max,
+    fn shown_name(&self, f: &Facts, key: &str) -> String {
+        let lowest = self
+            .ids
+            .get(key)
+            .and_then(|ids| ids.iter().min_by_key(|id| (id.len(), id.as_str())));
+        lowest
+            .and_then(|id| f.names.get(&name_key('k', id)).cloned())
+            .unwrap_or_else(|| key.to_string())
+    }
+
+    fn skills(&self, f: &Facts) -> Vec<Skill> {
+        let mut shown = HashSet::new();
+        let mut out: Vec<Skill> = Vec::new();
+        for (key, (rank, max)) in &self.skills {
+            let n = self.shown_name(f, key);
+            shown.insert(n.clone());
+            if *max <= 1 || n.starts_with("Language:") {
+                continue;
+            }
+            out.push(Skill {
                 kind: if PROFESSIONS.contains(&n.as_str()) {
                     "profession"
                 } else {
                     "weapon"
                 },
-                unlearned: self.gone.get(n).map(|gone_by| Unlearned {
-                    last_held_ms: self.held_ms.get(n).copied().unwrap_or(*gone_by),
+                name: n,
+                rank: *rank,
+                max: *max,
+                unlearned: self.gone.get(key).map(|gone_by| Unlearned {
+                    last_held_ms: self.held_ms.get(key).copied().unwrap_or(*gone_by),
                     rank: *rank,
                     max: *max,
                     gone_by_ms: *gone_by,
                 }),
-            })
-            .collect();
+                ids: self
+                    .ids
+                    .get(key)
+                    .map(|ids| ids.iter().cloned().collect())
+                    .unwrap_or_default(),
+            });
+        }
         for (n, (rank, max)) in &self.sheets {
-            if !self.skills.contains_key(n) && *max > 1 {
+            if !shown.contains(n) && *max > 1 {
                 out.push(Skill {
                     name: n.clone(),
                     rank: *rank,
                     max: *max,
                     kind: "profession",
                     unlearned: None,
+                    ids: Vec::new(),
                 });
             }
         }
@@ -713,7 +739,7 @@ impl Goals {
         rows.sort_by_key(|r| r.from);
         let caps = Caps {
             cap: reading.cap,
-            skills: reading.skills(),
+            skills: reading.skills(f),
             reps: reading.reps(f),
             legacy: reading.legacy(),
         };
@@ -834,13 +860,13 @@ impl Goals {
         self.caps.skills.iter().filter(|s| s.unlearned.is_none())
     }
 
-    /// The names of the skills the character has unlearned.
-    pub fn unlearned_names(&self) -> impl Iterator<Item = &str> {
+    /// The ids of the skill lines of the skills the character has unlearned.
+    pub fn unlearned_ids(&self) -> impl Iterator<Item = &str> {
         self.caps
             .skills
             .iter()
             .filter(|s| s.unlearned.is_some())
-            .map(|s| s.name.as_str())
+            .flat_map(|s| s.ids.iter().map(String::as_str))
     }
 
     pub fn summary(&self) -> CapSummary {
