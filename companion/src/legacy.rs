@@ -193,7 +193,12 @@ impl Node {
             return None;
         }
         let i = self.ranks.partition_point(|r| r.0 <= ms);
-        Some(if i == 0 { 0 } else { self.ranks[i - 1].1 })
+        let held = self.changes.first().filter(|c| c.from.is_none());
+        Some(if i > 0 {
+            self.ranks[i - 1].1
+        } else {
+            held.map_or(0, |c| c.to)
+        })
     }
 }
 
@@ -207,18 +212,26 @@ fn ranks<'a>(lines: &[Line<'a>]) -> Ranks {
     let mut known_since = None;
     let mut session_base: HashSet<&str> = HashSet::new();
     let mut trees_based: HashSet<&str> = HashSet::new();
+    let mut session = 0u32;
+    let mut first_read: HashMap<&str, u32> = HashMap::new();
     for l in lines {
         match l.code {
             "S" => {
                 session_base.clear();
                 trees_based.clear();
+                session += 1;
             }
             "LN" => {
                 let id = field(l, 1);
                 let Some(rank) = number(field(l, 3)) else {
                     continue;
                 };
-                let first = known_since.is_none_or(|k| k == l.ms);
+                let baseline = field(l, 8) == "s";
+                let first = if baseline {
+                    *first_read.entry(field(l, 0)).or_insert(session) == session
+                } else {
+                    known_since.is_none_or(|k| k == l.ms)
+                };
                 known_since.get_or_insert(l.ms);
                 let n = nodes.entry(id.to_string()).or_default();
                 n.tree_id = field(l, 0).to_string();
@@ -232,7 +245,7 @@ fn ranks<'a>(lines: &[Line<'a>]) -> Ranks {
                 if !field(l, 9).is_empty() {
                     n.name = field(l, 9).to_string();
                 }
-                if field(l, 8) == "s" {
+                if baseline {
                     session_base.insert(id);
                     trees_based.insert(field(l, 0));
                 }
