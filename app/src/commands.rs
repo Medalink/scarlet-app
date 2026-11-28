@@ -543,9 +543,10 @@ fn money(c: i64) -> String {
 
 #[derive(Serialize)]
 pub struct Heatmap {
-    /// 7 x 24 weekday x hour counts, local time, Monday first.
+    /// 7 x 24 seconds played by local weekday and hour, Monday first.
     week: Vec<u64>,
     max_week: u64,
+    /// Seconds played on each local day.
     days: Vec<(String, u64)>,
     max_day: u64,
 }
@@ -558,28 +559,27 @@ pub async fn heatmap(app: AppHandle, ch: Option<String>) -> Heatmap {
 fn heatmap_sync(app: AppHandle, ch: Option<String>) -> Heatmap {
     with_store(&app, |st| {
         let c = ch.and_then(|n| st.char_index(&n));
+        let spans: Vec<(i64, i64)> = st
+            .sessions
+            .iter()
+            .filter(|s| c.is_none_or(|cc| s.ch == cc) && s.end >= s.start)
+            .map(|s| (s.start, s.end))
+            .collect();
         let mut week = vec![0u64; 7 * 24];
-        // Day number from the common era -> count; formatted once at the end.
         let mut days: BTreeMap<i32, u64> = BTreeMap::new();
-        // The local weekday, hour and day of the last quarter-hour (UTC) seen. Offsets from
-        // UTC are whole quarter hours, so every event of one quarter-hour has the same ones.
-        let mut bucket = i64::MIN;
-        let mut cell: Option<(usize, i32)> = None;
-        for r in &st.events {
-            if c.is_some_and(|cc| r.ch != cc) {
-                continue;
-            }
-            let b = r.ms.div_euclid(900_000);
-            if b != bucket {
-                bucket = b;
-                cell = Local.timestamp_millis_opt(r.ms).single().map(|t| {
-                    let wd = t.weekday().num_days_from_monday() as usize;
-                    (wd * 24 + t.hour() as usize, t.num_days_from_ce())
-                });
-            }
-            if let Some((slot, day)) = cell {
-                week[slot] += 1;
-                *days.entry(day).or_default() += 1;
+        for (from, to) in scarlet::recap::union_spans(&spans) {
+            let mut at = from;
+            while at < to {
+                let Some(t) = Local.timestamp_millis_opt(at).single() else {
+                    break;
+                };
+                let into_hour = (t.minute() as i64 * 60 + t.second() as i64) * 1000
+                    + t.timestamp_subsec_millis() as i64;
+                let next = (at + 3_600_000 - into_hour).min(to);
+                let secs = ((next - at) / 1000) as u64;
+                week[t.weekday().num_days_from_monday() as usize * 24 + t.hour() as usize] += secs;
+                *days.entry(t.num_days_from_ce()).or_default() += secs;
+                at = next;
             }
         }
         let max_week = week.iter().copied().max().unwrap_or(0);

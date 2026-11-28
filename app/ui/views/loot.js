@@ -27,10 +27,11 @@ const SHADES = [
   ["Unknown", "--s-0"],
 ];
 const ROLLS = [
-  ["Won", "--alt-4", "rolls_won"],
-  ["Lost", "--alt-1", "rolls_lost"],
-  ["Passed", "--s-0", "rolls_passed"],
+  ["Won", "--alt-3", "rolls_won"],
+  ["Lost", "--s-0", "rolls_lost"],
+  ["Passed", "--dim", "rolls_passed"],
 ];
+const RATE_FLOOR = 10;
 const CREATURE_LIMIT = 48;
 const CREATURE_TOP = 12;
 const ITEMS_PER_CREATURE = 8;
@@ -99,7 +100,7 @@ function creatures(view) {
       const chase = items
         .filter((it) => it.drops > 0 && info.get(it.id)?.received === 0 && info.get(it.id)?.quality >= UNCOMMON)
         .slice(0, CHASE_PER_CREATURE)
-        .map((it) => ({ name: it.name, kills, drops: it.drops, expected: Math.ceil(corpses / it.drops) }));
+        .map((it) => ({ name: it.name, corpses, drops: it.drops, expected: Math.ceil(corpses / it.drops) }));
       return { npc: c.npc, name: c.name, rules: c.rules, corpses, items, chase, search: `${c.name} ${items.map((i) => i.name).join(" ")}`.toLowerCase() };
     })
     .sort((a, b) => b.corpses - a.corpses || a.name.localeCompare(b.name));
@@ -113,6 +114,7 @@ function creatureCard(c, view) {
       const tip = view.rules.length > 1
         ? ` data-tip="${esc(it.name)}|${esc(it.byRule.map((d) => `${ruleLabel(view.rules[d.rule])} ${d.drops}/${c.rules.get(d.rule)}`).join(" · "))}"`
         : "";
+      if (c.corpses < RATE_FLOOR) return `<div class="row lt-few"${tip}><span>${esc(it.name)}</span><b>${num(it.drops)} of ${num(c.corpses)}</b></div>`;
       return `<div class="row"${tip}><span>${esc(it.name)}</span><b>${pctText(v)} <small>${num(it.drops)}/${num(c.corpses)}</small></b><i style="--w:${v.toFixed(1)}%;--n:${n}"></i></div>`;
     })
     .join("");
@@ -122,7 +124,8 @@ function creatureCard(c, view) {
 
 function chaseRow(x) {
   const row = el("div", "lt-miss");
-  row.append(elText("span", "lt-miss-name", x.name), elText("span", "", `dropped ${num(x.drops)}`), elText("span", "lt-miss-odds", `${num(x.kills)} ${x.kills === 1 ? "kill" : "kills"} · about 1 in ${num(x.expected)}`));
+  row.append(elText("span", "lt-miss-name", x.name), elText("b", "", `${num(x.drops)} of ${num(x.corpses)} ${x.corpses === 1 ? "corpse" : "corpses"}`));
+  if (x.corpses >= RATE_FLOOR) row.append(elText("span", "lt-miss-odds", `About 1 in ${num(x.expected)}`));
   return row;
 }
 
@@ -230,12 +233,10 @@ function lootLine(who, note, t, most) {
   const rolls = el("div", "lt-rolls");
   const rolled = ROLLS.filter(([, , field]) => t[field] > 0);
   if (rolled.length) {
-    for (const [label, c, field] of rolled) {
-      const s = elText("span", "lt-roll", num(t[field]));
-      s.style.setProperty("--c", `var(${c})`);
-      s.dataset.tip = `${label}|${num(t[field])} ${t[field] === 1 ? "roll" : "rolls"}`;
-      rolls.append(s);
-    }
+    const all = rolled.reduce((n, [, , field]) => n + t[field], 0);
+    const total = elText("span", "lt-roll", t.rolls_won === all ? num(all) : `${num(t.rolls_won)} of ${num(all)}`);
+    total.dataset.tip = `Rolls|${rolled.map(([label, , field]) => `${label} ${num(t[field])}`).join(" · ")}`;
+    rolls.append(total);
     const bar = stack(rolled.map(([label, c, field]) => [label, t[field], c]), { key: false, h: 6 });
     bar.classList.add("lt-rollbar");
     rolls.append(bar);
@@ -286,7 +287,7 @@ function playerEntry(who, rows, view, most) {
 }
 
 function received(view) {
-  const p = panel("Items received and rolls");
+  const p = panel("Items received");
   if (!view.attribution.length) {
     p.appendChild(el("div", "empty", "No loot recorded yet."));
     return p;
@@ -295,7 +296,7 @@ function received(view) {
   const rTotals = ROLLS.map(([label, c, field]) => [label, view.attribution.reduce((n, a) => n + a[field], 0), c]).filter((r) => r[1] > 0);
   const keys = el("div", "lt-keys");
   if (qTotals.length) keys.append(key(qTotals));
-  if (rTotals.length) keys.append(key(rTotals));
+  if (rTotals.some(([label]) => label !== "Won")) keys.append(key(rTotals));
 
   const byWho = new Map();
   for (const a of view.attribution) byWho.set(a.who, [...(byWho.get(a.who) ?? []), a]);
@@ -306,6 +307,9 @@ function received(view) {
 
   const most = (players) => Math.max(...players.map(([, rows]) => sumOf(rows).items), 1);
   const rows = el("div", "lt-rows");
+  const heads = el("div", "lt-row lt-heads");
+  heads.append(el("span"), el("span"), el("span"), elText("span", "sc-label", "Received"), elText("span", "sc-label", "Rolls won"));
+  rows.append(heads);
   const topMost = Math.max(most(own), others.length ? sumOf(others.flatMap(([, r]) => r)).items : 0, 1);
   for (const [who, list] of own) rows.append(playerEntry(who, list, view, topMost));
   if (others.length) {

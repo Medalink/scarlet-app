@@ -123,6 +123,7 @@ pub struct SharedBank {
     read_by: String,
     at: i64,
     stacks: usize,
+    items: i64,
     money: Option<i64>,
 }
 
@@ -486,6 +487,7 @@ fn search(
             read_by: bank.read_by.to_string(),
             at: bank.at,
             stacks: bank.list.len(),
+            items: bank.list.values().sum(),
             money: bank.money,
         })
         .collect();

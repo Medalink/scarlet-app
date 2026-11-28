@@ -58,17 +58,17 @@ const VIEWS = [
   { key: "characters", shows: /^(?=.*Last session)(?=.*Testa Fixture)(?=.*Probe Lane)/, never: /No characters recorded yet/ },
   { key: "feats", shows: FEATS_LOCAL, never: /No feats counted|Could not|refused|Copper|Silver|Legend\b|Poor/ },
   { key: "stats", shows: /^(?=.*Experience 1,605)(?=.*Kills 2)(?=.*Travel and time)(?=.*Experience over time)(?=.*Top spells cast Heroic Strike 1)(?=.*Moving and standing)(?=.*Time by zone)/, never: /No recorded time yet/ },
-  { key: "activity", shows: /Peak: [1-9]\d* events in an hour/, never: /Peak: 0 events|No events yet/ },
+  { key: "activity", shows: /Busiest hour: (Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d{1,2}:00 (AM|PM)/, never: /No play time recorded yet|events in an hour/ },
   { key: "log", shows: /kill Stonetusk Boar \(113\) by you/, never: /No events|Nothing recorded/ },
   { key: "sessions", shows: /^(?=.*2m in Westfall)(?=.*Level 5 to 6 in Elwynn Forest)(?=.*2m 10s · 2 kills · 1 quest · 1,605 XP)/, never: /No sessions yet\./ },
   { key: "map", shows: /Elwynn Forest 12 points Westfall 10 points/, never: /No path points yet/ },
-  { key: "loot", shows: /^(?=.*Drop rates .* Stonetusk Boar 1 corpse Chunk of Boar Meat 100% 1\/1 Linen Cloth 100% 1\/1)(?=.*Items received and rolls Common 3 Uncommon 1 Rare 1 Won 1 Testa Fixture Solo 3 1 Group members \(1\) 1 player 2)/, never: /No creature loot with an item list|No loot recorded yet/ },
+  { key: "loot", shows: /^(?=.*Drop rates .* Stonetusk Boar 1 corpse Chunk of Boar Meat 1 of 1 Linen Cloth 1 of 1)(?=.*Items received Common 3 Uncommon 1 Rare 1 Received Rolls won Testa Fixture Solo 3 1 Group members \(1\) 1 player 2)/, never: /No creature loot with an item list|No loot recorded yet/ },
   { key: "character", hash: "character/class", shows: /Spells cast most Heroic Strike 1/, never: /Select a character|Loading the class section/ },
   { key: "character", hash: "character/talents", shows: /Points spent 3 \/ 4 .* Unspent 1 0 class · 1 spec Arms 3 Fury 0 Arms · 3 points I 2\/3 D 2\/2 .* Fury · 0 points .* Order points were taken Level 6 3 points already spent in 2 talents when Scarlet first read group 1 .* Improved Heroic Strike Picked · point 4 · Arms .* 1→2\/3/, never: /No talent lines recorded|Select a character/ },
   { key: "legacy", shows: /^(?=.*Earned 2 \/ 65)(?=.*Spent 0 To spend 2 Next rank 1 Can afford)(?!.*Next ranks)(?!.*Ranks bought)(?=.*Professions · 0 points .* Adventure · 0 points .* Progression · 0 points)(?=.*Progression G Gourmand 1 \/ 3 33% Next rank costs 1 · Can afford Rank 1)(?=.*Well Fed duration)(?=.*Rank 0 15\.0 min measured in 1 buffs)(?=.*Rank 1 20\.0 min measured in 1 buffs · \+33% against rank 0 · tooltip 33%)/, never: /No Legacy lines recorded|Select a character/ },
   {
     key: "items",
-    shows: new RegExp(String.raw`^(?=.*Linen Cloth 2589 3 looted Testa Fixture 3 Warband bank \(E2EONE\) 20 Warband bank \(E2ETWO\) 5 28 42s 1s ?50c each Wool Cloth 2592 Guild bank 7 7 –)(?=.*Recipes 2× Linen Cloth 1× Bolt of Linen Cloth Testa Fixture)(?=.*Warband and guild banks Warband bank \(E2EONE\) 1 ?item Last read ${MOMENT} by Testa Fixture Balance 12g ?34s Warband bank \(E2ETWO\) 1 ?item Last read .* by Probe Lane Balance 5g Guild bank 1 ?item Last read .* by Probe Lane Balance 98g ?76s)(?!.*1s ?25c)`),
+    shows: new RegExp(String.raw`^(?=.*Linen Cloth 3 looted Testa Fixture 3 Warband bank \(E2EONE\) 20 Warband bank \(E2ETWO\) 5 28 42s 1s ?50c each Wool Cloth Guild bank 7 7 –)(?=.*Recipes Makes Needs Known by 1× Bolt of Linen Cloth 2× Linen Cloth Testa Fixture)(?=.*Probe Lane 1 item Bags .* · Not read: bank, mailbox, auctions)(?=.*Warband and guild banks Warband bank \(E2EONE\) 12g ?34s 20 items · 1 kind · Last read ${MOMENT} by Testa Fixture Warband bank \(E2ETWO\) 5g 5 items · 1 kind · Last read .* by Probe Lane Guild bank 98g ?76s 7 items · 1 kind · Last read .* by Probe Lane)(?!.*1s ?25c)`),
     never: /No bags or bank recorded yet|No items match|Guild bank \(|account unknown/,
   },
   {
@@ -522,7 +522,7 @@ const CHECKS = [
       await selectCharacter(app, "");
       await open(app, "loot", /Drop rates/);
       const drawn = await app.evaluate(`[...document.querySelectorAll("#body .lt-chase .lt-miss")].map((g) => g.innerText.replace(/\\s+/g, " ").trim())`);
-      if (!drawn.some((g) => /Wool Cloth/.test(g) && /dropped 1/.test(g))) throw mismatch("a row for Wool Cloth dropped and not received", "Wool Cloth dropped 1", JSON.stringify(drawn));
+      if (!drawn.some((g) => /Wool Cloth/.test(g) && /^Wool Cloth 1 of 1 corpse$/.test(g))) throw mismatch("a row for Wool Cloth dropped and not received", "Wool Cloth 1 of 1 corpse", JSON.stringify(drawn));
     },
   },
   {
@@ -532,8 +532,9 @@ const CHECKS = [
       const app = running(ctx);
       await selectCharacter(app, "");
       await open(app, "items", /Value held/);
-      const drawn = await app.evaluate(`({ goal: document.querySelector("#body .it .sc-goal")?.innerText.replace(/\\s+/g, " ").trim() ?? "", farmed: [...document.querySelectorAll("#body .it-farm")].map((n) => n.textContent.trim()) })`);
-      if (!/4s ?50c \/ 4s ?50c.*Best/.test(drawn.goal)) throw mismatch("the value goal", "4s 50c / 4s 50c ... Best", drawn.goal);
+      const drawn = await app.evaluate(`({ goal: document.querySelector("#body .it .sc-tile")?.innerText.replace(/\\s+/g, " ").trim() ?? "", farmed: [...document.querySelectorAll("#body .it-farm")].map((n) => n.textContent.trim()) })`);
+      if (!/^Carried by characters 4s ?50c Best 4s ?50c · .* Priced: 1 of 2 items$/.test(drawn.goal)) throw mismatch("the value held", "Carried by characters 4s 50c Best 4s 50c · day Priced: 1 of 2 items", drawn.goal);
+      expectEqual("a goal bar on the value held", await app.evaluate(`document.querySelectorAll("#body .it .sc-goal").length`), 0);
       if (!drawn.farmed.includes("3 looted")) throw mismatch("the farmed total of Linen Cloth", "3 looted", JSON.stringify(drawn.farmed));
     },
   },
@@ -610,7 +611,8 @@ const CHECKS = [
       }
       const pace = (await text(app, "#body .goals-sheet .sc-pace"))[0] ?? "";
       if (new Date().getDay() === 1) expectEqual("this week's pace tile on a Monday", pace, "");
-      else if (!/^Played this week through yesterday .* (\d of 3 weeks to compare|Middle half)/.test(pace)) throw mismatch("this week's pace tile", "Played this week through yesterday ... weeks to compare or Middle half", pace);
+      else if (!/^Played this week through yesterday .*(Middle half|\d+[smhd]$)/.test(pace)) throw mismatch("this week's tile", "Played this week through yesterday, with Middle half only once 3 weeks exist", pace);
+      expectNoMatch("a comparison before 3 weeks exist", await app.evaluate(BODY), /of 3 weeks to compare/);
       const streak = (await text(app, "#body .goals-sheet .sc-goal"))[0] ?? "";
       if (!/^Current streak \d+ days? \/ 6 days?/.test(streak)) throw mismatch("the current streak goal", "Current streak N days / 6 days", streak);
       await app.evaluate(`[...document.querySelectorAll("#body .goals-sheet .sc-record")].find((r) => /Longest day/.test(r.innerText)).click()`);
@@ -856,7 +858,7 @@ const CHECKS = [
         await open(
           app,
           "items",
-          /Linen Cloth 2589 3 looted Testa Fixture 3 Warband bank \(account unknown, Probe Lane\) 5 Warband bank \(account unknown, Testa Fixture\) 20 28 42s 1s ?50c each .* Guild bank 1 ?item Last read .* by Probe Lane/,
+          /Linen Cloth 3 looted Testa Fixture 3 Warband bank \(account unknown, Probe Lane\) 5 Warband bank \(account unknown, Testa Fixture\) 20 28 42s 1s ?50c each .* Guild bank 98g ?76s 7 items · 1 kind · Last read .* by Probe Lane/,
           /Warband bank \(E2E|Guild bank \(/,
         );
       } finally {

@@ -1,18 +1,22 @@
-// Activity: events per weekday x hour, or per calendar day.
+// Activity: time played per weekday and hour, or per calendar day.
 
-import { invoke, el, elText, num, dur, state, tiles, fillRow, record, pace, goal, shortDay, weekdayDay, dayRange, keyMs } from "../lib.js";
+import { invoke, el, elText, num, dur, state, tile, tiles, fillRow, record, pace, goal, shortDay, weekdayDay, dayRange, keyMs, clockTime } from "../lib.js";
 import { play } from "../motion.js";
 import { mod } from "./goals-section.js";
 import { openAs } from "./paces.js";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-function shade(count, max) {
-  if (!max || !count) return "";
-  const t = count / max;
-  const step = t < 0.25 ? "#4b1626" : t < 0.5 ? "#861a34" : t < 0.75 ? "#cf1f45" : "#ff5d7e";
-  return `background:${step}`;
+const STEPS = ["rgba(255,255,255,.055)", "#4b1626", "#861a34", "#cf1f45", "#ff5d7e"];
+
+function level(secs, max) {
+  if (!max || !secs) return 0;
+  const t = secs / max;
+  return t < 0.25 ? 1 : t < 0.5 ? 2 : t < 0.75 ? 3 : 4;
 }
+
+const hourOf = (h) => clockTime(new Date(2000, 0, 1, h).getTime());
+const tickOf = (h) => hourOf(h).replace(":00 ", " ");
 
 const timeHtml = (secs) => dur(secs);
 const dayCount = (n) => `${num(n)} ${n === 1 ? "day" : "days"}`;
@@ -30,9 +34,13 @@ function recordTiles(p) {
 }
 
 function weekPace(w) {
-  const spread = w.spread;
+  if (!w.spread) {
+    const plain = tile("Played this week through yesterday", dur(w.seconds), "", { size: "xl" });
+    plain.classList.add("sc-pace");
+    return plain;
+  }
   const best = w.best ? { value: w.best.seconds, from: w.best.from } : null;
-  return pace(w.seconds, spread, { label: "Played this week through yesterday", unit: "", format: timeHtml, text: dur, best: w.is_best, peak: best, peers: w.peers, noun: "weeks" });
+  return pace(w.seconds, w.spread, { label: "Played this week through yesterday", unit: "", format: timeHtml, text: dur, best: w.is_best, peak: best, peers: w.peers, noun: "weeks" });
 }
 
 function streakGoal(p) {
@@ -52,21 +60,69 @@ function playSheet(p) {
   return sheet;
 }
 
+function hourGrid(data) {
+  const g = el("div", "hm-grid");
+  g.appendChild(el("div", "hm-lab"));
+  for (let h = 0; h < 24; h += 3) g.appendChild(elText("div", "hm-toplab", tickOf(h)));
+  for (let d = 0; d < 7; d++) {
+    g.appendChild(elText("div", "hm-lab", DAYS[d]));
+    for (let h = 0; h < 24; h++) {
+      const secs = data.week[d * 24 + h] || 0;
+      const cell = g.appendChild(el("div", "hm-cell"));
+      cell.style.background = STEPS[level(secs, data.max_week)];
+      cell.title = `${DAYS[d]} ${hourOf(h)} · ${secs ? `${dur(secs)} played` : "nothing played"}`;
+    }
+  }
+  return g;
+}
+
+function legend() {
+  const key = el("p", "heat-key");
+  const swatches = STEPS.map((c) => {
+    const i = el("i");
+    i.style.background = c;
+    return i;
+  });
+  key.append(elText("span", "", "Quiet"), ...swatches, elText("span", "", "Busiest"));
+  return key;
+}
+
+function busiest(data) {
+  const at = data.week.indexOf(data.max_week);
+  return elText("p", "note hm-busiest", `Busiest hour: ${DAYS[Math.floor(at / 24)]} ${hourOf(at % 24)}`);
+}
+
+function dayRows(data) {
+  const list = el("div", "hm-days");
+  for (const [day, secs] of [...data.days].reverse()) {
+    const r = el("div", "day-row");
+    r.append(elText("div", "", weekdayDay(keyMs(day))));
+    const track = el("div", "day-track");
+    const fill = el("div", "day-fill");
+    fill.style.width = `${(secs / (data.max_day || 1)) * 100}%`;
+    track.append(fill);
+    r.append(track, elText("div", "bar-value", dur(secs)));
+    list.append(r);
+  }
+  return list;
+}
+
 export async function render(body) {
   const [data, played] = await Promise.all([invoke("heatmap", { ch: state.ch }), invoke("playtime", { ch: state.ch })]);
   body.innerHTML = "";
+  if (!data.max_week) {
+    body.appendChild(el("div", "empty", "No play time recorded yet"));
+    return;
+  }
   const sheet = playSheet(played);
   if (sheet) body.appendChild(sheet);
-  let mode = sessionStorage.getItem("hm-mode") || "week";
+  let mode = sessionStorage.getItem("hm-mode") === "day" ? "day" : "week";
 
   const bar = el("div", "row");
   bar.style.marginTop = "18px";
-  const bw = el("button", "btn" + (mode === "week" ? " on" : ""), "Weekday × hour");
-  bw.type = "button";
-  bw.setAttribute("aria-pressed", String(mode === "week"));
-  const bd = el("button", "btn" + (mode === "day" ? " on" : ""), "Calendar day");
-  bd.type = "button";
-  bd.setAttribute("aria-pressed", String(mode === "day"));
+  const bw = el("button", "btn", "By hour");
+  const bd = el("button", "btn", "By day");
+  bw.type = bd.type = "button";
   bar.append(bw, bd);
   body.appendChild(bar);
 
@@ -75,44 +131,22 @@ export async function render(body) {
   body.appendChild(holder);
 
   function draw() {
-    holder.innerHTML = "";
-    if (mode === "week") {
-      const g = el("div", "hm-grid");
-      g.appendChild(el("div", "hm-lab"));
-      for (let h = 0; h < 24; h += 1) {
-        g.appendChild(el("div", "hm-toplab", h % 4 === 0 ? String(h).padStart(2, "0") : ""));
-      }
-      for (let d = 0; d < 7; d++) {
-        g.appendChild(el("div", "hm-lab", DAYS[d]));
-        for (let h = 0; h < 24; h++) {
-          const c = data.week[d * 24 + h] || 0;
-          const cell = g.appendChild(el("div", "hm-cell", ""));
-          cell.style.cssText = shade(c, data.max_week);
-          cell.title = `${DAYS[d]} ${String(h).padStart(2, "0")}:00 · ${num(c)} ${c === 1 ? "event" : "events"}`;
-        }
-      }
-      holder.appendChild(g);
-      holder.insertAdjacentHTML(
-        "beforeend",
-        `<div class="note">Brighter means more events. Peak: ${num(data.max_week)} ${data.max_week === 1 ? "event" : "events"} in an hour.</div>`
-      );
-    } else {
-      if (!data.days.length) {
-        holder.innerHTML = `<div class="empty">No events yet.</div>`;
-        return;
-      }
-      for (const [day, count] of data.days) {
-        const r = el("div", "day-row");
-        r.innerHTML = `<div>${day}</div>
-          <div class="day-track"><div class="day-fill" style="width:${(count / (data.max_day || 1)) * 100}%"></div></div>
-          <div class="bar-value">${num(count)}</div>`;
-        holder.appendChild(r);
-      }
+    for (const [btn, key] of [[bw, "week"], [bd, "day"]]) {
+      btn.classList.toggle("on", mode === key);
+      btn.setAttribute("aria-pressed", String(mode === key));
     }
+    holder.innerHTML = "";
+    if (mode === "week") holder.append(hourGrid(data), legend(), busiest(data));
+    else holder.append(dayRows(data));
   }
 
-  bw.onclick = () => { mode = "week"; sessionStorage.setItem("hm-mode", mode); bw.classList.add("on"); bd.classList.remove("on"); bw.setAttribute("aria-pressed", "true"); bd.setAttribute("aria-pressed", "false"); draw(); };
-  bd.onclick = () => { mode = "day"; sessionStorage.setItem("hm-mode", mode); bd.classList.add("on"); bw.classList.remove("on"); bd.setAttribute("aria-pressed", "true"); bw.setAttribute("aria-pressed", "false"); draw(); };
+  for (const [btn, key] of [[bw, "week"], [bd, "day"]]) {
+    btn.onclick = () => {
+      mode = key;
+      sessionStorage.setItem("hm-mode", key);
+      draw();
+    };
+  }
   draw();
   play(body);
 }

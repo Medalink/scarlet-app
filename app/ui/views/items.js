@@ -1,7 +1,7 @@
 // Items: what every character carries, where it is as a bar per item, the recipes they know as reagents to product,
 // and how fresh each container read is. The model comes from the `items` command.
 
-import { invoke, el, elText, esc, displayName, num, exactStamp, stamp, stampHtml, money, moneyHtml, shortDay, goal, state, tile, tiles, wireTips } from "../lib.js";
+import { invoke, el, elText, esc, displayName, num, exactStamp, stamp, stampHtml, money, moneyHtml, dayHeading, state, tile, tiles, wireTips } from "../lib.js";
 import { counted, play } from "../motion.js";
 import { openAs } from "./paces.js";
 
@@ -20,9 +20,6 @@ const READS = [
   ["Mailbox", "mail_at"],
   ["Auctions", "auctions_at"],
 ];
-const FRESH_SECS = 12 * 3600;
-const DAY_OLD_SECS = 48 * 3600;
-const FADED_SECS = 7 * 86400;
 const WHO_SHOWN = 3;
 const MIN_WHERE = 8;
 
@@ -94,7 +91,7 @@ function itemRow(r, view, scale) {
   const worth = r.price
     ? `<span class="it-v">${moneyHtml(value)}</span><small data-tip="Last auction price|${esc(when(r.price.at))}">${moneyHtml(r.price.copper)} each</small><span class="it-vbar"><i style="--w:${Math.max(2, (value / scale.value) * 100).toFixed(1)}%"></i></span>`
     : "–";
-  return `<div class="it-row"><div class="it-name"><b>${esc(r.name || `Item ${r.id}`)}</b> <span class="dim">${r.id}</span>${r.farmed ? farmLine(r.farmed) : ""}</div>
+  return `<div class="it-row"><div class="it-name" title="Item ${r.id}"><b>${esc(r.name || `Item ${r.id}`)}</b>${r.farmed ? farmLine(r.farmed) : ""}</div>
     <div class="it-where"><div class="sc-stack" style="width:${width.toFixed(1)}%">${segs}</div><div class="it-who">${who}${more > 0 ? `<span class="dim">+${num(more)} more</span>` : ""}</div></div>
     <b class="it-total">${num(r.total)}</b>${scale.priced ? `<div class="it-value">${worth}</div>` : ""}</div>`;
 }
@@ -132,7 +129,6 @@ function recipeList(view, into) {
     if (g) g.who.push(r.character);
     else groups.set(k, { r, who: [r.character] });
   }
-  const arrow = '<svg class="rc-arrow" viewBox="0 0 24 12" width="24" height="12"><path d="M1 6h20M16 1.5 21.5 6 16 10.5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>';
   const rows = [...groups.values()]
     .map(({ r, who }) => {
       const needs = r.reagents.length
@@ -140,13 +136,13 @@ function recipeList(view, into) {
         : '<span class="dim">no listed reagents</span>';
       const product = r.makes || r.name || "Recipe";
       const sub = r.makes && r.name && r.name !== r.makes ? `<span class="dim">${esc(r.name)}</span>` : "";
-      return `<div class="rc-row"><div class="rc-in">${needs}</div>${arrow}<div class="rc-out"><span class="rc-chip out"><em>${times(r.min, r.max)}</em> <b>${esc(product)}</b></span>${sub}</div>
+      return `<div class="rc-row"><div class="rc-out"><span class="rc-chip out"><em>${times(r.min, r.max)}</em> <b>${esc(product)}</b></span>${sub}</div><div class="rc-in">${needs}</div>
         <div class="rc-who">${who.map((n) => `<span>${esc(displayName(n))}</span>`).join("")}</div></div>`;
     })
     .join("");
   into.appendChild(el("h3", "section-title", "Recipes"));
   const list = el("div", "rc-list");
-  list.innerHTML = rows;
+  list.innerHTML = `<div class="rc-row rc-head"><span>Makes</span><span>Needs</span><span>Known by</span></div>${rows}`;
   into.appendChild(list);
   if (view.recipes_matched > view.recipes.length) {
     into.appendChild(el("div", "dim", `Showing ${num(view.recipes.length)} of ${num(view.recipes_matched)} recipes.`));
@@ -163,74 +159,48 @@ function results(view, into) {
   if (view.recipes.length) recipeList(view, into);
 }
 
-function age(at, now) {
-  if (!at) return { c: "never", left: 0 };
-  const s = Math.max(0, now - at);
-  const left = Math.max(0, 1 - s / FADED_SECS) * 100;
-  return { c: s < FRESH_SECS ? "fresh" : s < DAY_OLD_SECS ? "day" : "stale", left };
-}
-
 function wealth(view) {
   const w = view.worth;
   if (!w || !w.value) return null;
   const p = el("div", "panel");
   p.innerHTML = "<h3>Value held</h3>";
-  const best = w.record?.value ?? 0;
-  const note = best > w.value ? `Best ${money(best)} on ${shortDay(w.record.at * 1000)}` : "";
-  p.append(goal(w.value, Math.max(best, w.value), { label: "Bags, bank, mail and auctions", format: moneyHtml, doneText: "Best", note }));
-  p.append(elText("p", "dim", `${num(w.priced)} of ${num(w.priced + w.unpriced)} kinds of item have a price`));
+  const best = w.record ? `Best ${money(w.record.value)} · ${dayHeading(w.record.at * 1000)}` : "";
+  const priced = `Priced: ${num(w.priced)} of ${num(w.priced + w.unpriced)} items`;
+  p.append(tiles([tile("Carried by characters", moneyHtml(w.value), [best, priced], { size: "xl", count: [w.value, moneyHtml] })], 1));
   return p;
 }
 
 function carriers(view) {
   const p = el("div", "panel");
   p.innerHTML = "<h3>Characters</h3>";
-  const now = Date.now() / 1000;
-  const legend = key([
-    ["Under 12 h", "--alt-4"],
-    ["Under 2 days", "--alt-3"],
-    ["Older", "--alt-1"],
-    ["Never read", "--line2"],
-  ]);
   const rows = view.characters
     .map((c) => {
-      const cells = READS.map(([label, f]) => {
-        const a = age(c[f], now);
-        return `<div class="fr-cell ${a.c}" data-tip="${label} read|${esc(when(c[f]))}"><i style="--w:${a.left.toFixed(1)}%"></i><span>${label}</span><b>${c[f] ? stampHtml(c[f] * 1000, "", { hover: false }) : "Never"}</b></div>`;
-      }).join("");
-      return `<div class="fr-row"><span class="fr-name">${esc(displayName(c.name))}</span><span class="fr-n">${num(c.stacks)} <small>${c.stacks === 1 ? "item" : "items"}</small></span>${cells}</div>`;
+      const read = READS.filter(([, f]) => c[f]).map(([label, f]) => `${label} ${stampHtml(c[f] * 1000)}`);
+      const unread = READS.filter(([, f]) => !c[f]).map(([label]) => label.toLowerCase());
+      const line = [...read, unread.length ? `Not read: ${unread.join(", ")}` : ""].filter(Boolean).join(" · ");
+      return `<div class="fr-row"><span class="fr-name">${esc(displayName(c.name))}</span><span class="fr-n">${num(c.stacks)} <small>${c.stacks === 1 ? "item" : "items"}</small></span><span class="fr-line">${line}</span></div>`;
     })
     .join("");
   const list = el("div", "fr-list");
   list.innerHTML = rows;
-  p.append(legend, list);
+  p.append(list);
   return p;
+}
+
+function bankTile(view, s) {
+  const gold = s.money == null ? "<small>No balance read</small>" : moneyHtml(s.money);
+  const kinds = `${num(s.stacks)} ${s.stacks === 1 ? "kind" : "kinds"}`;
+  const read = el("span");
+  if (s.at) read.append(stamp(s.at * 1000, "Last read "), s.read_by ? ` by ${displayName(s.read_by)}` : "");
+  const counts = `${num(s.items)} ${s.items === 1 ? "item" : "items"} · ${kinds}`;
+  return tile(placeText(view, s.place, s.scope, s.account_unknown), gold, [counts, read], { size: "xl", count: s.money == null ? null : [s.money, moneyHtml] });
 }
 
 function sharedBanks(view) {
   if (!view.shared.length) return null;
   const p = el("div", "panel");
   p.innerHTML = "<h3>Warband and guild banks</h3>";
-  const empty = (s) => s.stacks === 0;
-  const filled = view.shared.filter((s) => !empty(s));
-  const bare = view.shared.filter(empty).map((s) => {
-    const line = el("p", "it-bank-empty");
-    const bits = [placeText(view, s.place, s.scope, s.account_unknown), "empty"];
-    if (s.money) bits.push(`balance ${moneyHtml(s.money)}`);
-    if (s.at) bits.push(stampHtml(s.at * 1000, "read "));
-    line.innerHTML = bits.map((b, i) => (i === 0 ? `<b>${esc(b)}</b>` : b)).join(" · ");
-    return line;
-  });
-  const list = filled.map((s) => {
-    const note = el("span");
-    if (s.at) note.append(stamp(s.at * 1000, "Last read "), s.read_by ? ` by ${displayName(s.read_by)}` : "");
-    const balance = el("span", "it-balance");
-    balance.innerHTML = s.money == null ? "No balance read" : `Balance ${moneyHtml(s.money)}`;
-    const held = (n) => `${num(n)}<small>${n === 1 ? "item" : "items"}</small>`;
-    return tile(placeText(view, s.place, s.scope, s.account_unknown), held(s.stacks), note, { size: "xl", extra: balance, count: [s.stacks, held] });
-  });
-  if (list.length) p.appendChild(tiles(list, Math.min(list.length, 3)));
-  p.append(...bare);
+  p.appendChild(tiles(view.shared.map((s) => bankTile(view, s)), Math.min(view.shared.length, 3)));
   return p;
 }
 
@@ -244,7 +214,6 @@ export async function render(body) {
   wireTips();
   const page = el("div", "it");
   const search = el("div", "panel");
-  search.innerHTML = "<h3>Search</h3>";
   const bar = el("div", "row");
   const q = el("input");
   q.placeholder = "Item, recipe, or ID…";
@@ -300,7 +269,9 @@ export async function render(body) {
     const a = e.target.closest?.("a.it-farm");
     if (a) openAs(a.dataset.as)();
   });
-  search.append(bar, out);
+  const top = el("div", "it-top");
+  top.append(el("h3", "", "Items"), bar);
+  search.append(top, out);
   show();
   q.oninput = () => {
     clearTimeout(deb);
