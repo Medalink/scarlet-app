@@ -945,6 +945,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "fleet-updater"
+version = "0.2.0"
+source = "git+https://github.com/Medalink/fleet-kit?tag=fleet-updater-v0.2.0#2e0d7c76d7c33136362acb3d0681f618cb26cf21"
+dependencies = [
+ "semver",
+ "serde_json",
+ "tauri",
+ "tauri-plugin-updater",
+]
+
+[[package]]
 name = "fnv"
 version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3043,6 +3054,7 @@ version = "0.1.0"
 dependencies = [
  "base64 0.23.1",
  "chrono",
+ "fleet-updater",
  "minisign-verify",
  "scarlet",
  "semver",

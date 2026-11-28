@@ -6,20 +6,26 @@
 //!   publish with the newer of the newest beta and the latest release.
 //!
 //! The plugin downloads the installer and checks its minisign signature against the key in
-//! `tauri.conf.json`; this module only picks the endpoint at run time, decides whether the
-//! feed's version is newer (never a downgrade) and shows the notes. A build whose version is
-//! the placeholder `0.0.0-dev` (a plain `cargo build`) reads the feed to show the latest
-//! versions, but never offers the installer or syncs the addon, unless `SCARLET_UPDATE_BASE`
-//! points it at a test server: `<base>/<release|beta>/latest.json` and `<base>/releases.json`.
+//! `tauri.conf.json`. The shared `fleet-updater` crate carries the tracks, the dev-build rule,
+//! the override base, the feed URLs, the notes cleaning and the feed check; this module passes
+//! Scarlet's names and URLs in and keeps what is Scarlet's own: the addon entry of the feed,
+//! the release-notes list, restart-rebuilt, and the install and UI commands. A build whose
+//! version is the placeholder `0.0.0-dev` (a plain `cargo build`) reads the feed to show the
+//! latest versions, but never offers the installer or syncs the addon, unless
+//! `SCARLET_UPDATE_BASE` points it at a test server: `<base>/<release|beta>/latest.json` and
+//! `<base>/releases.json`.
 
 use crate::commands::state;
 use crate::settings;
+use fleet_updater::{is_dev, override_base};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime};
 use tauri::{AppHandle, Emitter};
-use tauri_plugin_updater::{Update, UpdaterExt};
+use tauri_plugin_updater::Update;
+
+pub use fleet_updater::Track;
 
 const FEEDS: &str = "https://github.com/Medalink/scarlet-app/releases";
 const RELEASES_API: &str = "https://api.github.com/repos/Medalink/scarlet-app/releases?per_page=40";
@@ -30,49 +36,32 @@ const NOTES_KEPT: usize = 8;
 const NOTES_CACHE: Duration = Duration::from_secs(600);
 const REBUILT_POLL: Duration = Duration::from_secs(30);
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub enum Track {
-    Release,
-    Beta,
-}
+const NOTES_DROP_PREFIXES: &[&str] = &[
+    "Install:",
+    "App commit:",
+    "Addon commit:",
+    "Beta of ",
+    "Built from the same commits",
+];
 
-impl Track {
-    pub fn key(self) -> &'static str {
-        match self {
-            Track::Release => "release",
-            Track::Beta => "beta",
-        }
-    }
-
-    fn parse(s: &str) -> Option<Track> {
-        match s {
-            "release" => Some(Track::Release),
-            "beta" => Some(Track::Beta),
-            _ => None,
-        }
+fn config() -> fleet_updater::UpdaterConfig {
+    fleet_updater::UpdaterConfig {
+        base_env: BASE_ENV,
+        feed_base: FEEDS.into(),
+        beta_channel: "beta-channel".into(),
+        notes_drop_prefixes: NOTES_DROP_PREFIXES,
     }
 }
 
+/// The app's version, from the shared crate.
 pub fn version(app: &AppHandle) -> Version {
-    app.package_info().version.clone()
-}
-
-/// The placeholder version of a build nobody released.
-pub fn is_dev(v: &Version) -> bool {
-    v.pre.as_str() == "dev"
-}
-
-pub fn override_base() -> Option<String> {
-    std::env::var(BASE_ENV)
-        .ok()
-        .map(|v| v.trim().trim_end_matches('/').to_string())
-        .filter(|v| !v.is_empty())
+    fleet_updater::version(app)
 }
 
 /// The app offers to install a newer build of itself and keeps the addon current: released
 /// builds only. Every build reads the feed.
 pub fn enabled(app: &AppHandle) -> bool {
-    !is_dev(&version(app)) || override_base().is_some()
+    fleet_updater::enabled(&version(app), BASE_ENV)
 }
 
 /// The saved track; unset follows the installed build, so a beta build keeps getting betas.
@@ -83,25 +72,7 @@ pub fn track(app: &AppHandle) -> Track {
         .unwrap_or_else(|e| e.into_inner())
         .track
         .clone();
-    saved.as_deref().and_then(Track::parse).unwrap_or_else(|| {
-        if version(app).pre.as_str().starts_with("beta") {
-            Track::Beta
-        } else {
-            Track::Release
-        }
-    })
-}
-
-fn feed_url(track: Track) -> Result<tauri::Url, String> {
-    let text = match override_base() {
-        Some(base) => format!("{base}/{}/latest.json", track.key()),
-        None => match track {
-            Track::Release => format!("{FEEDS}/latest/download/latest.json"),
-            Track::Beta => format!("{FEEDS}/download/beta-channel/latest.json"),
-        },
-    };
-    text.parse()
-        .map_err(|e| format!("Invalid update address ({text}): {e}"))
+    Track::resolve(saved.as_deref(), &version(app))
 }
 
 /// What a feed's `addon` entry says: the zip to keep the WoW addon on. Its signature is the
@@ -153,25 +124,6 @@ pub fn current_feed() -> Option<FeedInfo> {
     shared().feed.clone()
 }
 
-/// Notes without the lines for whoever cuts the release: install steps and commit ids.
-pub fn clean_notes(body: &str) -> String {
-    const DROP: [&str; 4] = ["Install:", "App commit:", "Addon commit:", "Beta of "];
-    let mut out: Vec<&str> = Vec::new();
-    for line in body.lines() {
-        let line = line.trim_end();
-        if DROP.iter().any(|p| line.starts_with(p))
-            || line.starts_with("Built from the same commits")
-        {
-            continue;
-        }
-        if line.is_empty() && out.last().is_none_or(|l| l.is_empty()) {
-            continue;
-        }
-        out.push(line);
-    }
-    out.join("\n").trim().to_string()
-}
-
 struct Found {
     update: Option<Update>,
     feed: Option<FeedInfo>,
@@ -181,49 +133,20 @@ struct Found {
 
 async fn fetch(app: &AppHandle) -> Result<Found, String> {
     let current = version(app);
-    let updater = app
-        .updater_builder()
-        .endpoints(vec![feed_url(track(app))?])
-        .map_err(|e| e.to_string())?
-        // The comparison is below: it keeps the feed's version and notes when it is not newer.
-        .version_comparator(|_, _| true)
-        .timeout(Duration::from_secs(30))
-        .build()
-        .map_err(|e| e.to_string())?;
-    let update = match updater.check().await {
-        Ok(Some(u)) => u,
-        // Nothing is published on this track yet (the feed is a 404 until the first release).
-        Ok(None) | Err(tauri_plugin_updater::Error::ReleaseNotFound) => {
-            return Ok(Found {
-                update: None,
-                feed: None,
-                notes: String::new(),
-                date: None,
-            });
-        }
-        Err(e) => return Err(format!("Could not check for updates: {e}")),
-    };
-    let remote = Version::parse(&update.version).map_err(|e| {
-        format!(
-            "The update feed reported an invalid version ({}): {e}",
-            update.version
-        )
-    })?;
-    let addon = update
+    let found = fleet_updater::check(app, &config(), track(app), &current).await?;
+    let addon = found
         .raw_json
-        .get("addon")
+        .as_ref()
+        .and_then(|feed| feed.get("addon"))
         .and_then(|a| serde_json::from_value::<AddonOffer>(a.clone()).ok());
-    let newer = remote > current && enabled(app);
-    let notes = clean_notes(update.body.as_deref().unwrap_or(""));
-    let date = update.date.map(|d| d.to_string());
     Ok(Found {
-        feed: Some(FeedInfo {
+        update: found.update,
+        feed: found.version.map(|remote| FeedInfo {
             version: remote,
             addon,
         }),
-        update: newer.then_some(update),
-        notes,
-        date,
+        notes: found.notes,
+        date: found.date,
     })
 }
 
@@ -500,7 +423,10 @@ fn notes_from(json: &str, track: Track) -> Result<Vec<Note>, String> {
                 version: v.to_string(),
                 prerelease: !plain,
                 date: r.published_at.unwrap_or_default(),
-                body: clean_notes(r.body.as_deref().unwrap_or("")),
+                body: fleet_updater::clean_notes(
+                    r.body.as_deref().unwrap_or(""),
+                    NOTES_DROP_PREFIXES,
+                ),
             },
         ));
     }
@@ -518,7 +444,7 @@ pub fn release_notes(app: AppHandle) -> Result<Vec<Note>, String> {
     {
         return Ok(notes.clone());
     }
-    let url = match override_base() {
+    let url = match override_base(BASE_ENV) {
         Some(base) => format!("{base}/releases.json"),
         None => RELEASES_API.to_string(),
     };
