@@ -29,9 +29,8 @@ cargo build --release
 target\release\scarlet-app.exe
 ```
 
-The `app` crate depends on `fleet-updater`, a crate in the private `Medalink/fleet-kit`
-repository ([#11](https://github.com/Medalink/scarlet-app/issues/11)), so `cargo build` in `app/` only works for
-checkouts with access to that repo. The `companion` crate builds everywhere.
+The `app` crate's updater is `fleet-updater` from [Medalink/fleet-kit](https://github.com/Medalink/fleet-kit), which is
+GPL-3.0 like this repo. Cargo fetches it by tag.
 
 On medaviper, the "Scarlet edge builder" task (roster `ship/builders/rust-edge.ps1 -App scarlet-app`) keeps
 `app\target\release\scarlet-app.exe` at the newest main: it builds each SHA the flow engine reports, in a clone of its

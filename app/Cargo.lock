@@ -946,8 +946,8 @@ dependencies = [
 
 [[package]]
 name = "fleet-updater"
-version = "0.2.0"
-source = "git+https://github.com/Medalink/fleet-kit?tag=fleet-updater-v0.2.0#2e0d7c76d7c33136362acb3d0681f618cb26cf21"
+version = "0.2.1"
+source = "git+https://github.com/Medalink/fleet-kit?tag=fleet-updater-v0.2.1#d6eac53d9ba9066d5b112894f227b1f2f5824782"
 dependencies = [
  "semver",
  "serde_json",

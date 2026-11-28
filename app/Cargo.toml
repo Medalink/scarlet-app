@@ -16,7 +16,7 @@ webp = { version = "0.3", default-features = false }
 scarlet = { path = "../companion" }
 tauri = { version = "2", features = [] }
 tauri-plugin-updater = "2.14.1"
-fleet-updater = { git = "https://github.com/Medalink/fleet-kit", tag = "fleet-updater-v0.2.0" }
+fleet-updater = { git = "https://github.com/Medalink/fleet-kit", tag = "fleet-updater-v0.2.1" }
 ureq = { version = "=3.5.2", default-features = false, features = ["rustls"] }
 zip = { version = "9", default-features = false, features = ["deflate"] }
 minisign-verify = "0.3"
