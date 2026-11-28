@@ -93,27 +93,36 @@ export function ago(ms, now = Date.now()) {
 
 const hover = (ms, tip, shown) => (!shown ? "" : tip ? ` data-tip="${exactStamp(ms)}"` : ` title="${exactStamp(ms)}"`);
 
-/** A moment as a `<time>` that the app's one timer keeps current; `lead` is the copy before it, `Last read `. `tip` puts the exact value in `data-tip`, for a surface that has its own tooltip; `hover: false` leaves it out where the parent says it. */
+/** A moment as a `<time>` that the app's one timer keeps current; `lead` is the copy before it, `Last read `, or a past and future pair, `["Reset ", "Resets "]`, that follows the moment as it passes. `tip` puts the exact value in `data-tip`, for a surface that has its own tooltip; `hover: false` leaves it out where the parent says it. */
 export function stamp(ms, lead = "", { tip = false, hover: shown = true } = {}) {
   const t = document.createElement("time");
   t.dateTime = new Date(ms).toISOString();
   t.dataset.ago = String(ms);
-  if (lead) t.dataset.lead = lead;
+  Object.assign(t.dataset, leadData(lead));
   if (shown && tip) t.dataset.tip = exactStamp(ms);
   else if (shown) t.title = exactStamp(ms);
-  t.textContent = lead + ago(ms);
+  t.textContent = leadAt(lead, ms) + ago(ms);
   return t;
 }
 
+const leadAt = (lead, ms, now = Date.now()) => (Array.isArray(lead) ? lead[ms > now ? 1 : 0] : lead);
+
+const leadData = (lead) => {
+  const [past, future] = Array.isArray(lead) ? lead : [lead];
+  return { ...(past ? { lead: past } : {}), ...(future ? { leadFuture: future } : {}) };
+};
+
 /** `stamp` as HTML for a template. */
 export const stampHtml = (ms, lead = "", { tip = false, hover: shown = true } = {}) =>
-  `<time datetime="${new Date(ms).toISOString()}" data-ago="${ms}"${lead ? ` data-lead="${escape(lead)}"` : ""}${hover(ms, tip, shown)}>${escape(lead)}${ago(ms)}</time>`;
+  `<time datetime="${new Date(ms).toISOString()}" data-ago="${ms}"${Object.entries(leadData(lead)).map(([key, value]) => ` data-${key === "leadFuture" ? "lead-future" : key}="${escape(value)}"`).join("")}${hover(ms, tip, shown)}>${escape(leadAt(lead, ms))}${ago(ms)}</time>`;
 
 /** Redraws the relative text of every stamp under `root`. */
 export function refreshStamps(root = document) {
   const now = Date.now();
   for (const t of root.querySelectorAll("[data-ago]")) {
-    const text = (t.dataset.lead ?? "") + ago(Number(t.dataset.ago), now);
+    const ms = Number(t.dataset.ago);
+    const lead = t.dataset.leadFuture != null && ms > now ? t.dataset.leadFuture : (t.dataset.lead ?? "");
+    const text = lead + ago(ms, now);
     if (t.textContent !== text) t.textContent = text;
   }
 }

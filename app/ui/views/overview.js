@@ -700,7 +700,7 @@ function lockRow(l) {
   const pips = known ? `${bar}<b>${l.done}/${l.total}</b>` : `<span class="dim">–</span>`;
   const difficulty = l.kind === "world boss" ? "World boss" : l.difficulty || "–";
   return `<div class="lk-row"><span class="lk-name">${esc(l.name)}${l.extended ? ' <em class="ph-at">extended</em>' : ""}</span><span class="lk-diff">${esc(difficulty)}</span>
-    <span class="lk-boss">${pips}</span><span class="lk-reset">${stampHtml(l.reset_at * 1000, l.reset_at * 1000 > Date.now() ? "Resets " : "Reset ", { tip: true })}</span></div>`;
+    <span class="lk-boss">${pips}</span><span class="lk-reset">${stampHtml(l.reset_at * 1000, ["Reset ", "Resets "], { tip: true })}</span></div>`;
 }
 
 function lifetimeMod(life) {
