@@ -122,13 +122,15 @@ export const RECORDS = [
  * The record tiles for `records`, in the order of RECORDS, null when there are none. `open(r)` gives the handler that
  * runs when a tile's run is opened; `owner(r)` the character's name shown in a tile's note; `keys` limits the tiles.
  */
-export function recordTiles(records, { open, owner = null, keys = null }) {
+export function recordTiles(records, { open, owner = null, keys = null, levels = null }) {
   const list = [];
   for (const [key, name, show] of RECORDS) {
     if (keys && !keys.includes(key)) continue;
     const r = records.find((x) => x.key === key);
     if (!r) continue;
-    const when = key === "balance" ? shortDay(r.at) : `${shortDay(r.at)} · level ${r.level}`;
+    const range = levels?.(r);
+    const level = range && range[0] && range[1] > range[0] ? `levels ${range[0]} to ${range[1]}` : `level ${range?.[1] || r.level}`;
+    const when = key === "balance" ? shortDay(r.at) : `${shortDay(r.at)} · ${level}`;
     const note = [owner?.(r), r.item?.name].filter(Boolean).join(" · ");
     list.push(record(name, show(r.value), when, r.span ? `#sessions/${r.span[0]}-${r.span[1]}` : "", { count: [r.value, show], note, onOpen: open(r) }));
   }
@@ -136,8 +138,17 @@ export function recordTiles(records, { open, owner = null, keys = null }) {
   return list.length ? tiles(fillRow(list, cols), cols) : null;
 }
 
-function recordsMod(records, onOpen) {
-  const body = recordTiles(records, { open: () => onOpen }) ?? elText("p", "sc-empty", "No session of 15 minutes recorded yet");
+function sessionLevels(ov) {
+  return (r) => {
+    const [from, to] = r.span ?? [r.at, r.at];
+    const rows = ov.sessions.filter((s) => s.t * 1000 >= from - 60_000 && s.t * 1000 <= Math.max(to, from) + 60_000 && (s.l0 || s.l1));
+    if (!rows.length) return null;
+    return [Math.min(...rows.map((s) => s.l0 || s.l1)), Math.max(...rows.map((s) => s.l1 || s.l0))];
+  };
+}
+
+function recordsMod(records, onOpen, ov) {
+  const body = recordTiles(records, { open: () => onOpen, levels: sessionLevels(ov) }) ?? elText("p", "sc-empty", "No session of 15 minutes recorded yet");
   return mod("w12 first last", "Records", body);
 }
 
@@ -149,7 +160,7 @@ export function goalsSheet(g, ov, eta, { atCap, onOpen }) {
   const sheet = el("div", "sheet goals-sheet");
   const cap = g.cap || ov.cap?.level || FALLBACK_CAP;
   const latest = atCap && g.latest ? paceTiles(g.latest.paces, g.latest.played, { onOpen }) : null;
-  const records = recordsMod(g.records, onOpen);
+  const records = recordsMod(g.records, onOpen, ov);
   const rows = [];
   if (latest) rows.push(mod("w12 first last", `Latest run, ${shortDay(g.latest.from)}`, latest));
   if (atCap) rows.push(records);

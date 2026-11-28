@@ -4,7 +4,7 @@
 // experience by level and gold, dungeons, played with and deaths, play time
 // by day and by zone, play history.
 
-import { invoke, esc, displayName, num, dur, moneyHtml, dayKey, dayRange, shortDay, weekdayDay, clockTime, dayTime, monthName, weekStart, stampHtml, SERIES, state, wireTips } from "../lib.js";
+import { invoke, esc, displayName, num, dur, niceTicks, moneyHtml, dayKey, dayRange, shortDay, weekdayDay, clockTime, dayTime, monthName, weekStart, stampHtml, SERIES, state, wireTips } from "../lib.js";
 import { countMarked, play } from "../motion.js";
 import { goalsSheet } from "./goals-section.js";
 
@@ -58,18 +58,12 @@ export const raceName = (r) => RACE_NAME[r] || String(r || "").replace(/([a-z])(
 export const plural = (n, one, many) => `${num(n)} ${n === 1 ? one : many}`;
 const net = (s) => (s.g || 0) - (s.s || 0);
 
-export function longDur(secs) {
-  secs = Math.max(0, Math.floor(secs));
-  const d = Math.floor(secs / 86400);
-  if (d > 0) return `${d}d ${Math.floor(secs / 3600) % 24}h`;
-  return dur(secs);
-}
+export const longDur = dur;
 
-// A play time as "2h 05m" or "33m", like the site.
+// A play time to the minute: "33m", "2h 5m", "3d 2h".
 export function playTime(secs) {
   const m = Math.round(secs / 60);
-  if (m < 60) return `${m}m`;
-  return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`;
+  return m < 60 ? `${m}m` : dur(m * 60);
 }
 
 export const signed = (c) => (c ? `<span class="${c > 0 ? "pos" : "neg"}">${moneyHtml(c, true)}</span>` : `<span class="neg">${moneyHtml(0)}</span>`);
@@ -92,7 +86,7 @@ function rank(rows) {
   return `<ol class="rank">${rows
     .map(
       (r) => `<li><span class="who"${r.color ? ` style="color:${r.color}"` : ""} title="${esc(r.who)}">${esc(r.who)}</span>
-        <span class="val">${r.val}</span><div class="track"><i style="width:${Math.max(1, (r.v / top) * 100)}%"></i></div></li>`
+        <span class="val">${r.val}</span><div class="track"><i style="width:${r.v > 0 ? Math.max(1, (r.v / top) * 100) : 0}%"></i></div></li>`
     )
     .join("")}</ol>`;
 }
@@ -137,14 +131,14 @@ function week(ov) {
   );
   const zones = new Set(rows.flatMap((s) => Object.keys(s.zn || {})));
   const cells = [
-    ["Played", playTime(sum.p)],
-    ["Dungeons", num(sum.r)],
-    ["Quests", num(sum.q)],
-    ["Gold", signed(sum.gold)],
-    ["Zones", num(zones.size)],
-  ];
-  return `<section class="week"><div><h2>This week</h2><p>${range}</p></div>${cells
-    .map(([l, v]) => `<dl><dt>${l}</dt><dd>${v}</dd></dl>`)
+    [sum.p, "Played", playTime(sum.p)],
+    [sum.r, "Dungeons", num(sum.r)],
+    [sum.q, "Quests", num(sum.q)],
+    [sum.gold, "Gold", signed(sum.gold)],
+    [zones.size, "Zones", num(zones.size)],
+  ].filter(([n]) => n);
+  return `<section class="week" style="grid-template-columns:minmax(0,1.25fr) repeat(${Math.max(1, cells.length)},minmax(0,1fr))"><div><h2>This week</h2><p>${range}</p></div>${cells
+    .map(([, l, v]) => `<dl><dt>${l}</dt><dd>${v}</dd></dl>`)
     .join("")}</section>`;
 }
 
@@ -161,13 +155,17 @@ function levelRows(ov) {
     .filter(([, l]) => (xpMode === "xp" ? levelXp(l) : l.complete ? l.p : 0) > 0);
 }
 
-function axisXp(v) {
-  return v >= 2000 ? `${Math.round(v / 1000)}k XP` : `${num(v)} XP`;
-}
+const axisXp = (v) => num(v);
 
 export function axisTime(secs) {
   const h = secs / 3600;
-  return h >= 1 ? `${h >= 10 ? Math.round(h) : h.toFixed(1)}h` : `${Math.max(1, Math.round(secs / 60))}m`;
+  return h >= 1 ? `${Math.round(h * 10) / 10}h` : `${Math.round(secs / 60)}m`;
+}
+
+// Round ticks, top first, for a duration axis: the unit is hours from an hour up, else minutes.
+export function timeTicks(maxSecs) {
+  const unit = maxSecs >= 3600 ? 3600 : 60;
+  return niceTicks(maxSecs / unit, 3).map((v) => v * unit);
 }
 
 function levelRead(level, l, last) {
@@ -198,7 +196,9 @@ function levelsChart(ov, focus = false) {
     return mod(cls, title, empty(text), head);
   }
   const total = (l) => (xpMode === "xp" ? levelXp(l) : l.p);
-  const max = Math.max(...levels.map(([, l]) => total(l)), 1);
+  const peak = Math.max(...levels.map(([, l]) => total(l)), 1);
+  const ticks = xpMode === "xp" ? niceTicks(peak, 3) : timeTicks(peak);
+  const max = ticks[ticks.length - 1] || peak;
   const bars = levels
     .map(([, l]) => {
       const segs =
@@ -210,18 +210,13 @@ function levelsChart(ov, focus = false) {
       return `<div class="xp-bar">${segs}</div>`;
     })
     .join("");
-  const many = levels.length > 14;
-  let lastTick = -9;
-  const ticks = levels
-    .map(([lv], i) => {
-      // Past 14 bars, label every fifth level and the last one if it has room.
-      const show = many ? lv % 5 === 0 || i === 0 || (i === levels.length - 1 && lv - lastTick >= 3) : true;
-      if (show) lastTick = lv;
-      return `<span>${show ? lv : ""}</span>`;
-    })
+  const many = levels.length > 12;
+  const xTicks = levels
+    .map(([lv], i) => `<span>${!many || lv === 1 || lv % 10 === 0 || (i === 0 && levels.length < 4) ? lv : ""}</span>`)
     .join("");
-  const yTop = xpMode === "xp" ? axisXp(max) : axisTime(max);
-  const yMid = xpMode === "xp" ? axisXp(max / 2) : axisTime(max / 2);
+  const yAxis = [...ticks].reverse().map((v) => `<span>${xpMode === "xp" ? axisXp(v) : v === 0 ? "0" : axisTime(v)}</span>`).join("");
+  const solo = levels.length === 1 ? " solo" : "";
+  const lines = ticks.filter((v) => v > 0).map((v) => `linear-gradient(var(--line), var(--line)) 0 ${((1 - v / max) * 100).toFixed(2)}% / 100% 1px no-repeat`).join(",");
   const key =
     xpMode === "xp"
       ? `<ul class="key">${XP_PARTS.map(([, name, c]) => `<li><i style="background:${c}"></i>${name}</li>`).join("")}</ul>`
@@ -231,9 +226,9 @@ function levelsChart(ov, focus = false) {
     title,
     `<div class="xp">
       <div class="xp-plot">
-        <div class="xp-y"><span>${yTop}</span><span>${yMid}</span><span>0</span></div>
-        <div class="xp-bars" id="xp-bars" tabindex="0">${bars}</div>
-        <div class="xp-x">${ticks}</div>
+        <div class="xp-y">${yAxis}</div>
+        <div class="xp-bars${solo}" id="xp-bars" tabindex="0"${lines ? ` style="background:${lines}"` : ""}>${bars}</div>
+        <div class="xp-x${solo}">${xTicks}</div>
       </div>
       ${key}
       <p class="readout" id="xp-out"></p>
@@ -421,30 +416,36 @@ function capLegacyMod(ov) {
 
 // Dungeons, people, deaths --------------------------------------------------------
 
-function runsMod(ov) {
-  if (!ov.runs.length) return mod("first", "Dungeons and raids", empty("No dungeon or raid runs recorded"));
+function runsMod(ov, cls) {
+  if (!ov.runs.length) return "";
   const rows = ov.runs.slice(0, 5).map((r) => ({ who: r.name, v: r.n, val: plural(r.n, "run", "runs") }));
-  return mod("first", "Dungeons and raids", `${rank(rows)}<p class="total">${plural(ov.runsTotal, "run", "runs")} in total.</p>`);
+  return mod(cls, "Dungeons and raids", `${rank(rows)}<p class="total">${plural(ov.runsTotal, "run", "runs")} in total.</p>`);
 }
 
 function matesMod(ov, cls = "") {
-  if (!ov.mates.length) return mod(cls, "Played with", empty("No group members recorded."));
+  if (!ov.mates.length) return "";
   const rows = ov.mates.slice(0, 4).map((m) => ({
     who: displayName(m.name),
     v: m.p,
     val: `${dur(m.p)} · ${plural(m.n, "session", "sessions")}`,
     color: CLASS_COLOR[m.class] || "",
   }));
-  return mod(cls, "Played with", `${rank(rows)}<p class="total">Time grouped together, from when a player joins and leaves your group.</p>`);
+  return mod(cls, "Played with", rank(rows));
 }
 
-function deathsMod(ov) {
-  if (!ov.deathZones.length) return mod("last", "Deaths", empty("No deaths recorded"));
+function deathsMod(ov, cls) {
+  if (!ov.deathZones.length) return "";
   const rows = ov.deathZones.slice(0, 4).map((z) => ({ who: z.name, v: z.n, val: num(z.n) }));
   const all = ov.deathZones.reduce((a, z) => a + z.n, 0);
   const k = ov.killers[0];
   const killer = k ? ` Killed most by <span class="who">${esc(k.name)}</span>, ${plural(k.n, "time", "times")}.` : "";
-  return mod("last", "Deaths", `${rank(rows)}<p class="total">${plural(all, "death", "deaths")}.${killer}</p>`);
+  return mod(cls, "Deaths", `${rank(rows)}<p class="total">${plural(all, "death", "deaths")}.${killer}</p>`);
+}
+
+function trio(ov) {
+  const have = [[runsMod, ov.runs.length], [matesMod, ov.mates.length], [deathsMod, ov.deathZones.length]].filter(([, n]) => n).map(([f]) => f);
+  const span = ["w12", "w6", ""][have.length - 1] ?? "";
+  return have.map((f, i) => f(ov, `${span} ${i === 0 ? "first" : ""} ${i === have.length - 1 ? "last" : ""}`.replace(/\s+/g, " ").trim())).join("");
 }
 
 // Play time by day and by zone -----------------------------------------------------
@@ -688,6 +689,7 @@ function importedMod(ov) {
         )
         .join("")}</div>`
     : "";
+  if (!dayRows && !itemRows) return "";
   return mod("w12 first last", `Imported from ${source}`, lines + dayRows + itemRows);
 }
 
@@ -743,7 +745,7 @@ function draw(body, refocus = null) {
     ? `${header(ov, name)}${capStrip(ov)}
     <div class="sheet">${lifetimeMod(life)}${goldMod(ov, "first", true)}${capRunsMod(ov)}${capDeathsMod(ov)}${capRepMod(ov)}${capLegacyMod(ov)}${matesMod(ov, "last")}${heatMod(ov)}${zonesMod(ov)}${sawLevelling ? levelsChart(ov, true) : ""}${historyMod(ov)}${importedMod(ov)}</div>`
     : `${header(ov, name)}${week(ov)}
-    <div class="sheet">${lifetimeMod(life)}${levelsChart(ov)}${goldMod(ov)}${runsMod(ov)}${matesMod(ov)}${deathsMod(ov)}${heatMod(ov)}${zonesMod(ov)}${historyMod(ov)}${importedMod(ov)}</div>`;
+    <div class="sheet">${lifetimeMod(life)}${levelsChart(ov)}${goldMod(ov)}${trio(ov)}${heatMod(ov)}${zonesMod(ov)}${historyMod(ov)}${importedMod(ov)}</div>`;
   body.insertAdjacentHTML("beforeend", layout);
   if (goals) body.querySelector(".ch-head").after(goalsSheet(goals, ov, eta, { atCap: atLevelCap(ov), onOpen: selectShownCharacter }));
   countMarked(body, { num, money: moneyHtml });

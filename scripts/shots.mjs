@@ -72,7 +72,7 @@ try {
   const names = (values.views ?? "system,sessions,run,feats,character,character/class,character/talents,stats,map,loot,characters,items,activity,log,data,settings").split(",");
   if (values.char) await app.evaluate(`(() => { const s = document.querySelector("#char"); s.value = ${JSON.stringify(values.char)}; s.dispatchEvent(new Event("change")); })()`);
   if (values.width) await app.viewport(Number(values.width), 900);
-  await app.evaluate(`(() => { const s = document.createElement("style"); s.textContent = "html,body,#shell,main,#body{height:auto!important;overflow:visible!important}body{display:block!important}#shell{display:flex}"; document.head.append(s); })()`);
+  await app.evaluate(`(() => { const s = document.createElement("style"); s.textContent = "html,body,#shell,main,#body{height:auto!important;overflow:visible!important}body{display:block!important}#shell{display:flex;min-height:calc(100vh - 54px)}#nav{min-height:calc(100vh - 54px)}"; document.head.append(s); })()`);
   for (const name of names) {
     const hash = name === "run" ? run : name;
     const asked = Date.now();
