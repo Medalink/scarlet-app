@@ -26,8 +26,10 @@ export const elText = (tag, cls, text) => {
 
 export const $ = (sel) => document.querySelector(sel);
 
-// Appends to `into` why OpenMap's art is not there, from `map_art_status`: the WoW folder, then
-/** _forever_ in it, then OpenMap in its AddOns; the addon's page is linked where installing it helps. */
+/**
+ * Appends to `into` why OpenMap's art is not there, from `map_art_status`: the WoW folder, then
+ * _forever_ in it, then OpenMap in its AddOns; the addon's page is linked where installing it helps.
+ */
 export function openmapMissing(into, st) {
   const link = () => {
     const a = el("button", "linkbtn", "github.com/openmap-world/openmap");
