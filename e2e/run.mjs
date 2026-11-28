@@ -11,7 +11,7 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { launch } from "./cdp.mjs";
 import zlib from "node:zlib";
-import { AHEAD, ALT, BLANK, CHARACTERS, CLOCK, ELWYNN, FISHING, GRIND, GUILD, LATER, RESET, WESTFALL, collapsed, dropped, fullBuild, german, relabeled, upgraded, lineCount, savedVariablesPath, trades, writeBlank, writeClock, writeFullBuild, writeGrind, writeReset, writeTrades, writeWow } from "./scenario.mjs";
+import { AHEAD, ALT, BLANK, CHARACTERS, CLOCK, ELWYNN, FISHING, GRIND, GUILD, JOINED, LATER, RESET, WESTFALL, collapsed, dropped, fullBuild, german, relabeled, upgraded, lineCount, savedVariablesPath, trades, writeBlank, writeClock, writeFullBuild, writeGrind, writeJoined, writeReset, writeTrades, writeWow } from "./scenario.mjs";
 
 const REPO = path.resolve(import.meta.dirname, "..");
 const WINDOWS = process.platform === "win32";
@@ -244,6 +244,10 @@ function expectRestartAfterClockAhead(ctx, s, { withoutHighestQTime }) {
   expectNoMatch("the export after that", last.out, /started over/);
   expectEqual("files after the export after that", keptFiles(s, AHEAD.name), now);
 }
+
+const longHaul = (site) => JSON.parse(read(path.join(site.out, JOINED.name, "feats.json"))).values["long-haul"];
+
+const newestRecapEarned = (site) => JSON.parse(read(path.join(site.out, JOINED.name, "recaps.json")))[0].feats.earned.map((e) => e.key);
 
 const csvRows = (file) => read(file).trim().split(/\r?\n/).length - 1;
 
@@ -690,6 +694,56 @@ const CHECKS = [
       const { marks, key } = storeMarks(s, BLANK.account);
       expectEqual("the marks after the upgrade", [marks[key], marks[`${key}#t`], marks[`${key}#addons#t`]], [2, 1795807200, 1795800000]);
       expectEqual("restart marks after the upgrade", Object.keys(marks).filter((k) => /#(?:restart|since)$/.test(k)), []);
+    },
+  },
+  {
+    lane: "cli",
+    name: "two loads a reload joined count as one session for Long Haul, and a later two-hour session earns no new tier",
+    run(ctx) {
+      const s = ctx.site.joined;
+      writeJoined(s.wow, "reloaded");
+      const first = exportSite(ctx, s);
+      expectEqual("exit code of the first export", first.code, 0);
+      expectMatch("the first export", first.out, /Joined-Fixture: 2 chunks/);
+      expectEqual("two-hour sessions after 1 h and a /reload and 1 h", longHaul(s), 1);
+      expectEqual("what the export kept of the joined rows", JSON.parse(read(path.join(s.out, JOINED.name, "joins.json"))), { 1796000000: 1796000000, 1796003610: 1796000000 });
+      const feats = read(path.join(s.wow, "_forever_", "Interface", "AddOns", "ScarletData", "Feats.lua"));
+      expectMatch("Feats.lua counts the joined session", feats, /\["long-haul"\] = \{ v = 1,/);
+
+      writeJoined(s.wow, "later");
+      const later = exportSite(ctx, s);
+      expectEqual("exit code of the later export", later.code, 0);
+      expectMatch("the later export", later.out, /Joined-Fixture: 1 chunks/);
+      expectEqual("two-hour sessions after a single two-hour session as well", longHaul(s), 2);
+      expectEqual("feats earned by the two-hour session", newestRecapEarned(s).filter((key) => key === "long-haul"), []);
+    },
+  },
+  {
+    lane: "cli",
+    name: "loads the addon left unmarked keep counting one by one",
+    run(ctx) {
+      const s = ctx.site.joinedOld;
+      writeJoined(s.wow, "reloaded", { marked: false });
+      expectEqual("exit code of the export", exportSite(ctx, s).code, 0);
+      expectEqual("two-hour sessions after two unmarked one-hour loads", longHaul(s), 0);
+      if (fs.existsSync(path.join(s.out, JOINED.name, "joins.json"))) throw mismatch("joins.json for rows without o", "no file", "a file");
+      writeJoined(s.wow, "later", { marked: false });
+      expectEqual("exit code of the later export", exportSite(ctx, s).code, 0);
+      expectEqual("two-hour sessions once a single one is recorded", longHaul(s), 1);
+      expectEqual("feats earned by that session", newestRecapEarned(s).filter((key) => key === "long-haul"), ["long-haul"]);
+    },
+  },
+  {
+    lane: "cli",
+    name: "a SavedVariables file with a signed exponent in a number is read",
+    run(ctx) {
+      const s = ctx.site.floats;
+      writeJoined(s.wow, "reloaded", { floats: true });
+      const run = exportSite(ctx, s);
+      expectEqual("exit code of the export", run.code, 0);
+      expectNoMatch("the export", run.out + run.err, /skipping|bad number/);
+      expectMatch("the export", run.out, /Joined-Fixture: 2 chunks/);
+      expectEqual("two-hour sessions", longHaul(s), 1);
     },
   },
   {
@@ -1621,7 +1675,7 @@ async function main() {
   const dir = given.keep ? path.resolve(given.keep) : fs.mkdtempSync(path.join(os.tmpdir(), "scarlet-lane-"));
   fs.mkdirSync(dir, { recursive: true });
   const website = await listenWebsite();
-  const ctx = { dir, cli, exe, website, keep: Boolean(given.keep), app: null, grind: null, full: null, trades: null, now: Date.now(), site: { cli: site(path.join(dir, "cli")), app: site(path.join(dir, "app")), motion: site(path.join(dir, "motion")), grind: site(path.join(dir, "grind")), full: site(path.join(dir, "full")), trades: site(path.join(dir, "trades")), reset: site(path.join(dir, "reset")), legacy: site(path.join(dir, "legacy")), restart: site(path.join(dir, "restart")), clock: site(path.join(dir, "clock")), ahead: site(path.join(dir, "ahead")), aheadOld: site(path.join(dir, "aheadold")), blank: site(path.join(dir, "blank")), upload: site(path.join(dir, "upload")) } };
+  const ctx = { dir, cli, exe, website, keep: Boolean(given.keep), app: null, grind: null, full: null, trades: null, now: Date.now(), site: { cli: site(path.join(dir, "cli")), app: site(path.join(dir, "app")), motion: site(path.join(dir, "motion")), grind: site(path.join(dir, "grind")), full: site(path.join(dir, "full")), trades: site(path.join(dir, "trades")), reset: site(path.join(dir, "reset")), legacy: site(path.join(dir, "legacy")), restart: site(path.join(dir, "restart")), clock: site(path.join(dir, "clock")), ahead: site(path.join(dir, "ahead")), aheadOld: site(path.join(dir, "aheadold")), blank: site(path.join(dir, "blank")), joined: site(path.join(dir, "joined")), joinedOld: site(path.join(dir, "joinedold")), floats: site(path.join(dir, "floats")), upload: site(path.join(dir, "upload")) } };
   writeWow(ctx.site.cli.wow);
 
   let result = { failed: 1, seconds: 0 };

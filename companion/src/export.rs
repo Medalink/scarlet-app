@@ -12,6 +12,7 @@ use crate::foreverfishing;
 use crate::import;
 use crate::importarchive::Archive;
 use crate::inventory::{self, Inventory};
+use crate::joins;
 use crate::lua::{self, Lua};
 use crate::marks::{self, Cursor, Seen};
 use crate::mastercraft;
@@ -403,6 +404,9 @@ pub fn export_new_all(wows: &[PathBuf], out: &Path) -> Result<bool, Box<dyn Erro
             eprintln!("scarlet: {name}: overview: {e}");
         }
         write_inventory(&dir, name, &evs);
+        if let Some(rows) = addon.get(name) {
+            record_joins(&dir, rows);
+        }
         write_recaps(&dir, name, &evs);
         if let Some(rows) = addon.get(name) {
             crosscheck(name, &ov, rows);
@@ -421,6 +425,20 @@ pub fn export_new_all(wows: &[PathBuf], out: &Path) -> Result<bool, Box<dyn Erro
             "{name}: {} addon chunks, {} addon lines, {size} bytes (.scl)",
             run.chunks, run.events
         );
+    }
+
+    let mut rejoined = false;
+    for (name, rows) in &addon {
+        let dir = out.join(name);
+        if runs.contains_key(name) || !dir.join("payloads").is_dir() || !record_joins(&dir, rows) {
+            continue;
+        }
+        if let Ok(evs) = load_events(&dir, name)
+            && !evs.is_empty()
+        {
+            write_recaps(&dir, name, &evs);
+        }
+        rejoined = true;
     }
 
     let mut touched: Vec<String> = runs.keys().cloned().collect();
@@ -460,7 +478,8 @@ pub fn export_new_all(wows: &[PathBuf], out: &Path) -> Result<bool, Box<dyn Erro
         }
     }
     save_state(&state_path, &state)?;
-    let wrote = !runs.is_empty() || !addon_runs.is_empty() || fishing_wrote || counts_wrote;
+    let wrote =
+        !runs.is_empty() || !addon_runs.is_empty() || fishing_wrote || counts_wrote || rejoined;
     if runs.is_empty() && addon_runs.is_empty() {
         let fail = if bad > 0 {
             format!(", {bad} chunk(s) failed to decode")
@@ -555,7 +574,7 @@ fn write_recaps(dir: &Path, name: &str, evs: &[archive::Event]) {
         code: e.code.as_str(),
         fields: e.fields.as_slice(),
     }));
-    let (recaps, tallies) = recap::for_character(name, &log);
+    let (recaps, tallies) = recap::for_character(name, &log, &joins::Joins::read(dir));
     let saved = featscore::saved(&featscore::score(&tallies));
     for (file, text) in [
         ("recaps.json", serde_json::to_string(&recaps)),
@@ -1149,6 +1168,7 @@ struct AddonRow {
     g: i64,
     s: i64,
     r: i64,
+    o: Option<i64>,
 }
 
 fn addon_rows(db: &Lua, into: &mut BTreeMap<String, Vec<AddonRow>>) {
@@ -1178,7 +1198,22 @@ fn addon_rows(db: &Lua, into: &mut BTreeMap<String, Vec<AddonRow>>) {
                 g: n("g"),
                 s: n("s"),
                 r: n("r"),
+                o: row.get("o").and_then(Lua::as_num).map(|v| v.round() as i64),
             });
+        }
+    }
+}
+
+fn record_joins(dir: &Path, rows: &[AddonRow]) -> bool {
+    let mut joins = joins::Joins::read(dir);
+    if !joins.add(rows.iter().filter_map(|r| Some((r.t, r.o?)))) {
+        return false;
+    }
+    match write_atomic(&dir.join(joins::FILE), &joins.text()) {
+        Ok(()) => true,
+        Err(e) => {
+            eprintln!("scarlet: {}: {e}", dir.join(joins::FILE).display());
+            false
         }
     }
 }

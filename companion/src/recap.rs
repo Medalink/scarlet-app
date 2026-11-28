@@ -1450,7 +1450,11 @@ fn for_addon(mut r: SessionRecap) -> SessionRecap {
 
 /// The recaps the addon keeps for one character, newest first: its eight newest sessions of a minute or more, each
 /// without `route.legs` and `own`, and with the lists of `top` cut to five.
-pub fn for_character(character: &str, log: &Log) -> (Vec<SessionRecap>, Vec<Tally>) {
+pub fn for_character(
+    character: &str,
+    log: &Log,
+    joins: &crate::joins::Joins,
+) -> (Vec<SessionRecap>, Vec<Tally>) {
     let names = log.names();
     let sessions = log.sessions();
     let facts = Facts {
@@ -1459,7 +1463,8 @@ pub fn for_character(character: &str, log: &Log) -> (Vec<SessionRecap>, Vec<Tall
         names: &names,
         sessions: &sessions,
     };
-    let all = tallies(&facts);
+    let mut all = tallies(&facts);
+    joins.apply(&mut all);
     let mut spans: Vec<(i64, i64)> = sessions
         .iter()
         .copied()
@@ -1515,6 +1520,8 @@ pub fn recaps_lua(chars: &[(String, Vec<serde_json::Value>)], made: i64) -> Stri
 #[derive(Clone)]
 pub struct Tally {
     pub start: i64,
+    /// The key of the first load of the session this load belongs to; `start` for a load that no reload joined.
+    pub origin: i64,
     pub played: i64,
     pub counters: BTreeMap<&'static str, i64>,
     /// Casts by spell name in lower case.
@@ -1535,6 +1542,7 @@ pub fn tally(f: &Facts, span: (i64, i64)) -> Tally {
     let (s, done) = scan(f, &[span], false);
     Tally {
         start: span.0 / 1000,
+        origin: span.0 / 1000,
         played: done.played,
         counters: counters(&s),
         casts: s.casts_by_spell,

@@ -4,6 +4,7 @@
 use crate::session_groups::{SessionMode, groups};
 use crate::store::{Row, Store};
 use scarlet::goals::{Goals, Pace, Row as Run};
+use scarlet::joins::Joins;
 use scarlet::recap::Tally;
 use scarlet::recap::{Events, Facts, Rec};
 pub use scarlet::recap::{SessionRecap, Title};
@@ -128,7 +129,11 @@ pub fn tallies(st: &Store, ch: u32) -> Arc<Vec<Tally>> {
     if let Some(done) = st.tallies().get(&ch) {
         return done.clone();
     }
-    let made = Arc::new(with_facts(st, ch, false, scarlet::recap::tallies));
+    let mut tallies = with_facts(st, ch, false, scarlet::recap::tallies);
+    if let Some(name) = st.chars.get(ch as usize) {
+        Joins::read(&st.data_dir.join(name)).apply(&mut tallies);
+    }
+    let made = Arc::new(tallies);
     st.tallies().insert(ch, made.clone());
     made
 }

@@ -478,7 +478,14 @@ const text = (lines) => {
   });
 };
 
+class Raw {
+  constructor(source) {
+    this.source = source;
+  }
+}
+
 const lua = (value, depth = 0) => {
+  if (value instanceof Raw) return value.source;
   if (typeof value === "number") return String(value);
   if (typeof value === "string") return '"' + value.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n") + '"';
   const pad = "\t".repeat(depth + 1);
@@ -616,6 +623,46 @@ export function writeWow(wow, { later = false } = {}) {
   fs.mkdirSync(path.dirname(charFile), { recursive: true });
   fs.writeFileSync(charFile, FISHING.char);
   fs.writeFileSync(path.join(account, "SavedVariables", "TheFishingLog.lua"), FISHING.account);
+  fs.mkdirSync(path.join(wow, "_forever_", "Interface", "AddOns", "Scarlet"), { recursive: true });
+  return wow;
+}
+
+const JOINED_START = 1796000000;
+const joinedSession = (start, seconds) =>
+  session(start, [
+    [0, "S", "1.15.8", "WARRIOR", "Human", 5, "Alliance", "0.9.0", 1, "Forever", 1, 11508, 5, 3600, 3843, 60],
+    [1, "Z", ELWYNN, 0, "none", 0, "Elwynn Forest", "Goldshire"],
+    [seconds, "ES"],
+  ]);
+
+/**
+ * A character who played two hours as two loads with a /reload ten seconds apart, then one two-hour session a day later.
+ * The addon's rows of the two loads carry `o`, the key of the first; the row ring the later file holds has forgotten them.
+ */
+export const JOINED = {
+  name: "Joined-Fixture",
+  account: "E2EJOINED",
+  loads: [joinedSession(JOINED_START, 3600), joinedSession(JOINED_START + 3610, 3600)],
+  single: joinedSession(JOINED_START + 86400, 7200),
+};
+
+/**
+ * Writes the World of Warcraft folder of `JOINED`: the two loads, and with `stage` "later" the two-hour session as well.
+ * `marked` false leaves `o` off the rows (what the addon wrote before it joined loads); `floats` adds a `resume` table
+ * with the raw floats the addon's saved state holds, `1e-05` and `-2.5E+3`.
+ */
+export function writeJoined(wow, stage, { marked = true, floats = false } = {}) {
+  const sessions = stage === "later" ? [...JOINED.loads, JOINED.single] : JOINED.loads;
+  const chunks = sessions.map((s, i) => chunk(i + 1, JOINED.name, s.start, text(s.lines), i % 2 ? "txt" : "d64"));
+  const rows =
+    stage === "later"
+      ? [{ t: JOINED.single.start, p: 7200 }]
+      : JOINED.loads.map((s) => ({ t: s.start, p: 3600, ...(marked ? { o: JOINED_START } : {}) }));
+  const character = { v: 1, ov: { sess: rows } };
+  if (floats) character.resume = { c: JOINED.name, at: JOINED_START + 3600, g: new Raw("1e-05"), drift: new Raw("-2.5E+3") };
+  const file = savedVariablesPath(wow, JOINED);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, ["", `ScarletDB = ${lua({ v: 1, seq: chunks.length, chunks, buf: [], chars: { [JOINED.name]: character } })}`, ""].join("\n"));
   fs.mkdirSync(path.join(wow, "_forever_", "Interface", "AddOns", "Scarlet"), { recursive: true });
   return wow;
 }

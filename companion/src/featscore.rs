@@ -157,6 +157,17 @@ fn cast_count(spells: &[String], casts: &HashMap<String, i64>) -> i64 {
     named + matched
 }
 
+fn per_session<'a>(
+    loads: impl Iterator<Item = &'a Tally>,
+    of: impl Fn(&Tally) -> i64,
+) -> impl Iterator<Item = i64> {
+    let mut sessions: BTreeMap<i64, i64> = BTreeMap::new();
+    for t in loads {
+        *sessions.entry(t.origin).or_default() += of(t);
+    }
+    sessions.into_values()
+}
+
 fn value(feat: &CatalogFeat, class: &str, tallies: &[Tally]) -> f64 {
     let live = feat.live.as_ref().expect("computable feats are live");
     let per = live.per.unwrap_or(1.0);
@@ -167,11 +178,18 @@ fn value(feat: &CatalogFeat, class: &str, tallies: &[Tally]) -> f64 {
     };
     match live.kind {
         "counter" => held().map(|t| sum(t, live.keys)).sum::<i64>() as f64 / per,
-        "session" => held().map(|t| sum(t, live.keys)).max().unwrap_or(0) as f64 / per,
+        "session" => {
+            per_session(held(), |t| sum(t, live.keys))
+                .max()
+                .unwrap_or(0) as f64
+                / per
+        }
         "level" if feat.key == "unbroken" => unbroken(tallies),
         "level" => tallies.iter().map(|t| t.level[1]).max().unwrap_or(0) as f64,
         "clock" => match live.once_at {
-            Some(at) => held().filter(|t| t.played as f64 >= at).count() as f64,
+            Some(at) => per_session(held(), |t| t.played)
+                .filter(|played| *played as f64 >= at)
+                .count() as f64,
             None => held().map(|t| t.played).sum::<i64>() as f64 / per,
         },
         "cast" => {

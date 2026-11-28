@@ -19,6 +19,7 @@ pub mod goals;
 pub mod import;
 pub mod importarchive;
 pub mod inventory;
+pub mod joins;
 pub mod legacy;
 pub mod lifetime;
 pub mod loot;
