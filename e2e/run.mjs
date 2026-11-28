@@ -11,7 +11,7 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { launch } from "./cdp.mjs";
 import zlib from "node:zlib";
-import { AHEAD, ALT, BLANK, CHARACTERS, CLOCK, ELWYNN, FISHING, GRIND, GUILD, LATER, RESET, WESTFALL, collapsed, dropped, fullBuild, german, upgraded, lineCount, savedVariablesPath, trades, writeBlank, writeClock, writeFullBuild, writeGrind, writeReset, writeTrades, writeWow } from "./scenario.mjs";
+import { AHEAD, ALT, BLANK, CHARACTERS, CLOCK, ELWYNN, FISHING, GRIND, GUILD, LATER, RESET, WESTFALL, collapsed, dropped, fullBuild, german, relabeled, upgraded, lineCount, savedVariablesPath, trades, writeBlank, writeClock, writeFullBuild, writeGrind, writeReset, writeTrades, writeWow } from "./scenario.mjs";
 
 const REPO = path.resolve(import.meta.dirname, "..");
 const WINDOWS = process.platform === "win32";
@@ -1453,6 +1453,23 @@ const CHECKS = [
       expectEqual("how many skills the goals command reports and which of them are unlearned", goals.map(([, gone]) => gone).sort(), [false, false, true]);
       const roster = JSON.parse(await app.evaluate(`(async () => JSON.stringify((await (await import("/bridge.js")).invoke("roster")).chars.find((c) => c.name === ${JSON.stringify(character.name)}).professions.map((p) => p.name)))()`));
       expectEqual("the roster's professions leave out the unlearned one under either name", roster.filter((n) => n === "Alchemy" || n === "Alchimie"), []);
+    },
+  },
+  {
+    lane: "app",
+    name: "a skill the client renamed between reads stays learned, shows once, and stays on the roster",
+    async run(ctx) {
+      const app = await tradesApp(ctx);
+      const character = relabeled(ctx.now);
+      const goals = await tradesSkills(app, `skills.map((s) => [s.name, Boolean(s.unlearned)]).sort()`, character.name);
+      expectEqual("the skills of the goals command", goals, [["Mining", false], ["Swords", false]]);
+      await selectCharacter(app, character.name);
+      await open(app, "character", /Mining/, /Select a character/);
+      const groups = await skillGroups(app);
+      expectEqual("a group for unlearned skills", groups.Unlearned, undefined);
+      expectEqual("the professions drawn", groups.Professions.map((r) => r.split(" ")[0]), ["Mining"]);
+      const roster = JSON.parse(await app.evaluate(`(async () => JSON.stringify((await (await import("/bridge.js")).invoke("roster")).chars.find((c) => c.name === ${JSON.stringify(character.name)}).professions.map((p) => p.name)))()`));
+      expectEqual("the roster's professions", roster, ["Mining"]);
     },
   },
   {

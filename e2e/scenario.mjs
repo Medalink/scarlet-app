@@ -411,6 +411,31 @@ export const german = (now = Date.now()) => ({
   ],
 });
 
+const relabeledSession = (start, name, rank) =>
+  session(start, [
+    [0, "S", "1.15.8", "WARRIOR", "Human", 20, "Alliance", "0.9.0", 1, "Forever", 1, 11508, 5, 3600, 3843, 60],
+    [1, "Z", ELWYNN, 0, "none", 0, "Elwynn Forest", "Goldshire"],
+    [5, "KN", 43, "Swords", 6],
+    [6, "SL", 43, 90, 200, 0, "s"],
+    [7, "KN", 186, name, 11],
+    [8, "SL", 186, rank, 225, 0, "s"],
+    [60, "ES"],
+  ]);
+
+/**
+ * A character whose client switched language between reads: skill 186 is named Bergbau in the first read and Mining in the
+ * two after it, and every read lists it. Its times are counted back from `now`.
+ */
+export const relabeled = (now = Date.now()) => ({
+  name: "Relabeled-Fixture",
+  account: "E2ERELABELED",
+  sessions: [
+    relabeledSession(noonDaysAgo(now, 5), "Bergbau", 150),
+    relabeledSession(noonDaysAgo(now, 3), "Mining", 170),
+    relabeledSession(noonDaysAgo(now, 1), "Mining", 190),
+  ],
+});
+
 /**
  * A character whose first read after the addon wrote header lines showed the Professions header expanded and empty, who
  * then learned Mining, and whose next read has the Professions header collapsed.
@@ -719,9 +744,9 @@ export function writeFullBuild(wow, now = Date.now()) {
   return wow;
 }
 
-/** Writes a World of Warcraft folder that holds `trades(now)`, `dropped(now)`, `collapsed(now)` and `german(now)`. */
+/** Writes a World of Warcraft folder that holds `trades(now)`, `dropped(now)`, `collapsed(now)`, `german(now)`, `upgraded(now)` and `relabeled(now)`. */
 export function writeTrades(wow, now = Date.now()) {
-  for (const character of [trades(now), dropped(now), collapsed(now), german(now), upgraded(now)]) {
+  for (const character of [trades(now), dropped(now), collapsed(now), german(now), upgraded(now), relabeled(now)]) {
     const file = savedVariablesPath(wow, character);
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, savedVariables(character, null));

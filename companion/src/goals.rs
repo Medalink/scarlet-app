@@ -400,20 +400,30 @@ struct Header {
 #[derive(Default)]
 struct Baseline {
     ms: i64,
-    names: HashSet<String>,
+    ids: HashSet<String>,
     categories: HashSet<i64>,
     changed: HashSet<String>,
     headers: Vec<Header>,
 }
 
+struct Held {
+    rank: i64,
+    max: i64,
+    ms: i64,
+    seq: u64,
+}
+
 #[derive(Default)]
 struct Reading {
     cap: u32,
-    skills: HashMap<String, (i64, i64)>,
-    held_ms: HashMap<String, i64>,
-    own_name: HashMap<String, String>,
+    held: HashMap<String, Held>,
+    reads: u64,
+    kn_lines: u64,
+    own_name: HashMap<String, (u64, String)>,
     category: HashMap<String, i64>,
-    ids: HashMap<String, HashSet<String>>,
+    called: HashMap<String, HashSet<String>>,
+    carriers: HashMap<String, String>,
+    linked_to: HashMap<String, String>,
     header_categories: HashMap<String, HashSet<i64>>,
     gone: HashMap<String, i64>,
     baseline: Option<Baseline>,
@@ -445,8 +455,11 @@ impl Reading {
             "KN" => {
                 let id = field(fields, 0);
                 if !field(fields, 1).is_empty() {
-                    self.own_name
-                        .insert(id.to_string(), field(fields, 1).to_string());
+                    self.kn_lines += 1;
+                    self.own_name.insert(
+                        id.to_string(),
+                        (self.kn_lines, field(fields, 1).to_string()),
+                    );
                 }
                 if let Ok(category) = field(fields, 2).parse::<i64>() {
                     self.category.insert(id.to_string(), category);
@@ -465,27 +478,36 @@ impl Reading {
             }
             "SL" => {
                 let id = field(fields, 0);
-                let known = self.own_name.get(id).cloned().or_else(|| name('k', id));
-                if let Some(n) = known {
-                    self.skills
-                        .insert(n.clone(), (number(fields, 1), number(fields, 2)));
-                    self.held_ms.insert(n.clone(), ms);
-                    self.ids
-                        .entry(n.clone())
-                        .or_default()
-                        .insert(id.to_string());
-                    self.gone.remove(&n);
+                let own = self.own_name.get(id).map(|(_, n)| n.clone());
+                let global = name('k', id);
+                if own.is_some() || global.is_some() {
+                    for n in own.iter().chain(&global) {
+                        self.link(id, n);
+                    }
+                    self.reads += 1;
+                    self.held.insert(
+                        id.to_string(),
+                        Held {
+                            rank: number(fields, 1),
+                            max: number(fields, 2),
+                            ms,
+                            seq: self.reads,
+                        },
+                    );
+                    for member in self.group(id) {
+                        self.gone.remove(&member);
+                    }
                     let baseline = self.baseline.get_or_insert_with(Baseline::default);
                     if field(fields, 4) == "s" {
-                        if baseline.names.is_empty() {
+                        if baseline.ids.is_empty() {
                             baseline.ms = ms;
                         }
                         if let Some(category) = self.category.get(id) {
                             baseline.categories.insert(*category);
                         }
-                        baseline.names.insert(n);
+                        baseline.ids.insert(id.to_string());
                     } else {
-                        baseline.changed.insert(n);
+                        baseline.changed.insert(id.to_string());
                     }
                 }
             }
@@ -549,7 +571,7 @@ impl Reading {
                 .or_default()
                 .extend(&header.categories);
         }
-        if baseline.names.is_empty() {
+        if baseline.ids.is_empty() {
             return;
         }
         let may_hide = |category: i64| {
@@ -569,44 +591,125 @@ impl Reading {
                     .any(|h| !h.collapsed && h.categories.contains(&category))
                 || (!baseline.headers.is_empty() && !may_hide(category))
         };
-        let gone: Vec<String> = self
-            .skills
-            .keys()
-            .filter(|name| !baseline.names.contains(*name) && !baseline.changed.contains(*name))
-            .filter(|name| {
-                self.ids
-                    .get(*name)
-                    .into_iter()
-                    .flatten()
+        let gone: Vec<Vec<String>> = self
+            .groups()
+            .into_iter()
+            .filter(|members| {
+                !members
+                    .iter()
+                    .any(|id| baseline.ids.contains(id) || baseline.changed.contains(id))
+            })
+            .filter(|members| {
+                members
+                    .iter()
                     .filter_map(|id| self.category.get(id))
                     .any(|category| seen(*category))
             })
-            .cloned()
             .collect();
-        for name in gone {
-            self.gone.entry(name).or_insert(baseline.ms);
+        for id in gone.into_iter().flatten() {
+            self.gone.entry(id).or_insert(baseline.ms);
         }
     }
 
-    fn shown_name(&self, f: &Facts, key: &str) -> String {
-        let lowest = self
-            .ids
-            .get(key)
-            .and_then(|ids| ids.iter().min_by_key(|id| (id.len(), id.as_str())));
-        lowest
-            .and_then(|id| f.names.get(&name_key('k', id)).cloned())
-            .unwrap_or_else(|| key.to_string())
+    fn root<'a>(&'a self, id: &'a str) -> &'a str {
+        let mut at = id;
+        while let Some(up) = self.linked_to.get(at) {
+            at = up;
+        }
+        at
+    }
+
+    fn link(&mut self, id: &str, name: &str) {
+        self.called
+            .entry(id.to_string())
+            .or_default()
+            .insert(name.to_string());
+        let carrier = self
+            .carriers
+            .entry(name.to_string())
+            .or_insert_with(|| id.to_string())
+            .clone();
+        let (a, b) = (self.root(id).to_string(), self.root(&carrier).to_string());
+        if a != b {
+            self.linked_to.insert(a, b);
+        }
+    }
+
+    fn group(&self, id: &str) -> Vec<String> {
+        let root = self.root(id);
+        let mut members: Vec<String> = self
+            .held
+            .keys()
+            .filter(|held| self.root(held) == root)
+            .cloned()
+            .collect();
+        members.sort();
+        members
+    }
+
+    fn groups(&self) -> Vec<Vec<String>> {
+        let mut seen = HashSet::new();
+        self.held
+            .keys()
+            .filter(|id| seen.insert(self.root(id)))
+            .map(|id| self.group(id))
+            .collect()
+    }
+
+    fn shown_name(&self, f: &Facts, members: &[String]) -> String {
+        let lowest = members
+            .iter()
+            .min_by_key(|id| (id.len(), id.as_str()))
+            .map_or("", String::as_str);
+        f.names
+            .get(&name_key('k', lowest))
+            .cloned()
+            .or_else(|| {
+                members
+                    .iter()
+                    .filter_map(|id| self.own_name.get(id))
+                    .max_by_key(|(order, _)| *order)
+                    .map(|(_, n)| n.clone())
+            })
+            .or_else(|| {
+                members
+                    .iter()
+                    .filter_map(|id| self.called.get(id))
+                    .flatten()
+                    .min()
+                    .cloned()
+            })
+            .unwrap_or_else(|| lowest.to_string())
     }
 
     fn skills(&self, f: &Facts) -> Vec<Skill> {
         let mut shown = HashSet::new();
         let mut out: Vec<Skill> = Vec::new();
-        for (key, (rank, max)) in &self.skills {
-            let n = self.shown_name(f, key);
+        for members in self.groups() {
+            let Some(last) = members
+                .iter()
+                .filter_map(|id| self.held.get(id))
+                .max_by_key(|held| held.seq)
+            else {
+                continue;
+            };
+            let n = self.shown_name(f, &members);
             shown.insert(n.clone());
-            if *max <= 1 || n.starts_with("Language:") {
+            shown.extend(
+                members
+                    .iter()
+                    .filter_map(|id| self.called.get(id))
+                    .flatten()
+                    .cloned(),
+            );
+            if last.max <= 1 || n.starts_with("Language:") {
                 continue;
             }
+            let gone_by = members
+                .iter()
+                .map(|id| self.gone.get(id).copied())
+                .collect::<Option<Vec<i64>>>()
+                .and_then(|times| times.into_iter().min());
             out.push(Skill {
                 kind: if PROFESSIONS.contains(&n.as_str()) {
                     "profession"
@@ -614,19 +717,15 @@ impl Reading {
                     "weapon"
                 },
                 name: n,
-                rank: *rank,
-                max: *max,
-                unlearned: self.gone.get(key).map(|gone_by| Unlearned {
-                    last_held_ms: self.held_ms.get(key).copied().unwrap_or(*gone_by),
-                    rank: *rank,
-                    max: *max,
-                    gone_by_ms: *gone_by,
+                rank: last.rank,
+                max: last.max,
+                unlearned: gone_by.map(|gone_by_ms| Unlearned {
+                    last_held_ms: last.ms,
+                    rank: last.rank,
+                    max: last.max,
+                    gone_by_ms,
                 }),
-                ids: self
-                    .ids
-                    .get(key)
-                    .map(|ids| ids.iter().cloned().collect())
-                    .unwrap_or_default(),
+                ids: members,
             });
         }
         for (n, (rank, max)) in &self.sheets {
