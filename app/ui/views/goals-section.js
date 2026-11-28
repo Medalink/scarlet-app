@@ -41,7 +41,7 @@ function etaList(eta) {
   return box;
 }
 
-function levelMod(ov, eta, cap, atCap) {
+function levelMod(ov, eta, cap, atCap, cls) {
   const box = el("div", "goal-stack");
   const last = eta.targets[eta.targets.length - 1];
   box.append(goal(ov.level, cap, { size: "lg", eta: !atCap && last ? `Level ${last.level} in ${last.time}` : "" }));
@@ -50,7 +50,7 @@ function levelMod(ov, eta, cap, atCap) {
     else box.append(elText("p", "sc-note", "No experience bar recorded"));
     if (eta.targets.length || eta.basis) box.append(etaList(eta));
   }
-  return mod("w5 first", "Level", box);
+  return mod(cls, "Level", box);
 }
 
 function skillGoals(skills) {
@@ -60,16 +60,17 @@ function skillGoals(skills) {
 }
 
 function skillsMod(skills) {
+  if (!skills.some((s) => s.kind === "profession" || s.kind === "weapon")) return null;
   const kids = [];
   for (const [kind, title] of [["profession", "Professions"], ["weapon", "Weapons and defense"]]) {
     const of = skills.filter((s) => s.kind === kind);
     if (of.length) kids.push(label(title), skillGoals(of));
   }
-  return mod("w7 last", "Skills", ...(kids.length ? kids : [elText("p", "sc-empty", "No skills recorded")]));
+  return mod("w7 last", "Skills", ...kids);
 }
 
 function repsMod(reps, cls) {
-  if (!reps.length) return mod(cls, "Reputation", elText("p", "sc-empty", "No reputation recorded"));
+  if (!reps.length) return null;
   const byTier = new Map();
   for (const r of reps) byTier.set(r.tier, (byTier.get(r.tier) ?? 0) + 1);
   const summary = [...byTier].sort((a, b) => b[0] - a[0]).map(([tier, n]) => `${TIERS[tier]} ${n}`).join(" · ");
@@ -93,11 +94,11 @@ function repsMod(reps, cls) {
   return mod(cls, "Reputation", elText("p", "sc-sub", summary), body);
 }
 
-function legacyMod(legacy) {
+function legacyMod(legacy, cls) {
   const spent = legacy.trees.map((t) => `${t.name} ${t.spent}`).join(" · ");
   const kids = [goal(legacy.earned, legacy.max, { label: "Legacy points earned" }), elText("p", "sc-sub", `Spent: ${spent}`)];
   if (legacy.nodes.length) kids.push(label("Ranks bought"), goalList(legacy.nodes.map((n) => goal(n.rank, n.max, { label: `${n.tree}: ${n.name}`, count: false }))));
-  return mod("w5 last", "Legacy", ...kids);
+  return mod(cls, "Legacy", ...kids);
 }
 
 const fixed = (v) => (v >= 10 ? num(v) : String(Math.round(v * 10) / 10));
@@ -148,8 +149,8 @@ function sessionLevels(ov) {
 }
 
 function recordsMod(records, onOpen, ov) {
-  const body = recordTiles(records, { open: () => onOpen, levels: sessionLevels(ov) }) ?? elText("p", "sc-empty", "No session of 15 minutes recorded yet");
-  return mod("w12 first last", "Records", body);
+  const body = recordTiles(records, { open: () => onOpen, levels: sessionLevels(ov) });
+  return body ? mod("w12 first last", "Records", body) : null;
 }
 
 /**
@@ -164,9 +165,13 @@ export function goalsSheet(g, ov, eta, { atCap, onOpen }) {
   const rows = [];
   if (latest) rows.push(mod("w12 first last", `Latest run, ${shortDay(g.latest.from)}`, latest));
   if (atCap) rows.push(records);
-  rows.push(levelMod(ov, eta, cap, atCap), skillsMod(g.caps.skills), repsMod(g.caps.reps, g.caps.legacy ? "w7 first" : "w12 first last"));
-  if (g.caps.legacy) rows.push(legacyMod(g.caps.legacy));
+  const skills = skillsMod(g.caps.skills);
+  rows.push(levelMod(ov, eta, cap, atCap, skills ? "w5 first" : "w12 first last"));
+  if (skills) rows.push(skills);
+  const reps = repsMod(g.caps.reps, g.caps.legacy ? "w7 first" : "w12 first last");
+  if (reps) rows.push(reps);
+  if (g.caps.legacy) rows.push(legacyMod(g.caps.legacy, reps ? "w5 last" : "w12 first last"));
   if (!atCap) rows.push(records);
-  sheet.append(...rows);
+  sheet.append(...rows.filter(Boolean));
   return sheet;
 }

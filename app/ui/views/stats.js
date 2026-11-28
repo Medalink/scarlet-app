@@ -1,6 +1,6 @@
 // Stats: the character's records, latest pace and trends, then six sections of lifetime facts, each with its charts.
 
-import { invoke, el, elText, esc, stackedBar, dur, num, moneyHtml, lineChart, wireLineCharts, barList, money, state, tile, tiles, fillRow, spark, shortDay, dayRange, displayName } from "../lib.js";
+import { invoke, el, elText, esc, stackedBar, stack, dur, num, moneyHtml, lineChart, wireLineCharts, barList, castRows, money, state, tile, tiles, fillRow, spark, shortDay, dayRange, displayName } from "../lib.js";
 import { play } from "../motion.js";
 import { panel, pair, picker, statLabel } from "./chartkit.js";
 import { mod, recordTiles } from "./goals-section.js";
@@ -13,15 +13,18 @@ const TREND_KEYS = ["xp_h", "gold_h", "kills_h", "quests_h", "deaths_h", "gather
 function show(value) {
   const t = String(value);
   if (/^\d{4,}$/.test(t)) return num(Number(t));
+  const distance = t.match(/^(\d{4,}) (yd|mi)$/);
+  if (distance) return `${num(Number(distance[1]))} ${distance[2]}`;
   const m = t.match(/^(?:(\d+)g)? ?(?:(\d+)s)? ?(?:(\d+)c)?$/);
   if (m && (m[1] || m[3])) return moneyHtml((+m[1] || 0) * 10000 + (+m[2] || 0) * 100 + (+m[3] || 0));
   return esc(t);
 }
 
 function facts(section) {
-  const list = el("dl", "facts");
-  for (const [label, value] of section.cards) list.append(el("div", "", `<dt>${esc(label)}</dt><dd>${show(value)}</dd>`));
-  return list;
+  const list = section.cards.map(([label, value]) => tile(label, show(value), "", { size: "md" }));
+  if (!list.length) return null;
+  const cols = Math.min(4, list.length);
+  return tiles(fillRow(list, cols), cols);
 }
 
 const median = (values) => {
@@ -48,7 +51,7 @@ function goalsSheet({ records, latest, trend, account, who }) {
   const recs = recordTiles(records, { keys: RECORD_KEYS, open: (r) => (account ? openAs(r.character) : null), owner: account ? (r) => displayName(r.character) : null });
   const paces = latest ? paceTiles(latest.paces, latest.played, { keys: PACE_KEYS, cols: 3, onOpen: account && who ? openAs(who) : null }) : null;
   const trends = trendRow(trend);
-  sheet.append(mod("w12 first last", "Records", recs ?? elText("p", "sc-empty", "No session of 15 minutes recorded yet")));
+  if (recs) sheet.append(mod("w12 first last", "Records", recs));
   if (paces) sheet.append(mod("w12 first last", `Latest run, ${shortDay(latest.from)}${account && who ? `, ${displayName(who)}` : ""}`, paces));
   if (trends) sheet.append(mod("w12 first last", "Rates by run", trends));
   return sheet;
@@ -63,48 +66,60 @@ async function history() {
   return a ? { records: a.records, latest: a.latest ?? null, trend: [], account: true, who: a.latest?.character ?? null } : null;
 }
 
+function movementColor(label) {
+  if (/still|stand/i.test(label)) return "var(--m-still)";
+  if (/swim/i.test(label)) return "var(--m-swim)";
+  if (/mount|ride/i.test(label)) return "var(--m-mount)";
+  if (/fly|flight|taxi/i.test(label)) return "var(--m-flight)";
+  return "var(--m-foot)";
+}
+
 function movement(data) {
-  const p = panel("Moving and standing", data.time.length ? stackedBar(data.time.map((t) => [t.label, t.seconds])) : `<div class="empty">No recorded time yet.</div>`);
+  if (!data.time.length) return null;
+  const p = panel("Moving and standing", stackedBar(data.time.map((t) => [t.label, t.seconds, movementColor(t.label)])));
   p.style.marginTop = "16px";
   return p;
 }
 
 function splits(data) {
-  if (!data.splits.length) return null;
+  const rows = data.splits.filter(([a]) => a.seconds > 0);
+  if (!rows.length) return null;
   const q = panel("How the time was spent", "");
-  q.style.marginTop = "12px";
-  for (const [a, b] of data.splits) {
-    const total = a.seconds + b.seconds || 1;
-    const pct = Math.round((a.seconds / total) * 100);
-    q.insertAdjacentHTML(
-      "beforeend",
-      `<div class="split">
-        <div class="split-head"><span>${esc(a.label)} ${dur(a.seconds)}</span><span>${esc(b.label)} ${dur(b.seconds)}</span></div>
-        <div class="split-track" title="${esc(a.label)}: ${pct}%"><div style="width:${pct}%"></div></div>
-      </div>`,
-    );
+  for (const [a, b] of rows) {
+    const rest = [[b.label, b.seconds, "--m-still", dur(b.seconds)]].filter((r) => r[1] > 0);
+    const holder = el("div", "split");
+    holder.append(stack([[a.label, a.seconds, "--s-1", dur(a.seconds)], ...rest], { h: 10 }));
+    q.append(holder);
   }
   return q;
 }
 
+const ranked = (heading, rows, fmt) => {
+  const list = castRows(rows);
+  return list.length ? panel(heading, barList(list, "#ff2d55", fmt)) : null;
+};
+
+const side = (...panels) => {
+  const kept = panels.filter(Boolean);
+  return kept.length ? pair(...kept) : null;
+};
+
+const over = (heading, series, color, fmt) => (series.length ? panel(heading, lineChart(series, color, 150, fmt)) : null);
+
 function chartsFor(title, data, c, tr) {
-  const bars = (heading, rows, color, fmt) => panel(heading, barList(rows, color, fmt));
   switch (title) {
     case "Character":
-      return [panel("Experience over time", lineChart(c.xp, "#ff2d55")), picker("Character stats over time", tr.stats, statLabel, "#ff2d55"), picker("In-game statistics over time", tr.statistics, (s) => s.name, "#ff2d55")];
+      return [over("Experience over time", c.xp, "#ff2d55", num), picker("Character stats over time", tr.stats, statLabel, "#ff2d55"), picker("In-game statistics over time", tr.statistics, (s) => s.name, "#ff2d55")];
     case "Combat":
-      return [
-        pair(bars("Top spells cast", c.spells, "#ff2d55"), bars("Damage by spell", c.damage_spells, "#ff2d55"), bars("Healing by spell", c.healing_spells, "#cdced4")),
-        pair(bars("Killed most", c.kills, "#ff2d55"), bars("What killed you", c.killers, "#cdced4")),
-      ];
+      return [side(ranked("Top spells cast", c.spells), ranked("Damage by spell", c.damage_spells), ranked("Healing by spell", c.healing_spells)), side(ranked("Killed most", c.kills), ranked("What killed you", c.killers))];
     case "Travel and time":
-      return [movement(data), splits(data), pair(bars("Zones by time", c.zones, "#ff2d55", dur))];
+      return [movement(data), splits(data), side(ranked("Time by zone", c.zones, dur))];
     case "Quests and world":
-      return [pair(bars("Top buffs by uptime", c.buffs, "#cdced4", dur), bars("Cast time by spell", c.cast_time, "#ff2d55", dur))];
+      return [side(ranked("Top buffs by uptime", c.buffs, dur), ranked("Cast time by spell", c.cast_time, dur))];
     case "Crafting and loot":
-      return [panel("Gold over time", lineChart(c.money, "#d9b25f", 150, money)), pair(bars("Items gained", c.items_in, "#ff2d55"), bars("Items used or sold", c.items_out, "#cdced4"))];
+      return [over("Gold over time", c.money, "#d9b25f", money), side(ranked("Items gained", c.items_in), ranked("Items used or sold", c.items_out))];
     case "People":
-      return [pair(bars("People grouped with", c.people, "#cdced4", dur), bars("Emotes used", c.emotes, "#ff2d55"))];
+      return [side(ranked("People grouped with", c.people, dur), ranked("Emotes used", c.emotes))];
     default:
       return [];
   }
@@ -115,7 +130,7 @@ const anchor = (title) => `stats-${title.toLowerCase().replace(/[^a-z]+/g, "-")}
 export async function render(body) {
   const [data, c, tr, goals] = await Promise.all([invoke("stats", { ch: state.ch }), invoke("charts", { ch: state.ch }), invoke("trends", { ch: state.ch }), history()]);
   body.innerHTML = "";
-  const jump = el("div", "subnav");
+  const jump = el("div", "subnav sticky");
   body.append(jump);
   if (goals && data.sections.length) body.append(goalsSheet(goals));
   for (const s of data.sections) {
@@ -128,10 +143,23 @@ export async function render(body) {
     jump.append(a);
     const heading = el("h3", "section-title", esc(s.title));
     heading.id = anchor(s.title);
-    body.append(heading, facts(s));
+    body.append(heading);
+    const cards = facts(s);
+    if (cards) body.append(cards);
     for (const node of chartsFor(s.title, data, c, tr)) if (node) body.append(node);
   }
   if (!data.sections.length) body.append(el("div", "empty", "No recorded time yet."));
+  const follow = () => {
+    const links = [...jump.children];
+    let at = 0;
+    data.sections.forEach((s, i) => {
+      const h = body.querySelector(`#${anchor(s.title)}`);
+      if (h && h.getBoundingClientRect().top - body.getBoundingClientRect().top < 80) at = i;
+    });
+    links.forEach((a, i) => a.setAttribute("aria-current", i === at ? "true" : "false"));
+  };
+  body.onscroll = follow;
+  follow();
   wireLineCharts(body);
   play(body);
 }

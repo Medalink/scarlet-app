@@ -77,7 +77,7 @@ function picker(nav, from) {
 }
 
 function head(recap, paces, run, nav, onAll, onWeb) {
-  const box = el("div", "recap-head");
+  const box = el("div", "recap-head recap-top");
   const text = el("div");
   text.append(elText("h1", "sc-title", nav.exact && nav.mode === "day" ? dayOf(recap.start) : recap.title.text), subline(recap, run, nav));
   const records = paces.filter((p) => p.newBest && p.isBest);
@@ -124,12 +124,9 @@ function head(recap, paces, run, nav, onAll, onWeb) {
 }
 
 function routePanel(recap) {
+  if (!recap.route) return null;
   const box = el("div", "sc-panel recap-route");
   box.style.height = "356px";
-  if (!recap.route) {
-    box.append(elText("p", "sc-empty", "No path was recorded."));
-    return box;
-  }
   const span = Math.max(1, recap.end - recap.start);
   const levels = recap.levels.map((l) => ({ frac: Math.min(1, l.at / span) }));
   box.append(routeCard(recap.route, { levels, reveal: true }));
@@ -149,24 +146,22 @@ function tileGrid(recap, paces) {
   if (c.kills && !paced("kills_h")) list.push(tile("Kills", num(c.kills), "", { size: "xl", count: [c.kills, num] }));
   const net = (c.earned ?? 0) - (c.spent ?? 0);
   if ((c.earned || c.spent) && !paced("gold_h")) {
-    list.push(tile("Gold", moneyHtml(net, true), `Earned ${moneyText(c.earned ?? 0)} · spent ${moneyText(c.spent ?? 0)}`, { size: "xl", count: [Math.abs(net), (v) => moneyHtml(Math.sign(net) * v, true)] }));
+    list.push(tile("Gold", moneyHtml(net, true), `Earned ${money(c.earned ?? 0)} · spent ${money(c.spent ?? 0)}`, { size: "xl", count: [Math.abs(net), (v) => moneyHtml(Math.sign(net) * v, true)] }));
   }
-  const yards = (c.foot ?? 0) + (c.walk ?? 0) + (c.mount ?? 0) + (c.swim ?? 0) + (c.fly ?? 0);
-  if (yards) {
-    const modes = [["Swimming", c.swim ?? 0, "--m-swim", "swum"], ["On foot", (c.foot ?? 0) + (c.walk ?? 0), "--m-foot", "on foot"], ["Mounted", (c.mount ?? 0) + (c.fly ?? 0), "--m-mount", "mounted"]].filter((m) => m[1] > 0);
-    const noteOrder = ["on foot", "mounted", "swum"];
-    const note = modes.map(([, yd, , word]) => [word, yd]).sort((a, b) => noteOrder.indexOf(a[0]) - noteOrder.indexOf(b[0])).map(([word, yd]) => `${distanceText(yd)} ${word}`).join(" · ");
-    list.push(tile("Distance", distanceHtml(yards), note, { size: "xl", count: [yards, distanceHtml], extra: stack(modes.map(([n, v, k]) => [n, v, k, distanceText(v)]), { key: false, h: 8 }) }));
-  }
+  const distance = distanceTile(recap);
+  if (distance && recap.route) list.push(distance);
   if (list.length % 2) list[list.length - 1].style.gridColumn = "span 2";
   return list.length ? tiles(list, 2) : null;
 }
 
-function moneyText(copper) {
-  const g = Math.floor(copper / 10000);
-  const s = Math.floor(copper / 100) % 100;
-  const p = copper % 100;
-  return g ? `${num(g)}g ${s}s` : s ? `${s}s ${p}c` : `${p}c`;
+function distanceTile(recap) {
+  const c = recap.counters;
+  const yards = (c.foot ?? 0) + (c.walk ?? 0) + (c.mount ?? 0) + (c.swim ?? 0) + (c.fly ?? 0);
+  if (!yards) return null;
+  const modes = [["Swimming", c.swim ?? 0, "--m-swim", "swum"], ["On foot", (c.foot ?? 0) + (c.walk ?? 0), "--m-foot", "on foot"], ["Mounted", (c.mount ?? 0) + (c.fly ?? 0), "--m-mount", "mounted"]].filter((m) => m[1] > 0);
+  const noteOrder = ["on foot", "mounted", "swum"];
+  const note = modes.map(([, yd, , word]) => [word, yd]).sort((a, b) => noteOrder.indexOf(a[0]) - noteOrder.indexOf(b[0])).map(([word, yd]) => `${distanceText(yd)} ${word}`).join(" · ");
+  return tile("Distance", distanceHtml(yards), note, { size: "xl", count: [yards, distanceHtml], extra: stack(modes.map(([n, v, k]) => [n, v, k, distanceText(v)]), { key: false, h: 8 }) });
 }
 
 function stripPanel(recap) {
@@ -180,42 +175,40 @@ function stripPanel(recap) {
   return panel(top, strip(recap));
 }
 
+function featRow(cat, f, { earned }) {
+  const row = el("div", "lead-feat");
+  const from = f.tier ? cat.thresholds[f.tier - 1] : 0;
+  row.append(crest(cat.glyph, f.tier, { size: 56, progress: earned ? 0 : (f.value - from) / (f.next - from), scope: cat.crest, label: earned ? `${cat.name}, ${TIER_NAMES[f.tier]}` : cat.name }));
+  const text = el("div");
+  const name = el("p", "sc-feat-n");
+  name.append(cat.name);
+  if (f.tier) name.append(tierChip(f.tier, TIER_NAMES[f.tier]));
+  const line = earned ? countText(cat, f.value) : `${countText(cat, f.value)} · ${amount(cat, f.left)} to ${TIER_NAMES[f.tier + 1]}`;
+  text.append(name, elText("p", "sc-feat-d", line));
+  return [row, text];
+}
+
 function featsPanel(recap) {
   const { earned, near } = recap.feats;
-  if (!earned.length && !near.length) return null;
-  const box = panel(heading("Feats this session"));
-  for (const f of earned) {
-    const cat = BY_KEY.get(f.key);
-    if (!cat) continue;
-    const row = el("div", "lead-feat");
-    row.append(crest(cat.glyph, f.tier, { size: 104, scope: cat.crest, label: `${cat.name}, ${TIER_NAMES[f.tier]}` }));
-    const text = el("div");
-    const name = el("p", "sc-feat-n");
-    name.append(cat.name, tierChip(f.tier, TIER_NAMES[f.tier]));
-    text.append(name, elText("p", "sc-feat-d", countText(cat, f.value)));
-    text.append(elText("p", "sc-feat-to", `Earned at ${clockOf(recap.start + f.at)}${f.from ? `, up from ${TIER_NAMES[f.from]}` : ""}`));
-    row.append(text);
-    box.append(row);
-  }
-  if (near.length) {
-    box.append(label("Closest when the session ended"));
-    const list = el("div", "near-feats");
-    for (const f of near) {
-      const cat = BY_KEY.get(f.key);
-      if (!cat) continue;
-      const row = el("div", "lead-feat");
-      const from = f.tier ? cat.thresholds[f.tier - 1] : 0;
-      row.append(crest(cat.glyph, f.tier, { size: 48, progress: (f.value - from) / (f.next - from), scope: cat.crest, label: cat.name }));
-      const text = el("div");
-      const name = el("p", "sc-feat-n");
-      name.append(cat.name);
-      if (f.tier) name.append(tierChip(f.tier, TIER_NAMES[f.tier]));
-      text.append(name, elText("p", "sc-feat-d", `${countText(cat, f.value)} · ${amount(cat, f.left)} to ${TIER_NAMES[f.tier + 1]}`));
+  const known = (list) => list.filter((f) => BY_KEY.get(f.key));
+  const won = known(earned);
+  const closest = known(near);
+  if (!won.length && !closest.length) return null;
+  const title = won.length ? "Feats this session" : "Closest feats";
+  const box = panel(heading(title));
+  const grid = (list, isEarned) => {
+    const ul = el("div", "near-feats");
+    for (const f of list) {
+      const [row, text] = featRow(BY_KEY.get(f.key), f, { earned: isEarned });
+      if (isEarned) text.append(elText("p", "sc-feat-to", `Earned at ${clockOf(recap.start + f.at)}${f.from ? `, up from ${TIER_NAMES[f.from]}` : ""}`));
       row.append(text);
-      list.append(row);
+      ul.append(row);
     }
-    box.append(list);
-  }
+    return ul;
+  };
+  if (won.length) box.append(grid(won, true));
+  if (won.length && closest.length) box.append(label("Closest when the session ended"));
+  if (closest.length) box.append(grid(closest, false));
   return box;
 }
 
@@ -231,11 +224,12 @@ function comparePanel(recap) {
   const grid = el("div", "compare-grid");
   for (const [key, name, show] of METRICS) {
     const s = recap.own.metrics[key];
-    if (!s) continue;
+    if (!s || Object.values(s).every((v) => !v)) continue;
     const round = (v) => Math.round(v * 10) / 10;
     const spread = Object.fromEntries(Object.entries(s).map(([k, v]) => [k, round(v)]));
     grid.append(elText("span", "sc-sub", name), compare(spread, { name, text: show(s.you) }), elText("b", "", show(s.you)));
   }
+  if (!grid.children.length) return null;
   const top = el("div", "recap-head");
   top.append(heading(`Against the last ${recap.own.n} sessions`), legend([["This session", "var(--s-1)"], ["Middle half", "var(--muted)"]]));
   top.lastChild.style.marginLeft = "auto";
@@ -302,6 +296,7 @@ function killedPanel(recap) {
 
 function counts(recap) {
   const c = recap.counters;
+  const lead = recap.route ? null : distanceTile(recap);
   const combatMin = (c.combat ?? 0) / 60;
   const walked = (c.foot ?? 0) + (c.walk ?? 0) + (c.mount ?? 0) + (c.swim ?? 0);
   const steps = Math.round((c.foot ?? 0) / 2.5 + (c.walk ?? 0) / 1.4);
@@ -311,19 +306,17 @@ function counts(recap) {
     ["Damage done", c.damage, combatMin >= 1 ? `${num(c.damage / combatMin)} a minute in combat` : ""],
     ["Damage taken", c.damageTaken, c.damage ? `${Math.round((c.damageTaken / c.damage) * 100)}% of the damage done` : ""],
     ["Healing done", c.healing, ""],
-    ["Steps", steps, "running and walking"],
+    ["Steps", steps, ""],
     ["Quests turned in", c.quests, c.abandoned ? `${num(c.abandoned)} abandoned` : ""],
     ["Items looted", c.loot, ""],
     ["Places discovered", c.discoveries, ""],
     ["NPCs talked to", c.npcTalks, ""],
     ["Time AFK", c.afkTime, ""],
   ].filter((r) => r[1]);
-  if (!list.length) return null;
-  const grid = tiles(
-    list.map(([name, v, note]) => tile(name, name === "Time AFK" ? dur(v) : num(v), note, { size: "md", count: [v, name === "Time AFK" ? dur : num] })),
-    list.length <= 6 ? list.length : Math.min(6, Math.ceil(list.length / 2)),
-  );
-  return grid;
+  if (!list.length && !lead) return null;
+  const cells = list.map(([name, v, note]) => tile(name, name === "Time AFK" ? dur(v) : num(v), note, { size: "md", count: [v, name === "Time AFK" ? dur : num] }));
+  if (lead) cells.unshift(lead);
+  return tiles(cells, cells.length <= 6 ? cells.length : Math.min(6, Math.ceil(cells.length / 2)));
 }
 
 function momentIcon(m) {
@@ -339,8 +332,14 @@ function momentIcon(m) {
   return host;
 }
 
+function featMomentText(m) {
+  const cat = BY_KEY.get(m.feat);
+  if (!cat || !m.tier || !cat.thresholds[m.tier - 1]) return m.text;
+  return `${cat.name}, ${TIER_NAMES[m.tier]}: ${countText(cat, cat.thresholds[m.tier - 1])}`;
+}
+
 function momentRows(recap) {
-  const rows = recap.moments.map((m) => ({ at: m.at, kind: m.kind, text: m.text, feat: m.feat, tier: m.tier }));
+  const rows = recap.moments.map((m) => ({ at: m.at, kind: m.kind, text: m.kind === "feat" ? featMomentText(m) : m.text, feat: m.feat, tier: m.tier }));
   let level = recap.level[0];
   let from = null;
   for (const l of recap.levels) {
@@ -391,7 +390,7 @@ function draw(into, recap, paces, run, nav, onAll, onWeb) {
   into.replaceChildren(head(recap, paces, run, nav, onAll, onWeb));
   const c = recap.counters;
   const totals = {};
-  if (c.earned || c.spent) totals.gold_h = `${money((c.earned ?? 0) - (c.spent ?? 0))} in ${dur(recap.played)} · earned ${moneyText(c.earned ?? 0)} · spent ${moneyText(c.spent ?? 0)}`;
+  if (c.earned || c.spent) totals.gold_h = `${money((c.earned ?? 0) - (c.spent ?? 0))} in ${dur(recap.played)} · earned ${money(c.earned ?? 0)} · spent ${money(c.spent ?? 0)}`;
   const selectRecordCharacter = () => {
     if (state.ch) return;
     const select = document.querySelector("#char");
@@ -405,9 +404,11 @@ function draw(into, recap, paces, run, nav, onAll, onWeb) {
   }
   const lead = el("div", "recap-lead");
   const grid = tileGrid(recap, paces);
-  lead.append(routePanel(recap));
+  const route = routePanel(recap);
+  if (route) lead.append(route);
   if (grid) lead.append(grid);
-  else lead.classList.add("solo");
+  if (!route || !grid) lead.classList.add("solo");
+  if (!route) lead.prepend(elText("p", "sc-empty", "No path was recorded."));
   into.append(lead);
   if (totalXp(recap) || recap.levels.length) {
     const bar = stripPanel(recap);
@@ -415,10 +416,11 @@ function draw(into, recap, paces, run, nav, onAll, onWeb) {
     into.append(bar);
   }
   const rows = [
-    row("two", featsPanel(recap), comparePanel(recap)),
+    row("one", featsPanel(recap)),
+    row("two", comparePanel(recap), momentsPanel(recap)),
     row("three", timePanel(recap), experiencePanel(recap), killedPanel(recap)),
     row("one", counts(recap)),
-    row("two", momentsPanel(recap), lootPanel(recap)),
+    row("one", lootPanel(recap)),
   ];
   for (const r of rows) if (r) into.append(r);
 }

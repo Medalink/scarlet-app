@@ -1,6 +1,6 @@
 // The talents section of Character: the selected character's build as the in-game talent frame, the order points were taken in, and respecs.
 
-import { invoke, el, esc, num, moneyHtml, stampHtml, state, goal, stack, tile, tiles } from "../lib.js";
+import { invoke, el, esc, num, moneyHtml, stampHtml, goal, stack, tile, tiles, shownCharacter } from "../lib.js";
 import { play } from "../motion.js";
 import { hydrate } from "./classblocks.js";
 import { chip, treeFrame } from "./tree-frame.js";
@@ -37,15 +37,17 @@ function tabFrame(tab) {
 }
 
 function buildSection(body, build) {
-  body.appendChild(el("h3", "section-title", "Build by tab"));
-  const facts = [];
-  if (build.spec) facts.push(esc(build.spec));
-  if (build.groups > 1) facts.push(`Talent group ${build.group} of ${build.groups}`);
-  facts.push(stampHtml(build.ms, "Read "));
-  body.appendChild(el("div", "dim", facts.join(" · ")));
   const spent = build.tabs.reduce((a, t) => a + t.spent, 0);
   const known = build.unspent_class != null || build.unspent_spec != null;
   const total = spent + (build.unspent_class ?? 0) + (build.unspent_spec ?? 0);
+  const facts = [];
+  if (build.spec) facts.push(esc(build.spec));
+  if (build.groups > 1) facts.push(`Talent group ${build.group} of ${build.groups}`);
+  if (known) facts.push(`${num(spent)} / ${num(total)}`);
+  facts.push(stampHtml(build.ms, "Read "));
+  const line = el("div", "title-line");
+  line.append(el("h3", "section-title", "Talents"), el("span", "dim", facts.join(" · ")));
+  body.appendChild(line);
   if (known && total > 0) {
     const head = el("div", "panel compact");
     head.style.marginTop = "12px";
@@ -70,12 +72,9 @@ function buildSection(body, build) {
 }
 
 function timelineSection(body, data) {
-  body.appendChild(el("h3", "section-title", "Order points were taken"));
   const changes = data.changes.filter((c) => c.kind !== "baseline");
-  if (!changes.length && !data.held.length) {
-    body.appendChild(el("div", "empty", "No talent changes recorded."));
-    return;
-  }
+  if (!changes.length) return;
+  body.appendChild(el("h3", "section-title", "Order points were taken"));
   const multi = new Set(data.changes.map((c) => c.group)).size > 1;
   const where = (g) => (multi ? ` · group ${g}` : "");
   const entries = [
@@ -107,15 +106,11 @@ function timelineSection(body, data) {
     picks.append(row);
   }
   body.appendChild(list);
-  if (!changes.length) body.appendChild(el("div", "dim", "Every point was already spent when Scarlet first read this character, so the order they were taken in is not known."));
 }
 
 function respecSection(body, data) {
+  if (!data.respecs.length) return;
   body.appendChild(el("h3", "section-title", "Respecs"));
-  if (!data.respecs.length) {
-    body.appendChild(el("div", "empty", "No respecs recorded."));
-    return;
-  }
   const cards = el("div", "rs-cards");
   for (const r of data.respecs) {
     const c = el("div", `rs-card ${r.kind.replace(" ", "-")}`);
@@ -127,17 +122,16 @@ function respecSection(body, data) {
 }
 
 export async function render(body, given = null) {
-  const chars = state.store?.chars ?? [];
-  const ch = given ?? state.ch ?? (chars.length === 1 ? chars[0] : null);
+  const ch = given ?? (await shownCharacter());
   if (!ch) {
     body.innerHTML = "";
-    body.appendChild(el("div", "empty", "Select a character."));
+    body.appendChild(el("div", "empty", "No characters recorded yet"));
     return;
   }
   const data = await invoke("talents", { ch });
   body.innerHTML = "";
   if (!data || (!data.build && !data.changes.length)) {
-    body.appendChild(el("div", "empty", "No talent lines recorded for this character."));
+    body.appendChild(el("div", "empty", "No talents recorded yet"));
     return;
   }
   if (data.build) buildSection(body, data.build);

@@ -3,7 +3,7 @@
 // the finished page over the install's signed request and shows the view only for a character the
 // site has a page for.
 
-import { invoke, el, esc, barList } from "../lib.js";
+import { invoke, el, esc, barList, castRows } from "../lib.js";
 import { cardList } from "../featcard.js";
 import { TIER_NAMES } from "../glyphs.js";
 import { blocks, hydrate, iconTag, say } from "./classblocks.js";
@@ -100,8 +100,10 @@ function feats(page) {
 
 async function spellsPanel(ch) {
   const charts = await invoke("charts", { ch });
+  const rows = castRows(charts.spells);
+  if (!rows.length) return null;
   const panel = el("div", "panel chart-panel");
-  panel.innerHTML = `<h3>Spells cast most</h3>${barList(charts.spells, "#ff2d55")}`;
+  panel.innerHTML = `<h3>Spells cast most</h3>${barList(rows, "#ff2d55")}`;
   return panel;
 }
 
@@ -110,7 +112,8 @@ async function draw(body, page, ch) {
   const view = el("div", "cv");
   view.style.setProperty("--class", CLASS_COLORS[page?.class] ?? "var(--accent)");
   if (!page) {
-    view.append(await spellsPanel(ch));
+    const spells = await spellsPanel(ch);
+    view.append(spells ?? el("div", "empty", "No spells recorded yet"));
     body.append(view);
     return;
   }
@@ -127,7 +130,8 @@ async function draw(body, page, ch) {
   if (page.party.length) view.append(section("For the party"), rows(page.party));
   if (page.comparison) view.append(comparison(page.comparison, page.comparison.of));
   if (page.feats.length) view.append(feats(page));
-  view.append(await spellsPanel(ch));
+  const spells = await spellsPanel(ch);
+  if (spells) view.append(spells);
   body.append(view);
   hydrate(view);
 }
@@ -135,7 +139,7 @@ async function draw(body, page, ch) {
 export async function render(body, ch) {
   body.innerHTML = "";
   if (!ch) {
-    body.append(el("div", "empty", "Select a character."));
+    body.append(el("div", "empty", "No characters recorded yet"));
     return;
   }
   body.append(el("p", "loading", "Loading the class section…"));

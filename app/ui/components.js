@@ -6,6 +6,7 @@ import { GLYPHS, svg } from "./glyphs.js";
 import { drawCrest } from "./crests.js";
 import { BY_KEY } from "./feats-catalog.js";
 import { counted } from "./motion.js";
+import { CLASS_COLOR } from "./tiers.js";
 import { clockTime, dayHeading, hourName, shortDay } from "./dates.js";
 
 const HALF_MILE_YD = 880;
@@ -285,14 +286,16 @@ const clockOf = (sec) => clockTime(sec * 1000);
  * `zones`, `levels` and `moments`; `compact` drops the clock row and the labels, as on session cards.
  */
 export function strip(r, { compact = false } = {}) {
-  const W = 960;
+  const W = compact ? 1200 : 960;
   const secs = r.buckets.secs || 300;
   const xp = r.buckets.xp;
-  const spanS = Math.max(r.end - r.start, xp.length * secs, 60);
+  const spanS = Math.max(r.end - r.start, 1);
   const x = (s) => (s / spanS) * W;
-  const zh = compact ? 15 : 20;
-  const ph = compact ? 26 : 46;
-  const py = zh + 8;
+  const inside = (px, half) => Math.max(half, Math.min(W - half, px));
+  const reach = (i) => Math.max(0, Math.min(secs, spanS - i * secs));
+  const zh = compact ? 8 : 20;
+  const ph = compact ? 24 : 46;
+  const py = zh + 6;
   const cy = py + ph + 4;
   const ey = cy + 11;
   const H = ey + (compact ? 18 : 22) + (compact ? 0 : 16);
@@ -302,24 +305,25 @@ export function strip(r, { compact = false } = {}) {
     const x0 = x(z.at);
     const wd = x(z.at + z.secs) - x0;
     root.append(svg("rect", { class: "st-zone", x: x0 + (i ? 1 : 0), y: 0, width: Math.max(1, wd - (i ? 1 : 0)), height: zh, fill: i % 2 ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.12)" }));
-    if (wd > z.name.length * 6.4 + 12) {
+    if (!compact && wd > z.name.length * 6.4 + 12) {
       const t = svg("text", { x: x0 + 7, y: zh / 2 + 4, class: "strong st-late" });
       t.textContent = z.name;
       root.append(t);
     }
   });
   const max = Math.max(...xp, 1);
-  const bw = x(secs);
   xp.forEach((v, i) => {
+    if (!reach(i)) return;
     const h = Math.max(1, (v / max) * ph);
-    root.append(svg("rect", { class: "st-xp", style: `--i:${i}`, x: x(i * secs) + 1, y: py + ph - h, width: Math.max(1, bw - 2), height: h, fill: v === max ? "#ff2d55" : "rgba(255,45,85,0.62)" }));
+    const gap = reach(i) < secs ? 0 : 1;
+    root.append(svg("rect", { class: "st-xp", style: `--i:${i}`, x: x(i * secs) + gap, y: py + ph - h, width: Math.max(1, x(reach(i)) - gap * 2), height: h, fill: v === max ? "#ff2d55" : "rgba(255,45,85,0.62)" }));
   });
   root.append(svg("rect", { x: 0, y: py + ph, width: W, height: 1, fill: "rgba(255,255,255,0.13)" }));
   r.buckets.combat.forEach((c, i) => {
-    if (c > 0) root.append(svg("rect", { class: "st-combat", style: `--i:${i}`, x: x(i * secs), y: cy, width: Math.max(1.5, bw * Math.min(1, c / secs)), height: 3, fill: "#c0102e" }));
+    if (c > 0 && reach(i)) root.append(svg("rect", { class: "st-combat", style: `--i:${i}`, x: x(i * secs), y: cy, width: Math.max(1.5, x(reach(i)) * Math.min(1, c / reach(i))), height: 3, fill: "#c0102e" }));
   });
   for (const lv of r.levels) {
-    const ex = x(lv.at);
+    const ex = inside(x(lv.at), 6);
     root.append(svg("rect", { class: "st-late", x: ex - 0.5, y: 0, width: 1, height: ey + 4, fill: "rgba(240,241,243,0.45)" }));
     root.append(svg("rect", { class: "st-late", x: ex - 5, y: ey + 3, width: 10, height: 10, fill: "#f0f1f3", transform: `rotate(45 ${ex} ${ey + 8})` }));
     if (!compact) {
@@ -329,7 +333,7 @@ export function strip(r, { compact = false } = {}) {
     }
   }
   for (const m of r.moments) {
-    const ex = x(m.at);
+    const ex = inside(x(m.at), 9);
     if (m.kind === "death") {
       const g = svg("g", { class: "st-late", transform: `translate(${ex - 7} ${ey + 1}) scale(0.6)`, fill: "none", stroke: "#f0f1f3", "stroke-width": 2.2, "stroke-linecap": "round", "stroke-linejoin": "round" });
       g.innerHTML = GLYPHS.deaths;
@@ -373,7 +377,7 @@ export function strip(r, { compact = false } = {}) {
     const zone = [...r.zones].reverse().find((z) => z.at <= s)?.name ?? r.zone;
     const near = [...r.moments, ...r.levels.map((l) => ({ at: l.at, text: `Level ${l.level} reached` }))].find((m) => Math.abs(m.at - s) < spanS / 90 && m.text);
     const i = Math.min(xp.length - 1, Math.floor(s / secs));
-    tip(ev, `${clockOf(r.start + s)} · ${zone}|${near ? near.text : `${num(xp[i] ?? 0)} XP in five minutes`}`);
+    tip(ev, `${clockOf(r.start + s)} · ${zone}|${near ? near.text : `${num(xp[i] ?? 0)} XP in ${dur(reach(i) || secs)}`}`);
   });
   root.addEventListener("mouseleave", () => {
     cross.setAttribute("x", "-9");
@@ -496,8 +500,12 @@ export function sessionCard(r, { onOpen = null, who = true, chip = null, live = 
     };
   }
   const head = el("p", "sc-session-d");
+  if (who) {
+    const dot = el("i", "dot");
+    dot.style.background = CLASS_COLOR[r.class] ?? "var(--muted)";
+    head.append(dot, elText("b", "", [r.character, ...others].map(displayName).join(", ")), " · ");
+  }
   head.append(`${dayHeading(r.start * 1000)} · ${clockOf(r.start)} to ${live ? "now" : clockOf(r.end)}`);
-  if (who) head.append(` · ${[r.character, ...others].map(displayName).join(", ")}`);
   card.append(head, elText("h3", "sc-session-t", r.title.text));
   if (r.buckets?.xp?.length) card.append(strip(r, { compact: true }));
   const parts = [dur(r.played)];
@@ -505,7 +513,10 @@ export function sessionCard(r, { onOpen = null, who = true, chip = null, live = 
   if (r.counters?.kills) parts.push(count(r.counters.kills, "kill", "kills"));
   if (r.counters?.quests) parts.push(count(r.counters.quests, "quest", "quests"));
   const xp = Object.values(r.xp).reduce((a, v) => a + v, 0);
+  const deaths = (r.moments ?? []).filter((m) => m.kind === "death").length;
+  if (deaths) parts.push(count(deaths, "death", "deaths"));
   if (xp) parts.push(`${num(xp)} XP`);
+  if (xp && r.played >= 900) parts.push(`${num(xp / (r.played / 3600))} XP an hour`);
   card.append(elText("p", "sc-session-n", parts.join(" · ")));
   if (chip && r.feats?.earned?.length) {
     const row = el("div", "sc-session-f");

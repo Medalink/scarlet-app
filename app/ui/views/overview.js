@@ -7,22 +7,9 @@
 import { invoke, esc, displayName, num, dur, niceTicks, moneyHtml, dayKey, dayRange, shortDay, weekdayDay, clockTime, dayTime, monthName, weekStart, stampHtml, SERIES, state, wireTips } from "../lib.js";
 import { countMarked, play } from "../motion.js";
 import { goalsSheet } from "./goals-section.js";
+import { CLASS_COLOR } from "../tiers.js";
 
-export const CLASS_COLOR = {
-  DEATHKNIGHT: "#E04A64",
-  DEMONHUNTER: "#C46CE6",
-  DRUID: "#FF8A2B",
-  EVOKER: "#4AB8A2",
-  HUNTER: "#AAD372",
-  MAGE: "#5CC8EE",
-  MONK: "#00FF98",
-  PALADIN: "#F48CBA",
-  PRIEST: "#F0F1F3",
-  ROGUE: "#FFF468",
-  SHAMAN: "#4A94FF",
-  WARLOCK: "#A79BF5",
-  WARRIOR: "#C69B6D",
-};
+export { CLASS_COLOR };
 const CLASS_NAME = { DEATHKNIGHT: "Death Knight", DEMONHUNTER: "Demon Hunter" };
 const RACE_NAME = { Scourge: "Undead" };
 
@@ -60,7 +47,7 @@ const net = (s) => (s.g || 0) - (s.s || 0);
 
 export const longDur = dur;
 
-// A play time to the minute: "33m", "2h 5m", "3d 2h".
+/** A play time to the minute: "33m", "2h 5m", "3d 2h". */
 export function playTime(secs) {
   const m = Math.round(secs / 60);
   return m < 60 ? `${m}m` : dur(m * 60);
@@ -95,16 +82,21 @@ function rank(rows) {
 
 const atLevelCap = (ov) => Boolean(ov.cap && ov.cap.level > 0 && ov.level >= ov.cap.level);
 
+export async function identityHtml(name) {
+  const shown = name ? await invoke("overview", { ch: name }).catch(() => null) : null;
+  return shown?.ov ? header(shown.ov, name) : "";
+}
+
 function header(ov, name) {
   const color = CLASS_COLOR[ov.class] || "#ff2d55";
   const identity = [ov.level ? `Level ${ov.level}` : "", raceName(ov.race), className(ov.class)].filter(Boolean).join(" ");
-  const bits = [identity, ov.faction, ov.zone ? `in ${ov.zone}` : "", ov.played ? `${longDur(ov.played)} played` : ""].filter(Boolean);
+  const bits = [identity, ov.faction, ov.zone ? `in ${ov.zone}` : "", ov.played ? `${playTime(ov.played)} played` : ""].filter(Boolean);
   const first = ov.sessions.length ? ov.sessions[ov.sessions.length - 1].t : 0;
   const since = first
     ? `Recorded since ${shortDay(first * 1000)}${ov.firstLevel > 1 ? `, from level ${ov.firstLevel}` : ""}`
     : "";
   const holes = ov.gaps
-    ? `${plural(ov.gaps, "stretch", "stretches")} of play not recorded${ov.gapSecs ? `, about ${longDur(ov.gapSecs)}` : ""}`
+    ? `${plural(ov.gaps, "stretch", "stretches")} of play not recorded${ov.gapSecs ? `, about ${playTime(ov.gapSecs)}` : ""}`
     : "";
   const notes = [since, holes].filter(Boolean).map((t) => `<p class="ch-note">${esc(t)}</p>`);
   const last = ov.through ? `<p class="ch-note">${stampHtml(ov.through * 1000, "Last session ")}</p>` : "";
@@ -162,7 +154,7 @@ export function axisTime(secs) {
   return h >= 1 ? `${Math.round(h * 10) / 10}h` : `${Math.round(secs / 60)}m`;
 }
 
-// Round ticks, top first, for a duration axis: the unit is hours from an hour up, else minutes.
+/** Round ticks, top first, for a duration axis: the unit is hours from an hour up, else minutes. */
 export function timeTicks(maxSecs) {
   const unit = maxSecs >= 3600 ? 3600 : 60;
   return niceTicks(maxSecs / unit, 3).map((v) => v * unit);

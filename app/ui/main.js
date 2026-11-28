@@ -60,6 +60,8 @@ const NAV_ICONS = {
 };
 
 let current = "sessions";
+let devBuild = false;
+const known = (key) => Boolean(VIEWS[key]) && (key !== "system" || devBuild);
 let activeMod = null;
 
 // A route is a view key with an optional page after a slash: "settings/updates".
@@ -149,7 +151,7 @@ function setView() {
     const route = resolveRoute(asked);
     if (route !== asked) history.replaceState(null, "", `#${route}`);
     const [key, sub] = route.split("/");
-    const next = VIEWS[key] ? key : "sessions";
+    const next = known(key) ? key : "sessions";
     if (activeMod?.cleanup) activeMod.cleanup();
     current = next;
     activeMod = VIEWS[current][1];
@@ -172,9 +174,9 @@ function setView() {
       body = fresh;
     }
     delete body.dataset.ready;
-    await activeMod.render(body, VIEWS[key] ? sub : undefined);
+    await activeMod.render(body, known(key) ? sub : undefined);
     body.dataset.ready = "1";
-    if (mine === navSeq) invoke("save_view", { view: VIEWS[key] ? route : current });
+    if (mine === navSeq) invoke("save_view", { view: known(key) ? route : current });
   });
   navTail = run.catch(() => {});
   return run;
@@ -205,6 +207,7 @@ function headStats() {
 }
 
 function showVersion(info) {
+  devBuild = Boolean(info.dev);
   $("#ver").textContent = info.dev ? "dev" : `v${info.version}`;
   const upd = $("#upd");
   rebuilt = info.rebuilt;
@@ -217,7 +220,7 @@ async function boot() {
   const [info, , s] = await Promise.all([invoke("update_info"), loadState(), invoke("get_settings")]);
   showVersion(info);
   const resumed = s?.last_view ? resolveRoute(s.last_view) : "";
-  if (!location.hash && VIEWS[routeKey(resumed)]) history.replaceState(null, "", `#${resumed}`);
+  if (!location.hash && known(routeKey(resumed))) history.replaceState(null, "", `#${resumed}`);
   if (s && !s.setup_done) openSetup();
   await refreshCharSelector();
   headStats();

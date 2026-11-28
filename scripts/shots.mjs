@@ -113,6 +113,9 @@ try {
     console.log(`problems: ${app.problems.join(" | ")}`);
     code = 1;
   }
+} catch (e) {
+  if (app.problems.length) console.log(`problems: ${app.problems.join(" | ")}`);
+  throw e;
 } finally {
   const exit = await app.close();
   if (exit === 3) code = 3;

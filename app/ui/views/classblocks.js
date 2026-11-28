@@ -4,7 +4,7 @@
 // Game icons are fetched by the app (the page may not load images from the website) and set after
 // the markup is in place: `hydrate` finds every element that carries a `data-icon` address.
 
-import { invoke, esc, num } from "../lib.js";
+import { invoke, esc, num, castRows } from "../lib.js";
 
 const f1 = (v) => v.toFixed(1);
 
@@ -275,14 +275,16 @@ function bag(block) {
 }
 
 function rank(block) {
-  const any = block.rows.some((row) => row.icon);
-  const full = block.of ?? Math.max(0, ...block.rows.map((row) => row.value));
-  const rows = block.rows
+  const list = castRows(block.rows);
+  if (!list.length) return "";
+  const any = list.some((row) => row.icon);
+  const full = block.of ?? Math.max(0, ...list.map((row) => row.value));
+  const rows = list
     .map((row) => {
       const share = row.share ?? (full > 0 ? row.value / full : 0);
       const color = row.tone || row.hue ? `;background:${colorOf(row.tone, row.hue)}` : "";
       const aside = row.aside ? ` <small class="pet">${esc(row.aside)}</small>` : "";
-      return `<li><span class="who">${iconTag(row.icon, any)}${esc(row.label)}${aside}</span><span class="val">${esc(row.text)}</span><span class="track"><i style="width:${f1(Math.max(1, Math.min(100, share * 100)))}%${color}"></i></span></li>`;
+      return `<li><span class="who">${iconTag(row.icon, any)}${esc(row.label)}${aside}</span><span class="val">${esc(row.text)}</span><span class="track"><i style="width:${share > 0 ? f1(Math.max(1, Math.min(100, share * 100))) : 0}%${color}"></i></span></li>`;
     })
     .join("");
   return `<ol class="rank${block.plain ? " plain" : ""}">${rows}</ol>`;

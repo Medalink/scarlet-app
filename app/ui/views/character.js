@@ -1,6 +1,6 @@
 // Character: the overview of one character, with Class and Talents as sections of the same page.
 
-import { invoke, el, elText, state, sessionCard } from "../lib.js";
+import { invoke, el, elText, state, sessionCard, shownCharacter } from "../lib.js";
 import { cardList } from "../featcard.js";
 import * as overview from "./overview.js";
 import * as classSection from "./class-section.js";
@@ -13,13 +13,6 @@ const SECTIONS = [
   ["class", "Class"],
   ["talents", "Talents"],
 ];
-
-async function who() {
-  if (state.ch) return state.ch;
-  const chars = state.store?.chars ?? [];
-  if (chars.length === 1) return chars[0];
-  return (await invoke("overview", { ch: null }))?.name ?? null;
-}
 
 async function extras(name) {
   const [near, { cards }] = await Promise.all([closestFor(name), invoke("session_cards", { ch: name, limit: 1 })]);
@@ -62,12 +55,17 @@ export async function render(body, sub) {
   const page = el("div");
   body.append(tabs, page);
   if (key === "overview") return drawOverview(page);
-  const name = await who();
+  const name = await shownCharacter();
+  const identity = await overview.identityHtml(name);
+  if (!page.isConnected) return;
+  page.insertAdjacentHTML("beforeend", identity);
+  const section = el("div");
+  page.append(section);
   if (key === "class") {
-    await classSection.render(page, name);
+    await classSection.render(section, name);
     const row = await linkPrompt("class");
     if (row && page.isConnected) page.append(row);
     return;
   }
-  return talentsSection.render(page, name);
+  return talentsSection.render(section, name);
 }

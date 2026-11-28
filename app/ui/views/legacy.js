@@ -1,6 +1,7 @@
 // Legacy: the selected character's Legacy trees as the in-game talent frame, their ranks over time and what each rank did.
 
-import { invoke, el, elText, esc, num, dayKey, dayRange, shortDay, stampHtml, state, goal, tile, tiles } from "../lib.js";
+import { invoke, el, elText, esc, num, dayKey, dayRange, shortDay, stampHtml, goal, tile, tiles, shownCharacter } from "../lib.js";
+import { identityHtml } from "./overview.js";
 import { play } from "../motion.js";
 import { hydrate } from "./classblocks.js";
 import { mod } from "./goals-section.js";
@@ -92,10 +93,6 @@ function pips(legacy, spent) {
 
 function sheet(legacy) {
   const box = el("div", "sheet goals-sheet legacy-sheet");
-  if (!legacy) {
-    box.append(mod("w12 first last", "Points", elText("p", "sc-empty", "No Legacy balance recorded")));
-    return box;
-  }
   const spent = legacy.trees.reduce((a, t) => a + t.spent, 0);
   const head = el("div", "leg-head");
   const lead = el("div", "leg-lead");
@@ -103,7 +100,7 @@ function sheet(legacy) {
   const cost = legacy.rank_cost;
   const next = tile("Next rank", num(cost), legacy.available >= cost ? "Can afford" : `${num(cost - legacy.available)} short`, { size: "md" });
   head.append(lead, tiles([tile("Spent", num(spent), "", { size: "md" }), tile("To spend", num(legacy.available), "", { size: "md" }), next], 3));
-  box.append(mod("w12 first last", "Points", head));
+  box.append(mod("w12 first last", "Legacy points", head));
   return box;
 }
 
@@ -118,21 +115,21 @@ function treePanel(name, talents, links, legacy) {
 }
 
 export async function render(body) {
-  const chars = state.store?.chars ?? [];
-  const ch = state.ch ?? (chars.length === 1 ? chars[0] : null);
+  const ch = await shownCharacter();
   if (!ch) {
     body.innerHTML = "";
-    body.appendChild(el("div", "empty", "Select a character."));
+    body.appendChild(el("div", "empty", "No characters recorded yet"));
     return;
   }
-  const [data, goals] = await Promise.all([invoke("legacy", { ch }), invoke("goals", { ch }).catch(() => null)]);
+  const [data, goals, identity] = await Promise.all([invoke("legacy", { ch }), invoke("goals", { ch }).catch(() => null), identityHtml(ch)]);
   body.innerHTML = "";
+  body.insertAdjacentHTML("beforeend", identity);
+  const legacy = goals?.caps.legacy ?? null;
+  if (legacy) body.appendChild(sheet(legacy));
   if (!data || !data.talents.length) {
-    body.appendChild(el("div", "empty", "No Legacy lines recorded for this character."));
+    body.appendChild(el("div", "empty", "No Legacy talents recorded yet"));
     return;
   }
-  const legacy = goals?.caps.legacy ?? null;
-  body.appendChild(sheet(legacy));
   const trees = [...new Set(data.talents.map((t) => t.tree_id))].sort();
   const row = el("div", "tf-tabs");
   for (const id of trees) {

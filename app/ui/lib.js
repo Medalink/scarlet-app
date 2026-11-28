@@ -27,7 +27,7 @@ export const elText = (tag, cls, text) => {
 export const $ = (sel) => document.querySelector(sel);
 
 // Appends to `into` why OpenMap's art is not there, from `map_art_status`: the WoW folder, then
-// _forever_ in it, then OpenMap in its AddOns; the addon's page is linked where installing it helps.
+/** _forever_ in it, then OpenMap in its AddOns; the addon's page is linked where installing it helps. */
 export function openmapMissing(into, st) {
   const link = () => {
     const a = el("button", "linkbtn", "github.com/openmap-world/openmap");
@@ -47,7 +47,7 @@ export function num(n) {
     .replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 }
 
-// A byte count in the largest unit it reaches: 99,508 -> "97.2 KB".
+/** A byte count in the largest unit it reaches: 99,508 -> "97.2 KB". */
 export function bytes(n) {
   const units = ["bytes", "KB", "MB", "GB", "TB"];
   let v = Number(n) || 0;
@@ -76,14 +76,14 @@ export function money(c) {
   return sign + coinParts(c).map(([unit, n]) => `${n}${unit}`).join(" ");
 }
 
-// Coins coloured like the game's: "68g 24s". Units that are zero are left out. `signed` adds + or −.
+/** Coins coloured like the game's: "68g 24s". Units that are zero are left out. `signed` adds + or −. */
 export function moneyHtml(c, signed = false) {
   c = Math.round(c);
   const sign = signed ? (c < 0 ? "−" : "+") : c < 0 ? "−" : "";
   return `<span class="money">${sign}${coinParts(c).map(([unit, n]) => `${n}<i class="${unit}">${unit}</i>`).join("")}</span>`;
 }
 
-// A time span: "40s", "2m 5s", "21h 48m", "3d 2h". Never a leading zero unit; a zero trailing unit is dropped.
+/** A time span: "40s", "2m 5s", "21h 48m", "3d 2h". Never a leading zero unit; a zero trailing unit is dropped. */
 export function dur(secs) {
   secs = Math.max(0, Math.floor(secs));
   const d = Math.floor(secs / 86400),
@@ -97,7 +97,7 @@ export function dur(secs) {
   return `${secs}s`;
 }
 
-// Round ticks for a value axis from `lo` up to the first round value at or above `hi`: [0, 500, 1000, 1500, 2000].
+/** Round ticks for a value axis from `lo` up to the first round value at or above `hi`: [0, 500, 1000, 1500, 2000]. */
 export function niceTicks(hi, count = 4, lo = 0) {
   if (!(hi > lo)) return [lo];
   const rough = (hi - lo) / count;
@@ -111,18 +111,17 @@ export function niceTicks(hi, count = 4, lo = 0) {
   return ticks;
 }
 
-// The level axis of every chart: 1, 10, 20 ... up to `top`.
+/** The level axis of every chart: 1, 10, 20 ... up to `top`. */
 export function levelTicks(top, first = 1) {
   const ticks = new Set([first]);
   for (let l = Math.ceil((first + 1) / 10) * 10; l <= top; l += 10) ticks.add(l);
   return [...ticks];
 }
 
-// Cast lists leave out auto attacks and the game's internal spells.
 const NOT_CASTS = /^(attack|auto attack|auto shot|shoot|throw|melee|loginEffect)$/i;
 export const castRows = (rows) => (rows ?? []).filter((r) => !NOT_CASTS.test(String(Array.isArray(r) ? r[0] : (r.name ?? r.label ?? "")).trim()));
 
-// Palette for session / series colours, scarlet family first.
+/** Palette for session / series colours, scarlet family first. */
 export const PALETTE = [
   "#ff2d55",
   "#ff6b8e",
@@ -134,11 +133,19 @@ export const PALETTE = [
   "#b84a5e",
 ];
 
-// Chart series: kills, dungeon kills, quests, exploring, other.
+/** Chart series: kills, dungeon kills, quests, exploring, other. */
 export const SERIES = ["#ff2d55", "#9a7df2", "#98721c", "#2f9ec4", "#54545d"];
 
 export function esc(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+}
+
+/** The character a Character page shows: the selected one, the only one, else the one the Overview picks. */
+export async function shownCharacter() {
+  if (state.ch) return state.ch;
+  const chars = state.store?.chars ?? [];
+  if (chars.length === 1) return chars[0];
+  return (await invoke("overview", { ch: null }))?.name ?? null;
 }
 
 export const displayName = (name) => String(name ?? "").replace("-", " ");
@@ -188,7 +195,7 @@ const axisDays = (x0, x1) => {
   return [x0, x0 + span / 2, x1].map((t) => shortDay(t));
 };
 
-// A series as an SVG area chart with value ticks on the left and days along the bottom; under ten points each one is a dot. series: [[ms, v], ...]
+/** A series as an SVG area chart with value ticks on the left and days along the bottom; under ten points each one is a dot. series: [[ms, v], ...] */
 export function lineChart(series, color = "#ff2d55", h = 150, fmt = num) {
   if (!series.length) return `<div class="empty">No data yet.</div>`;
   const width = 1000;
@@ -280,7 +287,7 @@ export function wireLineCharts(root) {
 
 const SMALLEST_SCALE = 5;
 
-// Horizontal bar rows. rows: [[label, value], ...]. A list of small counts is drawn against at least 5, so one cast is not a full bar.
+/** Horizontal bar rows. rows: [[label, value], ...]. A list of small counts is drawn against at least 5, so one cast is not a full bar. */
 export function barList(rows, color = "#ff2d55", fmt = num) {
   if (!rows.length) return `<div class="empty">No data yet.</div>`;
   const max = Math.max(...rows.map((r) => r[1]), fmt === num ? SMALLEST_SCALE : 1);
@@ -296,7 +303,7 @@ export function barList(rows, color = "#ff2d55", fmt = num) {
     .join("")}</div>`;
 }
 
-// Horizontal stacked bar with legend. splits: [[label, seconds, cssColor?], ...]
+/** Horizontal stacked bar with legend. splits: [[label, seconds, cssColor?], ...] */
 export function stackedBar(splits) {
   const color = (c, i) => c ?? SERIES[i % SERIES.length];
   return `<div class="stack">${splits
