@@ -103,12 +103,12 @@ function summary(view) {
   const rows = view.keys
     .map(
       (k) => `<tr><td>${esc(k.label)}</td><td class="num">${num(k.lines)}</td>
-        <td class="dim">${stampHtml(k.first_ms)}</td><td class="dim">${stampHtml(k.last_ms)}</td></tr>`,
+        <td class="dim gap">${stampHtml(k.first_ms)}</td><td class="dim">${stampHtml(k.last_ms)}</td></tr>`,
     )
     .join("");
   const wrap = el("div", "scroll-x");
   const t = el("table");
-  t.innerHTML = `<thead><tr><th>Addon</th><th class="num">Lines</th><th>First seen</th><th>Last seen</th></tr></thead>
+  t.innerHTML = `<thead><tr><th>Addon</th><th class="num">Lines</th><th class="gap">First seen</th><th>Last seen</th></tr></thead>
     <tbody>${rows}</tbody>`;
   wrap.appendChild(t);
   p.appendChild(wrap);
