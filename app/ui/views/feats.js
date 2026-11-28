@@ -223,13 +223,57 @@ function progressNote(f) {
   return `${amount(cat, f.value)} of ${amount(cat, first)}`;
 }
 
-function wall(model) {
-  const section = el("section", "feats-wall");
-  section.append(elText("h2", "sc-h", `Every feat ${displayName(model.name).split(" ")[0]} can hold`));
-  const controls = el("div", "feats-controls");
+function searchBox(onInput) {
   const search = el("input");
   search.placeholder = "Find a feat";
   search.setAttribute("aria-label", "Find a feat");
+  search.oninput = () => onInput(search.value.trim().toLowerCase());
+  return search;
+}
+
+function chipButton(bar, label, on, pick) {
+  const b = elText("button", `sc-chipbtn${on ? " on" : ""}`, label);
+  b.type = "button";
+  b.onclick = pick;
+  bar.append(b);
+}
+
+function collectionChips(bar, filter, counts, pick) {
+  bar.replaceChildren();
+  chipButton(bar, `All ${counts.total}`, filter.collection === "all", () => pick("all"));
+  for (const [c, n] of counts.byCollection) chipButton(bar, `${c} ${n}`, filter.collection === c, () => pick(c));
+}
+
+function featCounts(feats, collections) {
+  return { total: feats.length, byCollection: collections.map((c) => [c, feats.filter((f) => f.collection === c).length]) };
+}
+
+function createPageFilter() {
+  const page = { text: "", collection: "all", subs: new Set() };
+  page.matches = (f) => (page.collection === "all" || f.collection === page.collection) && f.name.toLowerCase().includes(page.text);
+  page.notify = () => page.subs.forEach((run) => run());
+  return page;
+}
+
+function pageControls(page, models) {
+  const controls = el("div", "feats-controls");
+  const bar = el("div", "chips");
+  const shown = [...new Map(models.flatMap((m) => m.feats).map((f) => [f.key, f])).values()];
+  const counts = featCounts(shown, COLLECTIONS.filter((c) => shown.some((f) => f.collection === c)));
+  const draw = () => collectionChips(bar, page, counts, (c) => ((page.collection = c), draw(), page.notify()));
+  controls.append(
+    searchBox((text) => ((page.text = text), page.notify())),
+    bar,
+  );
+  draw();
+  return controls;
+}
+
+function wall(model, page) {
+  const section = el("section", "feats-wall");
+  section.append(elText("h2", "sc-h", `Every feat ${displayName(model.name).split(" ")[0]} can hold`));
+  const controls = el("div", "feats-controls");
+  const search = searchBox((text) => ((filter.text = text), draw()));
   const tierBar = el("div", "chips");
   const collBar = el("div", "chips");
   controls.append(search, tierBar, collBar);
@@ -242,26 +286,16 @@ function wall(model) {
   const have = new Set(model.feats.map((f) => f.collection));
   const collections = COLLECTIONS.filter((c) => have.has(c));
   const filter = { tier: "all", collection: "all", text: "", picked: model.closest[0]?.key ?? null };
-  const chip = (bar, label, on, pick) => {
-    const b = elText("button", `sc-chipbtn${on ? " on" : ""}`, label);
-    b.type = "button";
-    b.onclick = pick;
-    bar.append(b);
-  };
   const draw = () => {
     tierBar.replaceChildren();
-    collBar.replaceChildren();
     const tierChoices = [["all", "All tiers"], ["none", "Not earned"], ...TIERS.map((t) => [t, TIER_NAMES[t]])];
-    for (const [value, label] of tierChoices) chip(tierBar, label, filter.tier === value, () => ((filter.tier = value), draw()));
-    chip(collBar, `All ${model.feats.length}`, filter.collection === "all", () => ((filter.collection = "all"), draw()));
-    for (const c of collections) {
-      const n = model.feats.filter((f) => f.collection === c).length;
-      chip(collBar, `${c} ${n}`, filter.collection === c, () => ((filter.collection = c), draw()));
-    }
+    for (const [value, label] of tierChoices) chipButton(tierBar, label, filter.tier === value, () => ((filter.tier = value), draw()));
+    collectionChips(collBar, filter, featCounts(model.feats, collections), (c) => ((filter.collection = c), draw()));
     const wanted = (f) =>
       (filter.tier === "all" || (filter.tier === "none" ? f.tier === 0 : f.tier === filter.tier)) &&
       (filter.collection === "all" || f.collection === filter.collection) &&
-      f.name.toLowerCase().includes(filter.text);
+      f.name.toLowerCase().includes(filter.text) &&
+      page.matches(f);
     rows.replaceChildren();
     for (const c of collections) {
       const feats = model.feats.filter((f) => f.collection === c);
@@ -278,12 +312,12 @@ function wall(model) {
     if (!rows.firstChild) rows.append(elText("p", "sc-empty", "No feats match."));
     side.replaceChildren(detail(model.feats.find((f) => f.key === filter.picked)));
   };
-  search.oninput = () => ((filter.text = search.value.trim().toLowerCase()), draw());
+  page.subs.add(draw);
   draw();
   return section;
 }
 
-function accountBlock(model) {
+function accountBlock(model, page) {
   const block = el("section", "feats-block feats-account");
   block.append(compactHead(model));
   const layout = el("div", "feats-layout");
@@ -293,15 +327,16 @@ function accountBlock(model) {
   let picked = (model.feats.find((f) => f.tier > 0) ?? model.feats[0])?.key ?? null;
   const draw = () => {
     const onPick = (f) => ((picked = f.key), draw());
-    rows.replaceChildren(collectionRow("Feats", model.feats, { draw: { crest: (f) => cardCrest(f, 48), note: progressNote }, picked, onPick }));
+    rows.replaceChildren(collectionRow("Feats", model.feats.filter(page.matches), { draw: { crest: (f) => cardCrest(f, 48), note: progressNote }, picked, onPick, all: model.feats }));
     side.replaceChildren(detail(model.feats.find((f) => f.key === picked)));
   };
+  page.subs.add(draw);
   draw();
   block.append(layout);
   return block;
 }
 
-function characterBlock(model, single) {
+function characterBlock(model, single, page) {
   const block = el("section", "feats-block");
   const row = compactHead(model, single ? "div" : "button");
   if (!single) {
@@ -316,7 +351,7 @@ function characterBlock(model, single) {
   const reveal = () => {
     if (!body.firstChild) {
       if (model.closest.length) body.append(elText("h2", "sc-h feats-h", "Closest to the next tier"), cardList(model.closest, true));
-      body.append(wall(model));
+      body.append(wall(model, page));
     }
     body.hidden = false;
     row.setAttribute("aria-expanded", "true");
@@ -342,10 +377,24 @@ function drawCharacters(box, models, account) {
     return;
   }
   const single = Boolean(wanted);
-  const accountView = account ? accountBlock(account) : null;
+  const page = createPageFilter();
+  const empty = elText("p", "sc-empty", "No feats match.");
+  empty.hidden = true;
+  const accountView = account ? accountBlock(account, page) : null;
+  const views = entries.map((entry) => characterBlock(entry, single, page));
+  const gated = [...(accountView ? [[accountView, account]] : []), ...views.map((v, i) => [v.block, entries[i]])];
+  page.subs.add(() => {
+    let any = false;
+    for (const [block, model] of gated) {
+      block.hidden = !model.feats.some(page.matches);
+      any ||= !block.hidden;
+    }
+    empty.hidden = any;
+  });
+  box.append(pageControls(page, gated.map(([, model]) => model)));
   if (accountView) box.append(accountView);
-  const views = entries.map((entry) => characterBlock(entry, single));
   for (const { block } of views) box.append(block);
+  box.append(empty);
   const elsewhere = entries.filter((m) => m.local).reduce((sum, m) => sum + (m.elsewhere || 0), 0);
   if (elsewhere) {
     const more = `${num(elsewhere)} more ${elsewhere === 1 ? "feat is" : "feats are"} counted on the website`;

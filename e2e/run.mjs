@@ -787,6 +787,55 @@ const CHECKS = [
   },
   {
     lane: "app",
+    name: "the feats page search and collection chips narrow the account block and the character rows",
+    async run(ctx) {
+      const app = running(ctx);
+      await selectCharacter(app, "");
+      await open(app, "feats", FEATS_LOCAL_ALL);
+      const feats = () => app.evaluate(`document.querySelectorAll("#body .feats-account .sc-wall li").length`);
+      const blocks = () => app.evaluate(`[...document.querySelectorAll("#body .feats-block")].filter((b) => !b.hidden).length`);
+      const settle = (expression, label) => app.until(expression, label);
+      const all = await feats();
+      const rows = await blocks();
+      if (!(all > 1)) throw new Error(`the account block shows ${all} feats`);
+      const chips = await app.evaluate(`[...document.querySelectorAll("#body .feats-view > .feats-controls .sc-chipbtn")].map((b) => b.textContent)`);
+      if (!/^All \d+$/.test(chips[0]) || Number(chips[0].slice(4)) < all) throw new Error(`the first chip reads ${chips[0]}, the account block shows ${all}`);
+      if (chips.length < 3) throw new Error(`only ${chips.length} chips: ${chips}`);
+      await app.evaluate(`(() => {
+        const input = document.querySelector("#body .feats-view > .feats-controls input");
+        input.value = "zzzz";
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      })()`);
+      await settle(`document.querySelectorAll("#body .feats-account .sc-wall li").length === 0 && /No feats match\\./.test(${BODY})`, "a search with no match shows No feats match.");
+      expectEqual("blocks left with nothing matching", await blocks(), 0);
+      const name = await app.evaluate(`(() => {
+        const input = document.querySelector("#body .feats-view > .feats-controls input");
+        input.value = "";
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        return document.querySelector("#body .feats-account .sc-wall li button").title.slice(0, 4).toLowerCase();
+      })()`);
+      await settle(`document.querySelectorAll("#body .feats-account .sc-wall li").length === ${all}`, "clearing the search restores every feat");
+      await app.evaluate(`(() => {
+        const input = document.querySelector("#body .feats-view > .feats-controls input");
+        input.value = ${JSON.stringify(name)};
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      })()`);
+      await settle(`(() => { const n = document.querySelectorAll("#body .feats-account .sc-wall li").length; return n > 0 && n < ${all}; })()`, `typing "${name}" narrows the feats`);
+      await app.evaluate(`(() => {
+        const input = document.querySelector("#body .feats-view > .feats-controls input");
+        input.value = "";
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      })()`);
+      await settle(`document.querySelectorAll("#body .feats-account .sc-wall li").length === ${all}`, "search cleared");
+      await app.evaluate(`document.querySelectorAll("#body .feats-view > .feats-controls .sc-chipbtn")[1].click()`);
+      await settle(`(() => { const n = document.querySelectorAll("#body .feats-account .sc-wall li").length; return n > 0 && n < ${all}; })()`, "a collection chip narrows the feats");
+      await app.evaluate(`document.querySelectorAll("#body .feats-view > .feats-controls .sc-chipbtn")[0].click()`);
+      await settle(`document.querySelectorAll("#body .feats-account .sc-wall li").length === ${all}`, "All restores every feat");
+      expectEqual("character rows shown again", await blocks(), rows);
+    },
+  },
+  {
+    lane: "app",
     name: "with motion on, the entrance ends on the numbers reduced motion shows",
     async run(ctx) {
       prepareSite(ctx, ctx.site.motion);
