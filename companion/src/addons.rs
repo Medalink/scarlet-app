@@ -4,8 +4,9 @@
 //! format is `<dt>\t<integration key>\t<code>\t<fields>`; see docs/ADDONS.md
 //! in the addon repository.
 
-use crate::export::{chunk, decode};
+use crate::export::{Chunk, chunk, decode};
 use crate::lua::Lua;
+use crate::marks::{Cursor, Seen};
 use chrono::{Local, TimeZone};
 use std::collections::BTreeMap;
 use std::fs;
@@ -169,32 +170,40 @@ pub struct AddonRun {
     pub events: u64,
     pub first_q: u64,
     pub last_q: u64,
+    pub first_t: i64,
 }
 
-/// Collect the chunks of `ScarletAddonsDB` newer than `last` into `runs`
-/// and return the highest chunk number read. A chunk that does not decode
-/// adds to `bad`.
-pub fn collect(db: &Lua, last: u64, runs: &mut BTreeMap<String, AddonRun>, bad: &mut u64) -> u64 {
-    let mut newest = last;
+pub(crate) fn collect(
+    db: &Lua,
+    cursor: &mut Cursor,
+    held: &mut dyn FnMut(&Chunk) -> bool,
+    runs: &mut BTreeMap<String, AddonRun>,
+    bad: &mut u64,
+) {
     let Some(chunks) = db.get("chunks").and_then(Lua::items) else {
-        return newest;
+        return;
     };
     for item in chunks {
         let Some(ch) = chunk(&item.1) else { continue };
-        if ch.q <= last {
+        let seen = cursor.judge(&ch, || held(&ch));
+        if seen == Seen::Read {
+            cursor.skipped(&ch);
             continue;
         }
         let Some(text) = decode(&ch.e, &ch.z) else {
             *bad += 1;
+            cursor.unreadable();
             continue;
         };
         let run = runs.entry(ch.c.clone()).or_insert_with(|| AddonRun {
             first_q: ch.q,
             last_q: ch.q,
+            first_t: ch.t,
             ..Default::default()
         });
         run.chunks += 1;
         run.last_q = run.last_q.max(ch.q);
+        run.first_t = run.first_t.min(ch.t);
         for ev in parse_chunk_text(&text, ch.t) {
             if let Some(line) = txt_line(&ev) {
                 run.txt.push_str(&line);
@@ -204,9 +213,8 @@ pub fn collect(db: &Lua, last: u64, runs: &mut BTreeMap<String, AddonRun>, bad: 
             run.scl.push('\n');
             run.events += 1;
         }
-        newest = newest.max(ch.q);
+        cursor.took(&ch, seen);
     }
-    newest
 }
 
 /// Write one character's addon lines under `<dir>/addons/`: a readable
@@ -230,9 +238,11 @@ pub fn write_run(
         format!("scarletaddons\t1\t{name}\n{}", run.scl).as_bytes(),
         19,
     )?;
-    fs::write(
-        base.join("payloads")
-            .join(format!("{}-{}.scl", run.first_q, run.last_q)),
+    crate::archive::write_payload(
+        &base.join("payloads"),
+        run.first_q,
+        run.last_q,
+        run.first_t,
         &payload,
     )?;
     Ok(payload.len())

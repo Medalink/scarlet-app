@@ -13,6 +13,7 @@ use crate::import;
 use crate::importarchive::Archive;
 use crate::inventory::{self, Inventory};
 use crate::lua::{self, Lua};
+use crate::marks::{self, Cursor, Seen};
 use crate::mastercraft;
 use crate::naowhforever;
 use crate::overview::{self, Overview};
@@ -21,9 +22,11 @@ use crate::rxp;
 use crate::tables;
 use flate2::read::{DeflateDecoder, ZlibDecoder};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::hash_map::DefaultHasher;
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::error::Error;
 use std::fs::{self, File};
+use std::hash::{Hash, Hasher};
 use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
@@ -122,10 +125,11 @@ struct CharRun {
     events: u64,
     first_q: u64,
     last_q: u64,
+    first_t: i64,
 }
 
 impl CharRun {
-    fn new(q: u64) -> Self {
+    fn new(q: u64, t: i64) -> Self {
         Self {
             txt: String::new(),
             scl: String::new(),
@@ -134,7 +138,91 @@ impl CharRun {
             events: 0,
             first_q: q,
             last_q: q,
+            first_t: t,
         }
+    }
+}
+
+/// What the exports so far saw of the game's saved store: when it started over, and the chunks
+/// that would not decode.
+pub fn store_notes(out: &Path) -> marks::StoreNotes {
+    marks::notes(&load_state(&out.join("state.json")).0)
+}
+
+fn seq_of(db: &Lua) -> Option<u64> {
+    db.get("seq")?.as_int().and_then(|n| u64::try_from(n).ok())
+}
+
+fn report_store(sv: &Path, addons: bool, cursor: &Cursor) {
+    if let Some((at, since)) = cursor.restarted_at() {
+        println!(
+            "{}: {}",
+            sv.display(),
+            marks::restart_line(at, since, addons)
+        );
+    }
+    if cursor.unreadable_count() > 0 {
+        eprintln!(
+            "scarlet: {}: {}",
+            sv.display(),
+            marks::unreadable_line(cursor.unreadable_count())
+        );
+    }
+}
+
+fn line_id(ms: i64, code: &str, fields: &[String]) -> u64 {
+    let mut h = DefaultHasher::new();
+    (ms, code, fields.join("\t")).hash(&mut h);
+    h.finish()
+}
+
+struct Archived<'a> {
+    out: &'a Path,
+    main: HashMap<String, HashSet<u64>>,
+    addon: HashMap<String, HashSet<u64>>,
+}
+
+impl<'a> Archived<'a> {
+    fn new(out: &'a Path) -> Self {
+        Self {
+            out,
+            main: HashMap::new(),
+            addon: HashMap::new(),
+        }
+    }
+
+    fn holds_chunk(&mut self, ch: &Chunk) -> bool {
+        let Some(text) = decode(&ch.e, &ch.z) else {
+            return true;
+        };
+        let held = self.main.entry(ch.c.clone()).or_insert_with(|| {
+            load_events(&self.out.join(&ch.c), &ch.c)
+                .unwrap_or_default()
+                .iter()
+                .map(|e| line_id(e.ms, &e.code, &e.fields))
+                .collect()
+        });
+        events::parse_chunk_text(&text, ch.t)
+            .iter()
+            .all(|e| held.contains(&line_id(e.cs * 10, &e.code, &e.fields)))
+    }
+
+    fn holds_addon_chunk(&mut self, ch: &Chunk) -> bool {
+        let Some(text) = decode(&ch.e, &ch.z) else {
+            return true;
+        };
+        let id = |cs: i64, key: &str, code: &str, fields: &[String]| {
+            line_id(cs * 10, &format!("{key}\t{code}"), fields)
+        };
+        let held = self.addon.entry(ch.c.clone()).or_insert_with(|| {
+            addons::read_payloads(&self.out.join(&ch.c))
+                .iter()
+                .map(|e| id(e.cs, &e.key, &e.code, &e.fields))
+                .collect()
+        });
+        addons::parse_chunk_text(&text, ch.t)
+            .iter()
+            .all(|e| held.contains(&id(e.cs, &e.key, &e.code, &e.fields)))
     }
 }
 
@@ -196,9 +284,9 @@ pub fn export_new_all(wows: &[PathBuf], out: &Path) -> Result<bool, Box<dyn Erro
     let mut addon: BTreeMap<String, Vec<AddonRow>> = BTreeMap::new();
     let mut addon_runs: BTreeMap<String, addons::AddonRun> = BTreeMap::new();
 
+    let mut archived = Archived::new(out);
     for sv in &files {
         let key = state_key(sv);
-        let last = state.0.get(&key).copied().unwrap_or(0);
         let text = match fs::read_to_string(sv) {
             Ok(t) => t,
             Err(e) => {
@@ -211,11 +299,16 @@ pub fn export_new_all(wows: &[PathBuf], out: &Path) -> Result<bool, Box<dyn Erro
             match lua::parse_named(&text, "ScarletAddonsDB") {
                 Ok(Some(adb)) => {
                     let akey = format!("{key}#addons");
-                    let alast = state.0.get(&akey).copied().unwrap_or(0);
-                    let newest = addons::collect(&adb, alast, &mut addon_runs, &mut bad);
-                    if newest > alast {
-                        state.0.insert(akey, newest);
-                    }
+                    let mut cursor = Cursor::new(&state.0, &akey, seq_of(&adb));
+                    addons::collect(
+                        &adb,
+                        &mut cursor,
+                        &mut |ch| archived.holds_addon_chunk(ch),
+                        &mut addon_runs,
+                        &mut bad,
+                    );
+                    report_store(sv, true, &cursor);
+                    cursor.finish(&mut state.0);
                 }
                 Ok(None) => {}
                 Err(e) => eprintln!("scarlet: {}: addons: {e}", sv.display()),
@@ -232,21 +325,26 @@ pub fn export_new_all(wows: &[PathBuf], out: &Path) -> Result<bool, Box<dyn Erro
         let Some(chunks) = db.get("chunks").and_then(Lua::items) else {
             continue;
         };
+        let mut cursor = Cursor::new(&state.0, &key, seq_of(&db));
         for item in chunks {
             let Some(ch) = chunk(&item.1) else { continue };
-            if ch.q <= last {
+            let seen = cursor.judge(&ch, || archived.holds_chunk(&ch));
+            if seen == Seen::Read {
+                cursor.skipped(&ch);
                 continue;
             }
             let Some(text) = decode(&ch.e, &ch.z) else {
                 bad += 1;
+                cursor.unreadable();
                 continue;
             };
             let evs = events::parse_chunk_text(&text, ch.t);
             let run = runs
                 .entry(ch.c.clone())
-                .or_insert_with(|| CharRun::new(ch.q));
+                .or_insert_with(|| CharRun::new(ch.q, ch.t));
             run.chunks += 1;
             run.last_q = run.last_q.max(ch.q);
+            run.first_t = run.first_t.min(ch.t);
             for ev in evs {
                 if let Some(kind) = events::name_kind(&ev.code)
                     && ev.fields.len() >= 2
@@ -262,8 +360,10 @@ pub fn export_new_all(wows: &[PathBuf], out: &Path) -> Result<bool, Box<dyn Erro
                 run.scl.push('\n');
                 run.events += 1;
             }
-            state.0.insert(key.clone(), ch.q);
+            cursor.took(&ch, seen);
         }
+        report_store(sv, false, &cursor);
+        cursor.finish(&mut state.0);
     }
 
     let mut own = roster(out);
@@ -284,14 +384,13 @@ pub fn export_new_all(wows: &[PathBuf], out: &Path) -> Result<bool, Box<dyn Erro
         }
         let payload =
             zstd::stream::encode_all(format!("scarlet\t1\t{name}\n{}", run.scl).as_bytes(), 19)?;
-        // Through a temp file: an upload or a reload reading the folder meanwhile never meets
-        // half a payload.
-        let dest = dir
-            .join("payloads")
-            .join(format!("{}-{}.scl", run.first_q, run.last_q));
-        let tmp = dest.with_extension("scl.tmp");
-        fs::write(&tmp, &payload)?;
-        fs::rename(&tmp, &dest)?;
+        archive::write_payload(
+            &dir.join("payloads"),
+            run.first_q,
+            run.last_q,
+            run.first_t,
+            &payload,
+        )?;
 
         // Rebuild the relational tables from every payload this character
         // has, in full, on each export.

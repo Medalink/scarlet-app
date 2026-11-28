@@ -16,6 +16,7 @@ pub struct Sizes {
     payload_bytes: u64,
     ratio: f64,
     watch: bool,
+    notes: scarlet::marks::StoreNotes,
 }
 
 #[tauri::command]
@@ -53,6 +54,7 @@ pub async fn sizes(app: AppHandle) -> Sizes {
             payload_bytes,
             ratio,
             watch: WATCH_ON.load(Ordering::Relaxed),
+            notes: scarlet::export::store_notes(&dir),
         }
     })
     .await

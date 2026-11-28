@@ -1,9 +1,29 @@
 // Data: sizes, export, combat-log compression and the watcher switch, then the lines other addons wrote.
 
-import { invoke, el, elText, num, bytes, state, esc, displayName, exactStamp, dayTime, stampHtml, makeSwitch, setSwitch, tile, tiles } from "../lib.js";
+import { invoke, el, elText, num, bytes, state, esc, displayName, exactStamp, dayTime, shortDay, stampHtml, makeSwitch, setSwitch, tile, tiles } from "../lib.js";
 
 let lastStatus = "";
 let lastStatusClass = "status";
+
+const recordings = (n) => `${num(n)} ${n === 1 ? "recording" : "recordings"}`;
+
+function drawStoreNotes(box, notes) {
+  box.innerHTML = "";
+  const several = notes.files > 1;
+  for (const r of notes.restarts) {
+    const which = r.addons ? "addon store" : "store";
+    const account = several ? ` (account ${r.account})` : "";
+    const line = elText("div", "status", `The game's Scarlet ${which} started over on ${shortDay(r.at * 1000)}; ${recordings(r.read_since)} read since${account}.`);
+    line.title = exactStamp(r.at * 1000);
+    line.dataset.note = "restart";
+    box.appendChild(line);
+  }
+  if (notes.unreadable > 0) {
+    const line = elText("div", "status err", `${recordings(notes.unreadable)} in SavedVariables could not be read.`);
+    line.dataset.note = "unreadable";
+    box.appendChild(line);
+  }
+}
 
 async function renderStored(body) {
   body.innerHTML = "";
@@ -19,6 +39,9 @@ async function renderStored(body) {
 
   const status = el("div", lastStatusClass, lastStatus);
   body.appendChild(status);
+
+  const notes = el("div", "store-notes");
+  body.appendChild(notes);
 
   const sizes = el("div", "size-row");
   sizes.style.marginTop = "16px";
@@ -41,8 +64,9 @@ async function renderStored(body) {
     const s = await invoke("sizes");
     setSwitch(sw, s.watch);
     sizes.innerHTML = "";
-    const notes = [`${s.sv_files} ${s.sv_files === 1 ? "file" : "files"} · SavedVariables ${bytes(s.sv_bytes)}`, `Payloads ${bytes(s.payload_bytes)}`, s.ratio ? `${s.ratio.toFixed(1)}× compression` : ""];
-    sizes.append(tiles([tile("Stored", bytes(s.sv_bytes + s.payload_bytes), notes, { size: "xl" })], 1));
+    const tileNotes = [`${s.sv_files} ${s.sv_files === 1 ? "file" : "files"} · SavedVariables ${bytes(s.sv_bytes)}`, `Payloads ${bytes(s.payload_bytes)}`, s.ratio ? `${s.ratio.toFixed(1)}× compression` : ""];
+    sizes.append(tiles([tile("Stored", bytes(s.sv_bytes + s.payload_bytes), tileNotes, { size: "xl" })], 1));
+    drawStoreNotes(notes, s.notes);
   }
 
   exp.onclick = async () => {

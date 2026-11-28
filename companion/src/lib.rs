@@ -23,6 +23,7 @@ pub mod legacy;
 pub mod lifetime;
 pub mod loot;
 pub mod lua;
+pub mod marks;
 pub mod mastercraft;
 pub mod naowhforever;
 pub mod overview;

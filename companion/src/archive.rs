@@ -116,6 +116,39 @@ pub fn char_payloads(char_dir: &Path) -> std::io::Result<Vec<std::path::PathBuf>
     Ok(out)
 }
 
+/// Writes one run's payload into `dir` as `<first_q>-<last_q>.scl`. When that name holds other
+/// bytes, which a store that started over makes by numbering its chunks again, the name gains
+/// the run's first chunk time (`<first_q>-<last_q>-<first_t>.scl`, then `-2`, `-3`) so nothing
+/// already exported is overwritten. A file holding the same bytes is left as it is.
+pub fn write_payload(
+    dir: &Path,
+    first_q: u64,
+    last_q: u64,
+    first_t: i64,
+    bytes: &[u8],
+) -> std::io::Result<std::path::PathBuf> {
+    fs::create_dir_all(dir)?;
+    let base = format!("{first_q}-{last_q}");
+    let names = std::iter::once(format!("{base}.scl"))
+        .chain(std::iter::once(format!("{base}-{first_t}.scl")))
+        .chain((2..).map(|n| format!("{base}-{first_t}-{n}.scl")));
+    for name in names {
+        let dest = dir.join(name);
+        match fs::read(&dest) {
+            Ok(held) if held == bytes => return Ok(dest),
+            Ok(_) => continue,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                let tmp = dest.with_extension("scl.tmp");
+                fs::write(&tmp, bytes)?;
+                fs::rename(&tmp, &dest)?;
+                return Ok(dest);
+            }
+            Err(e) => return Err(e),
+        }
+    }
+    unreachable!("the name list never ends")
+}
+
 /// `Name-Surname` from the payload header, without decoding the body. Used to
 /// group payloads by character before a full read.
 pub fn payload_character(path: &Path) -> Option<String> {
