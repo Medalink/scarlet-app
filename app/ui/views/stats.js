@@ -1,6 +1,6 @@
 // Stats: the character's records, latest pace and trends, then six sections of lifetime facts, each with its charts.
 
-import { invoke, el, elText, esc, stackedBar, dur, num, moneyHtml, lineChart, wireLineCharts, barList, money, state, tile, tiles, fillRow, spark, shortDate, displayName } from "../lib.js";
+import { invoke, el, elText, esc, stackedBar, dur, num, moneyHtml, lineChart, wireLineCharts, barList, money, state, tile, tiles, fillRow, spark, shortDay, dayRange, displayName } from "../lib.js";
 import { play } from "../motion.js";
 import { panel, pair, picker, statLabel } from "./chartkit.js";
 import { mod, recordTiles } from "./goals-section.js";
@@ -33,7 +33,7 @@ const median = (values) => {
 function trendTile(t) {
   const rates = t.points.map((p) => p[1]);
   const last = rates[rates.length - 1];
-  const view = tile(`${paceName(t.key)} an hour`, rateText(t.key, last), `Median ${rateText(t.key, median(rates))} over ${rates.length} runs at all levels, ${shortDate(t.points[0][0])} to ${shortDate(t.points[t.points.length - 1][0])}`, { size: "md", extra: spark(rates.map((v) => Math.max(0, v)), { w: 240, h: 40 }) });
+  const view = tile(`${paceName(t.key)} an hour`, rateText(t.key, last), `Median ${rateText(t.key, median(rates))} over ${rates.length} runs at all levels, ${dayRange(t.points[0][0], t.points[t.points.length - 1][0])}`, { size: "md", extra: spark(rates.map((v) => Math.max(0, v)), { w: 240, h: 40 }) });
   view.classList.add("stat-trend");
   return view;
 }
@@ -49,7 +49,7 @@ function goalsSheet({ records, latest, trend, account, who }) {
   const paces = latest ? paceTiles(latest.paces, latest.played, { keys: PACE_KEYS, cols: 3, onOpen: account && who ? openAs(who) : null }) : null;
   const trends = trendRow(trend);
   sheet.append(mod("w12 first last", "Records", recs ?? elText("p", "sc-empty", "No session of 15 minutes recorded yet")));
-  if (paces) sheet.append(mod("w12 first last", `Latest run, ${shortDate(latest.from)}${account && who ? `, ${displayName(who)}` : ""}`, paces));
+  if (paces) sheet.append(mod("w12 first last", `Latest run, ${shortDay(latest.from)}${account && who ? `, ${displayName(who)}` : ""}`, paces));
   if (trends) sheet.append(mod("w12 first last", "Rates by run", trends));
   return sheet;
 }

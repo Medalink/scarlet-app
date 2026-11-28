@@ -1,6 +1,6 @@
 // Sessions: one card for each session of the chosen kind, newest first. A card opens the recap of its time range.
 
-import { invoke, el, elText, state, sessionCard, wireTips } from "../lib.js";
+import { invoke, el, elText, state, sessionCard, wireTips, dayHeading, clockTime, dayTime } from "../lib.js";
 import { renderRecaps } from "./recap.js";
 import { linkPrompt } from "../link.js";
 
@@ -11,9 +11,6 @@ const MODES = [
   ["day", "Days"],
   ["manual", "Manual"],
 ];
-
-const clock = (ms) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-const day = (ms) => new Date(ms).toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
 
 const button = (cls, text, onClick) => {
   const b = elText("button", cls, text);
@@ -29,7 +26,7 @@ function liveCard(c, onOpen) {
     e.preventDefault();
     onOpen();
   };
-  card.append(elText("p", "sc-session-d", `${day(c.from)} · ${clock(c.from)} to now`), elText("h3", "sc-session-t", "In progress"), elText("p", "sc-session-n", "Nothing recorded yet."));
+  card.append(elText("p", "sc-session-d", `${dayHeading(c.from)} · ${clockTime(c.from)} to now`), elText("h3", "sc-session-t", "In progress"), elText("p", "sc-session-n", "Nothing recorded yet."));
   return card;
 }
 
@@ -63,7 +60,7 @@ function controls(prefs, redraw) {
         await change("session_stop");
         redraw();
       }),
-      elText("span", "sc-sub", `Started ${clock(open.from)}`),
+      elText("span", "sc-sub", `Started ${dayTime(open.from)}`),
     );
   } else {
     bar.append(

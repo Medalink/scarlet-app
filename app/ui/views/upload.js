@@ -1,7 +1,7 @@
 // Settings > Website: the master switch, the website address, one switch per sharing group and per
 // character, the account link and the removals. Off until the player turns it on.
 
-import { invoke, el, elText, bytes, num, displayName, makeSwitch } from "../lib.js";
+import { invoke, el, elText, bytes, num, displayName, makeSwitch, stamp } from "../lib.js";
 
 // What each group holds (docs/DESIGN.md, Sharing groups). Labels come from the app.
 const HOLDS = {
@@ -24,8 +24,6 @@ const HOLDS = {
   fishing: "Catches, records and tournament data from The Fishing Log.",
   counts: "Session totals The Fishing Log and ForeverFishing counted, the kills and quest experience of levels RXPGuides finished, the runs ForeverDungeonJournal closed and the boss kills NaowhForever keeps, added to your totals on the website without counting twice. Mastercraft's fishing, herb and ore totals are sent as a check and never added.",
 };
-
-const when = (t) => new Date(t * 1000).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
 
 const sw = (label, on, locked) => makeSwitch(label, on, locked);
 
@@ -124,7 +122,7 @@ export async function renderUpload(body) {
     for (const e of v.log) {
       const row = el("div", "kv");
       const k = el("div", "k");
-      k.textContent = when(e.at);
+      k.append(stamp(e.at * 1000));
       const val = el("div", "v");
       let text;
       if (e.error) {
@@ -203,9 +201,8 @@ export async function renderUpload(body) {
         const line = el("div", "note");
         line.style.marginTop = "2px";
         line.style.marginLeft = "41px";
-        line.textContent = c.last_sync
-          ? `Last upload ${when(c.last_sync)}. ${num(c.sessions)} ${c.sessions === 1 ? "session" : "sessions"}. ${bytes(c.last_sent)} sent in the last sync, ${bytes(c.total_sent)} in all.`
-          : "Not uploaded yet.";
+        if (c.last_sync) line.append(stamp(c.last_sync * 1000, "Last upload "), `. ${num(c.sessions)} ${c.sessions === 1 ? "session" : "sessions"}. ${bytes(c.last_sent)} sent in the last sync, ${bytes(c.total_sent)} in all.`);
+        else line.textContent = "Not uploaded yet.";
         row.append(s, line);
         cl.appendChild(row);
       }

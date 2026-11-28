@@ -1,6 +1,6 @@
 // Legacy: the selected character's Legacy trees as the in-game talent frame, their ranks over time and what each rank did.
 
-import { invoke, el, elText, esc, num, dateStr, dateTime, state, goal, tile, tiles } from "../lib.js";
+import { invoke, el, elText, esc, num, dayKey, dayRange, shortDay, stampHtml, state, goal, tile, tiles } from "../lib.js";
 import { play } from "../motion.js";
 import { hydrate } from "./classblocks.js";
 import { mod } from "./goals-section.js";
@@ -19,7 +19,7 @@ function effect(m, v) {
   return m.kind === "chance" ? `${sign}${fixed(v)} points` : `${sign}${fixed(v, 0)}%`;
 }
 
-const span = (r) => (r.trials ? (dateStr(r.first_ms) === dateStr(r.last_ms) ? dateStr(r.first_ms) : `${dateStr(r.first_ms)} to ${dateStr(r.last_ms)}`) : "");
+const span = (r) => (r.trials ? (dayKey(r.first_ms) === dayKey(r.last_ms) ? shortDay(r.first_ms) : dayRange(r.first_ms, r.last_ms)) : "");
 
 function effectBars(t) {
   const m = t.measure;
@@ -47,10 +47,12 @@ function effectBars(t) {
 }
 
 function history(t) {
+  const held = t.changes.find((c) => c.from == null);
   const moves = t.changes.filter((c) => c.from != null);
-  if (!moves.length) return null;
+  if (!held && !moves.length) return null;
   const list = el("ol", "leg-hist");
-  for (const c of moves) list.insertAdjacentHTML("beforeend", `<li><b>${c.from}→${c.to}</b><span>${dateTime(c.ms)}</span></li>`);
+  if (held) list.insertAdjacentHTML("beforeend", `<li><b>Rank ${held.to}</b><span>Already held when Scarlet first read this character</span></li>`);
+  for (const c of moves) list.insertAdjacentHTML("beforeend", `<li><b>${c.from}→${c.to}</b><span>${stampHtml(c.ms)}</span></li>`);
   return list;
 }
 

@@ -1,10 +1,9 @@
 // Settings > Updates and Settings > Addon: the version, the Release or Beta choice, the offered update
 // with its notes and the recent releases; and the state of the Scarlet addon in the WoW folder.
 
-import { invoke, el, listen, bytes, makeSwitch } from "../lib.js";
+import { invoke, el, listen, bytes, makeSwitch, stamp, shortDay } from "../lib.js";
 
-const stamp = (ms) => new Date(ms).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
-const day = (iso) => (iso ? new Date(iso).toLocaleDateString([], { dateStyle: "medium" }) : "");
+const day = (iso) => (iso ? shortDay(Date.parse(iso)) : "");
 
 export const label = (info) => (info.dev ? "dev" : info.version);
 
@@ -69,7 +68,9 @@ function status(info) {
     s.textContent = `No ${info.track} has been published yet.`;
   }
   if (info.checked_ms && !info.checking && !info.installing) {
-    s.append(text("span", "when", ` Checked ${stamp(info.checked_ms)}.`));
+    const checked = text("span", "when", " ");
+    checked.append(stamp(info.checked_ms, "Checked "), ".");
+    s.append(checked);
   }
   return s;
 }

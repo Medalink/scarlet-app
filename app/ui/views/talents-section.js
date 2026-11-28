@@ -1,6 +1,6 @@
 // The talents section of Character: the selected character's build as the in-game talent frame, the order points were taken in, and respecs.
 
-import { invoke, el, esc, num, moneyHtml, dateTime, state, goal, stack, tile, tiles } from "../lib.js";
+import { invoke, el, esc, num, moneyHtml, stampHtml, state, goal, stack, tile, tiles } from "../lib.js";
 import { play } from "../motion.js";
 import { hydrate } from "./classblocks.js";
 import { chip, treeFrame } from "./tree-frame.js";
@@ -41,7 +41,7 @@ function buildSection(body, build) {
   const facts = [];
   if (build.spec) facts.push(esc(build.spec));
   if (build.groups > 1) facts.push(`Talent group ${build.group} of ${build.groups}`);
-  facts.push(`read ${dateTime(build.ms)}`);
+  facts.push(stampHtml(build.ms, "Read "));
   body.appendChild(el("div", "dim", facts.join(" · ")));
   const spent = build.tabs.reduce((a, t) => a + t.spent, 0);
   const known = build.unspent_class != null || build.unspent_spec != null;
@@ -97,16 +97,17 @@ function timelineSection(body, data) {
     const row = el("li", e.held ? "tp-pick held" : `tp-pick ${e.change.kind}`);
     if (e.held) {
       const h = e.held;
-      row.innerHTML = `<span class="tf-chip none"></span><span class="tp-text"><span class="tp-name">${points(h.points)} already spent in ${num(h.nodes)} ${h.nodes === 1 ? "talent" : "talents"} when Scarlet first read group ${h.group}</span><span class="tp-meta">${dateTime(h.ms)}${where(h.group)}</span></span>`;
+      row.innerHTML = `<span class="tf-chip none"></span><span class="tp-text"><span class="tp-name">${points(h.points)} already spent in ${num(h.nodes)} ${h.nodes === 1 ? "talent" : "talents"} when Scarlet first read group ${h.group}</span><span class="tp-meta">${stampHtml(h.ms, "Read ")}${where(h.group)}</span></span>`;
     } else {
       const c = e.change;
       row.append(chip(plainName(c), c.icon));
-      const meta = [KIND[c.kind] ?? esc(c.kind), c.point_no != null ? `point ${c.point_no}` : "", esc(c.tab || ""), dateTime(c.ms) + where(c.group)].filter(Boolean).join(" · ");
+      const meta = [KIND[c.kind] ?? esc(c.kind), c.point_no != null ? `point ${c.point_no}` : "", esc(c.tab || ""), stampHtml(c.ms) + where(c.group)].filter(Boolean).join(" · ");
       row.insertAdjacentHTML("beforeend", `<span class="tp-text"><span class="tp-name">${esc(plainName(c))}</span><span class="tp-meta">${meta}</span></span><span class="tp-rank">${c.old_rank ?? ""}→${c.rank}/${c.max_ranks}</span>`);
     }
     picks.append(row);
   }
   body.appendChild(list);
+  if (!changes.length) body.appendChild(el("div", "dim", "Every point was already spent when Scarlet first read this character, so the order they were taken in is not known."));
 }
 
 function respecSection(body, data) {
@@ -119,7 +120,7 @@ function respecSection(body, data) {
   for (const r of data.respecs) {
     const c = el("div", `rs-card ${r.kind.replace(" ", "-")}`);
     const facts = [r.level == null ? "" : `Level ${r.level}`, `Group ${r.group}`].filter(Boolean).join(" · ");
-    c.innerHTML = `<span class="rs-when">${dateTime(r.ms)}</span><span class="rs-kind">${RESPEC[r.kind] ?? esc(r.kind)}</span><span class="rs-points"><b>${num(r.points)}</b> ${r.points === 1 ? "point" : "points"}</span><span class="rs-facts">${facts}</span><span class="rs-cost">${r.cost_copper == null ? "No cost recorded" : `Cost ${moneyHtml(r.cost_copper)}`}</span>`;
+    c.innerHTML = `<span class="rs-when">${stampHtml(r.ms)}</span><span class="rs-kind">${RESPEC[r.kind] ?? esc(r.kind)}</span><span class="rs-points"><b>${num(r.points)}</b> ${r.points === 1 ? "point" : "points"}</span><span class="rs-facts">${facts}</span><span class="rs-cost">${r.cost_copper == null ? "No cost recorded" : `Cost ${moneyHtml(r.cost_copper)}`}</span>`;
     cards.append(c);
   }
   body.appendChild(cards);

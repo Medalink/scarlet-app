@@ -1,6 +1,6 @@
 // Activity: events per weekday x hour, or per calendar day.
 
-import { invoke, el, elText, num, dur, state, tiles, fillRow, record, pace, goal, shortDate } from "../lib.js";
+import { invoke, el, elText, num, dur, state, tiles, fillRow, record, pace, goal, shortDay, weekdayDay, dayRange, keyMs } from "../lib.js";
 import { play } from "../motion.js";
 import { mod } from "./goals-section.js";
 import { openAs } from "./paces.js";
@@ -14,19 +14,17 @@ function shade(count, max) {
   return `background:${step}`;
 }
 
-const LONG_DATE = { weekday: "short", day: "numeric", month: "short" };
-const dateOf = (ms) => new Date(ms).toLocaleDateString([], LONG_DATE);
 const timeHtml = (secs) => dur(secs);
 const dayCount = (n) => `${num(n)} ${n === 1 ? "day" : "days"}`;
-const dayDate = (day) => shortDate(Date.parse(`${day}T12:00`));
+const dayDate = (day) => shortDay(keyMs(day));
 const spanHash = (r) => `#sessions/${r.from}-${r.to}-days`;
 
 function recordTiles(p) {
   const list = [];
   const add = (label, value, format, when, span) => list.push(record(label, format(value), when, spanHash(span), { count: [value, format], onOpen: state.ch ? openAs(state.ch) : null }));
-  if (p.longest_day) add("Longest day", p.longest_day.seconds, timeHtml, dateOf(p.longest_day.from), p.longest_day);
+  if (p.longest_day) add("Longest day", p.longest_day.seconds, timeHtml, weekdayDay(p.longest_day.from), p.longest_day);
   if (p.longest_week) add("Most played week", p.longest_week.seconds, timeHtml, `Week of ${dayDate(p.longest_week.day)}`, p.longest_week);
-  if (p.best_streak) add("Longest streak", p.best_streak.days, dayCount, `${dayDate(p.best_streak.from_day)} to ${dayDate(p.best_streak.to_day)}`, p.best_streak);
+  if (p.best_streak) add("Longest streak", p.best_streak.days, dayCount, dayRange(keyMs(p.best_streak.from_day), keyMs(p.best_streak.to_day)), p.best_streak);
   const cols = Math.min(3, list.length);
   return list.length ? tiles(fillRow(list, cols), cols) : null;
 }

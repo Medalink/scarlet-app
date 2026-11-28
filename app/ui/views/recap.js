@@ -1,7 +1,7 @@
 // The session recap of recap-app.html, drawn from `run_summary(...).recaps`: head, route and tiles, strip, feats and
 // comparison, time and experience, counts, moments, quests and loot.
 
-import { invoke, el, elText, state, num, dur, money, moneyHtml, displayName, distanceHtml, distanceText, tile, tiles, stack, bars, compare, strip, routeCard, wireTips } from "../lib.js";
+import { invoke, el, elText, state, num, dur, money, moneyHtml, displayName, distanceHtml, distanceText, tile, tiles, stack, bars, compare, strip, routeCard, wireTips, clockTime, dayHeading, dayTime } from "../lib.js";
 import { levelsOf, paceName, paceTiles } from "./paces.js";
 import { BY_KEY } from "../feats-catalog.js";
 import { GLYPHS, TIER_NAMES, svg } from "../glyphs.js";
@@ -10,12 +10,8 @@ import { webState } from "../link.js";
 import { counted, play } from "../motion.js";
 
 const YARDS_PER_MILE = 1760;
-const clockOf = (sec) => {
-  const d = new Date(sec * 1000);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-};
-const dayOf = (sec) => new Date(sec * 1000).toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
-const shortDay = (ms) => new Date(ms).toLocaleDateString([], { day: "numeric", month: "short" });
+const clockOf = (sec) => clockTime(sec * 1000);
+const dayOf = (sec) => dayHeading(sec * 1000);
 
 const panel = (...kids) => {
   const p = el("section", "sc-panel");
@@ -64,7 +60,7 @@ function subline(recap, run, nav) {
 
 function pickerLabel(c, mode) {
   const names = c.chars.map(displayName).join(", ");
-  const when = mode === "day" ? dayOf(c.from / 1000) : `${shortDay(c.from)} ${clockOf(c.from / 1000)}`;
+  const when = mode === "day" ? dayOf(c.from / 1000) : dayTime(c.from);
   return [when, c.live ? "in progress" : dur(c.played), names].join(" · ");
 }
 
@@ -101,9 +97,9 @@ function head(recap, paces, run, nav, onAll, onWeb) {
     b.onclick = () => window.__nav(`sessions/${c.from}-${c.to}`);
     return b;
   };
-  if (older) actions.append(go(older, `← ${shortDay(older.from)}`, "Older session"));
+  if (older) actions.append(go(older, `← ${dayTime(older.from)}`, "Older session"));
   if (nav.cards.length) actions.append(picker(nav, from));
-  if (newer) actions.append(go(newer, `${shortDay(newer.from)} →`, "Newer session"));
+  if (newer) actions.append(go(newer, `${dayTime(newer.from)} →`, "Newer session"));
   const log = elText("button", "sc-btn quiet small", "Log");
   log.type = "button";
   log.onclick = () => {

@@ -1,11 +1,11 @@
 // Items: what every character carries, where it is as a bar per item, the recipes they know as reagents to product,
 // and how fresh each container read is. The model comes from the `items` command.
 
-import { invoke, el, elText, esc, displayName, num, dateTime, money, moneyHtml, shortDate, goal, state, tile, tiles, wireTips } from "../lib.js";
+import { invoke, el, elText, esc, displayName, num, exactStamp, stamp, stampHtml, money, moneyHtml, shortDay, goal, state, tile, tiles, wireTips } from "../lib.js";
 import { counted, play } from "../motion.js";
 import { openAs } from "./paces.js";
 
-const when = (secs) => (secs ? dateTime(secs * 1000) : "–");
+const when = (secs) => (secs ? exactStamp(secs * 1000) : "–");
 
 const WHERE = [
   ["Bags", "--s-1", "bags", "in bags"],
@@ -164,11 +164,10 @@ function results(view, into) {
 }
 
 function age(at, now) {
-  if (!at) return { c: "never", text: "Never", left: 0 };
+  if (!at) return { c: "never", left: 0 };
   const s = Math.max(0, now - at);
   const left = Math.max(0, 1 - s / FADED_SECS) * 100;
-  const text = s < 3600 ? `${Math.max(1, Math.round(s / 60))} min` : s < 86400 ? `${Math.round(s / 3600)} h` : `${Math.round(s / 86400)} d`;
-  return { c: s < FRESH_SECS ? "fresh" : s < DAY_OLD_SECS ? "day" : "stale", text, left };
+  return { c: s < FRESH_SECS ? "fresh" : s < DAY_OLD_SECS ? "day" : "stale", left };
 }
 
 function wealth(view) {
@@ -177,7 +176,7 @@ function wealth(view) {
   const p = el("div", "panel");
   p.innerHTML = "<h3>Value held</h3>";
   const best = w.record?.value ?? 0;
-  const note = best > w.value ? `Best ${money(best)} on ${shortDate(w.record.at * 1000)}` : "";
+  const note = best > w.value ? `Best ${money(best)} on ${shortDay(w.record.at * 1000)}` : "";
   p.append(goal(w.value, Math.max(best, w.value), { label: "Bags, bank, mail and auctions", format: moneyHtml, doneText: "Best", note }));
   p.append(elText("p", "dim", `${num(w.priced)} of ${num(w.priced + w.unpriced)} kinds of item have a price`));
   return p;
@@ -197,7 +196,7 @@ function carriers(view) {
     .map((c) => {
       const cells = READS.map(([label, f]) => {
         const a = age(c[f], now);
-        return `<div class="fr-cell ${a.c}" data-tip="${label} read|${esc(when(c[f]))}"><i style="--w:${a.left.toFixed(1)}%"></i><span>${label}</span><b>${a.text}</b></div>`;
+        return `<div class="fr-cell ${a.c}" data-tip="${label} read|${esc(when(c[f]))}"><i style="--w:${a.left.toFixed(1)}%"></i><span>${label}</span><b>${c[f] ? stampHtml(c[f] * 1000, "", { hover: false }) : "Never"}</b></div>`;
       }).join("");
       return `<div class="fr-row"><span class="fr-name">${esc(displayName(c.name))}</span><span class="fr-n">${num(c.stacks)} <small>${c.stacks === 1 ? "item" : "items"}</small></span>${cells}</div>`;
     })
@@ -213,18 +212,18 @@ function sharedBanks(view) {
   const p = el("div", "panel");
   p.innerHTML = "<h3>Warband and guild banks</h3>";
   const empty = (s) => s.stacks === 0;
-  const readOn = (s) => (s.at ? new Date(s.at * 1000).toLocaleDateString([], { month: "short", day: "numeric" }) : "");
   const filled = view.shared.filter((s) => !empty(s));
   const bare = view.shared.filter(empty).map((s) => {
     const line = el("p", "it-bank-empty");
     const bits = [placeText(view, s.place, s.scope, s.account_unknown), "empty"];
     if (s.money) bits.push(`balance ${moneyHtml(s.money)}`);
-    if (s.at) bits.push(`read ${readOn(s)}`);
+    if (s.at) bits.push(stampHtml(s.at * 1000, "read "));
     line.innerHTML = bits.map((b, i) => (i === 0 ? `<b>${esc(b)}</b>` : b)).join(" · ");
     return line;
   });
   const list = filled.map((s) => {
-    const note = s.at ? `Last read ${when(s.at)}${s.read_by ? ` by ${displayName(s.read_by)}` : ""}` : "";
+    const note = el("span");
+    if (s.at) note.append(stamp(s.at * 1000, "Last read "), s.read_by ? ` by ${displayName(s.read_by)}` : "");
     const balance = el("span", "it-balance");
     balance.innerHTML = s.money == null ? "No balance read" : `Balance ${moneyHtml(s.money)}`;
     const held = (n) => `${num(n)}<small>${n === 1 ? "item" : "items"}</small>`;

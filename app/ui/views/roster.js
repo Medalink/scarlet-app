@@ -2,11 +2,11 @@
 // The model comes from the `roster` command. Section order: totals, characters by game
 // account, gold and transfers, played together, play time by day, time per level, professions.
 
-import { invoke, state, el, elText, esc, displayName, num, dur, money, moneyHtml, dateStr, goal, shortDate, wireTips } from "../lib.js";
+import { invoke, state, el, elText, esc, displayName, num, dur, money, moneyHtml, dayKey, shortDay, weekdayDay, dayTime, weekStart, stampHtml, goal, wireTips } from "../lib.js";
 import { countMarked, play } from "../motion.js";
 import { FALLBACK_CAP, TIERS, recordTiles } from "./goals-section.js";
 import { openAs, paceTiles } from "./paces.js";
-import { CLASS_COLOR, className, raceName, day, hm, longDur, playTime, signed, empty, mod, mondayOf, axisTime, plural } from "./overview.js";
+import { CLASS_COLOR, className, raceName, longDur, playTime, signed, empty, mod, axisTime, plural } from "./overview.js";
 
 const DAYS = 30;
 const TRANSFER_ROWS = 8;
@@ -35,7 +35,7 @@ function pick(name) {
 }
 
 function totals() {
-  const monday = mondayOf(new Date()).getTime();
+  const monday = weekStart().getTime();
   const week = sum(data.chars, (c) => sum(c.sessions.filter((s) => s[0] * 1000 >= monday), (s) => s[1]));
   const cells = [
     ["Characters", num(data.chars.length)],
@@ -47,19 +47,6 @@ function totals() {
   return `<section class="week"><div><h2>Totals</h2></div>${cells.map(([l, v]) => `<dl><dt>${l}</dt><dd>${v}</dd></dl>`).join("")}</section>`;
 }
 
-
-const DAY_S = 86400;
-
-function ago(sec) {
-  const d = Math.max(0, Date.now() / 1000 - sec);
-  const n = (v, unit) => `${v} ${unit}${v === 1 ? "" : "s"} ago`;
-  if (d < 90) return "just now";
-  if (d < 3600) return n(Math.round(d / 60), "minute");
-  if (d < DAY_S) return n(Math.round(d / 3600), "hour");
-  if (d < 14 * DAY_S) return n(Math.floor(d / DAY_S), "day");
-  if (d < 70 * DAY_S) return n(Math.floor(d / (7 * DAY_S)), "week");
-  return n(Math.floor(d / (30 * DAY_S)), "month");
-}
 
 function capGoals(c) {
   const out = [];
@@ -76,7 +63,7 @@ function capGoals(c) {
 function charCard(c, withAccount) {
   const time = c.played || c.recorded;
   const played = time ? `${longDur(time)}${c.played ? "" : " recorded"}` : "–";
-  const last = c.through ? `<b data-tip="${day(c.through * 1000)} ${hm(c.through * 1000)}">${ago(c.through)}</b>` : "<b>–</b>";
+  const last = c.through ? `<b>${stampHtml(c.through * 1000, "", { tip: true })}</b>` : "<b>–</b>";
   const acct = withAccount && c.account ? `<span class="ch-acct">${esc(c.account)}</span>` : "";
   return `<div class="ch-card" role="link" tabindex="0" data-pick="${esc(c.name)}" style="--cls:${CLASS_COLOR[c.class] || "var(--accent)"}">
     <div class="ch-top"><span class="ch-name">${esc(displayName(c.name))}</span></div>
@@ -123,7 +110,7 @@ function goldMod() {
   const plot =
     pts.length > 1
       ? `<div class="gold-plot"><svg id="r-gold" viewBox="0 0 300 100" preserveAspectRatio="none"></svg>
-        <div class="gold-axis"><span>${day(pts[0].t * 1000)}</span><span>${day(pts[pts.length - 1].t * 1000)}</span></div></div>
+        <div class="gold-axis"><span>${shortDay(pts[0].t * 1000)}</span><span>${shortDay(pts[pts.length - 1].t * 1000)}</span></div></div>
         <p class="readout" id="r-gold-out"></p>`
       : "";
   const nets = data.chars.map((c) => sum(c.sessions, (x) => x[2] - x[3]));
@@ -159,12 +146,12 @@ function fillGoldGoals(body) {
       line.innerHTML = `<span>Gold held, characters</span><b>${moneyHtml(held)}</b><span>Best: now</span>`;
       slot.append(line);
     } else {
-      slot.append(goal(held, best, { label: "Gold held, characters", format: moneyHtml, note: `Best ${money(best)} on ${shortDate(bestAt * 1000)}`, count: false }));
+      slot.append(goal(held, best, { label: "Gold held, characters", format: moneyHtml, note: `Best ${money(best)} on ${shortDay(bestAt * 1000)}`, count: false }));
     }
   }
   const latest = account?.latest;
   const rate = latest ? paceTiles(latest.paces.filter((p) => p.key === "gold_h"), latest.played, { onOpen: openAs(latest.character) }) : null;
-  if (rate) slot.append(elText("p", "sc-label", `${displayName(latest.character)}, run of ${shortDate(latest.from)}`), rate);
+  if (rate) slot.append(elText("p", "sc-label", `${displayName(latest.character)}, run of ${shortDay(latest.from)}`), rate);
 }
 
 function recordsSheet() {
@@ -201,7 +188,7 @@ function wireGold(body) {
     cross.setAttribute("x1", gx(i));
     cross.setAttribute("x2", gx(i));
     cross.setAttribute("visibility", "visible");
-    out.innerHTML = `<b>${day(pts[i].t * 1000)} ${hm(pts[i].t * 1000)}</b> · ${moneyHtml(pts[i].m)}`;
+    out.innerHTML = `<b>${dayTime(pts[i].t * 1000)}</b> · ${moneyHtml(pts[i].m)}`;
   });
   svg.addEventListener("pointerleave", rest);
   rest();
@@ -212,7 +199,7 @@ function transfersMod() {
   const shown = transfersAll ? data.transfers : data.transfers.slice(0, TRANSFER_ROWS);
   const rows = shown
     .map(
-      (t) => `<li><span class="mv-when">${day(t.ms)} ${hm(t.ms)} · ${t.via}</span><span class="mv-who">${nameOf(t.from)} → ${nameOf(t.to)}</span>
+      (t) => `<li><span class="mv-when">${stampHtml(t.ms)} · ${t.via}</span><span class="mv-who">${nameOf(t.from)} → ${nameOf(t.to)}</span>
 <span class="mv-amt">${moneyHtml(t.copper)}</span></li>`
     )
     .join("");
@@ -235,7 +222,7 @@ function pairsMod() {
   if (data.pairs.length < PAIRS_AS_BARS) {
     const lines = data.pairs
       .map(
-        (p) => `<p class="pt-line"><span class="pt-who">${nameOf(p.a)}<small>and</small>${nameOf(p.b)}</span><span><b>${lead(p)}</b>${group(p)} · ${plural(p.sessions, "session", "sessions")}${p.last ? ` · ${ago(p.last)}` : ""}</span></p>`
+        (p) => `<p class="pt-line"><span class="pt-who">${nameOf(p.a)}<small>and</small>${nameOf(p.b)}</span><span><b>${lead(p)}</b>${group(p)} · ${plural(p.sessions, "session", "sessions")}${p.last ? ` · ${stampHtml(p.last * 1000)}` : ""}</span></p>`
       )
       .join("");
     return mod("w12 first last", "Played together", lines);
@@ -244,7 +231,7 @@ function pairsMod() {
     .map(
       (p) => `<div class="pt-row"><span class="pt-who">${nameOf(p.a)}<small>and</small>${nameOf(p.b)}</span>
         <div class="pt-bar"><span class="pt-t"><b>${lead(p)}</b>${group(p)}</span><i style="--w:${(p.together / longest) * 100}%;--g:${p.together ? Math.min(100, (p.grouped / p.together) * 100) : 0}%"></i></div>
-        <span class="pt-n">${plural(p.sessions, "session", "sessions")}</span><span class="pt-last">${p.last ? ago(p.last) : "–"}</span></div>`
+        <span class="pt-n">${plural(p.sessions, "session", "sessions")}</span><span class="pt-last">${p.last ? stampHtml(p.last * 1000) : "–"}</span></div>`
     )
     .join("");
   const key = `<ul class="key"><li><i style="background:var(--text)"></i>Online together</li><li><i style="background:var(--accent)"></i>Grouped</li></ul>`;
@@ -259,12 +246,12 @@ function dayBuckets() {
   const days = Array.from({ length: DAYS }, (_, i) => {
     const d = new Date(start);
     d.setDate(start.getDate() + i);
-    return { t: d.getTime(), key: dateStr(d.getTime()), per: data.chars.map(() => 0), total: 0 };
+    return { t: d.getTime(), key: dayKey(d.getTime()), per: data.chars.map(() => 0), total: 0 };
   });
   const at = new Map(days.map((d, i) => [d.key, i]));
   data.chars.forEach((c, ci) =>
     c.sessions.forEach(([t, p]) => {
-      const i = at.get(dateStr(t * 1000));
+      const i = at.get(dayKey(t * 1000));
       if (i === undefined) return;
       days[i].per[ci] += p;
       days[i].total += p;
@@ -286,7 +273,7 @@ function daysMod() {
     })
     .join("");
   const ticks = days
-    .map((d, i) => `<span>${(DAYS - 1 - i) % 5 === 0 && i < DAYS - 1 ? `${new Date(d.t).getDate()} ${new Date(d.t).toLocaleDateString([], { month: "short" })}` : ""}</span>`)
+    .map((d, i) => `<span>${(DAYS - 1 - i) % 5 === 0 && i < DAYS - 1 ? shortDay(d.t) : ""}</span>`)
     .join("");
   return mod(
     "w12 first last",
@@ -312,7 +299,7 @@ function wireDays(body) {
       .filter(([p]) => p)
       .sort((a, b) => b[0] - a[0])
       .map(([p, ci]) => `${esc(displayName(data.chars[ci].name))} ${playTime(p)}`);
-    out.innerHTML = d.total ? `<b>${day(d.t)}</b> · ${playTime(d.total)} · ${who.join(" · ")}` : `<b>${day(d.t)}</b> · not played`;
+    out.innerHTML = d.total ? `<b>${weekdayDay(d.t)}</b> · ${playTime(d.total)} · ${who.join(" · ")}` : `<b>${weekdayDay(d.t)}</b> · not played`;
   };
   const at = (e) => {
     const r = bars.getBoundingClientRect();

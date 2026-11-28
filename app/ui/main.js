@@ -1,6 +1,6 @@
 // Shell: sidebar nav, character filter, store-changed refresh, hash routing.
 
-import { invoke, listen, el, $, num, esc, displayName, state } from "./lib.js";
+import { invoke, listen, el, $, num, esc, displayName, state, dayRange, refreshStamps } from "./lib.js";
 import * as roster from "./views/roster.js";
 import * as feats from "./views/feats.js";
 import { stopToasts } from "./feat-toast.js";
@@ -201,9 +201,7 @@ function headStats() {
     $("#head-stats").textContent = "";
     return;
   }
-  const a = new Date(st.first_ms).toLocaleDateString([], { month: "short", day: "numeric" });
-  const b = new Date(st.last_ms).toLocaleDateString([], { month: "short", day: "numeric" });
-  $("#head-stats").textContent = `${num(st.events)} ${st.events === 1 ? "event" : "events"} · ${a} – ${b}`;
+  $("#head-stats").textContent = `${num(st.events)} ${st.events === 1 ? "event" : "events"} · ${dayRange(st.first_ms, st.last_ms)}`;
 }
 
 function showVersion(info) {
@@ -263,6 +261,7 @@ async function boot() {
   };
   askClients();
   setInterval(askClients, 5000);
+  setInterval(() => refreshStamps(), 1000);
 
   $("#upd").onclick = () => (rebuilt ? invoke("restart_rebuilt") : (location.hash = "settings/updates"));
   await listen("update-changed", (e) => showVersion(e.payload));

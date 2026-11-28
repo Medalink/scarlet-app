@@ -1,6 +1,7 @@
 // Shared helpers: invoke wrapper, app state, formatting, small chart builders.
 
 import { invoke, listen } from "./bridge.js";
+import { dayTime } from "./dates.js";
 
 export { invoke, listen };
 
@@ -92,22 +93,6 @@ export function dur(secs) {
   if (h > 0) return `${h}h ${m}m`;
   if (m > 0) return `${m}m ${secs % 60}s`;
   return `${secs}s`;
-}
-
-export function clock(ms) {
-  const d = new Date(ms);
-  const p = (x, n = 2) => String(x).padStart(n, "0");
-  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(Math.floor((ms % 1000) / 10))}`;
-}
-
-export function dateStr(ms) {
-  const d = new Date(ms);
-  const p = (x) => String(x).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
-
-export function dateTime(ms) {
-  return `${dateStr(ms)} ${clock(ms).slice(0, 5)}`;
 }
 
 // Palette for session / series colours, scarlet family first.
@@ -234,7 +219,7 @@ export function wireLineCharts(root) {
       cross.setAttribute("x1", x.toFixed(1));
       cross.setAttribute("x2", x.toFixed(1));
       cross.setAttribute("visibility", "visible");
-      out.innerHTML = `<b>${dateTime(t)}</b> · ${esc(fmt(v))}`;
+      out.innerHTML = `<b>${dayTime(t)}</b> · ${esc(fmt(v))}`;
     });
     svg.addEventListener("pointerleave", () => {
       cross.setAttribute("visibility", "hidden");
@@ -269,3 +254,4 @@ export function stackedBar(splits) {
 }
 
 export * from "./components.js";
+export * from "./dates.js";

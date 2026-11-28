@@ -1,7 +1,7 @@
 // Log: virtualized event log with Rust-side search, code chips, date range
 // and session jump.
 
-import { invoke, el, elText, state, clock, esc, num, dur, highlight, money, shortDate, displayName } from "../lib.js";
+import { invoke, el, elText, state, clockExact, clockTime, exactStamp, dayTime, esc, num, dur, highlight, money, shortDay, displayName } from "../lib.js";
 import { paceName } from "./paces.js";
 
 const ROW_PX = 24;
@@ -12,8 +12,6 @@ const RUN_GAP_MS = 5 * 60_000;
 const sum = (parts, key) => parts.reduce((a, p) => a + (p[key] ?? 0), 0);
 const QUALITY_LINE = /^(.*) is (poor|common|uncommon|rare|epic|legendary)$/;
 const METERS = [["xp", "XP", num], ["gold", "Gold", (v) => (v === 0 ? "0" : `${v > 0 ? "+" : ""}${money(v)}`)], ["kills", "Kills", num]];
-
-const clockOf = (ms) => new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
 function wowRuns(sessionsList) {
   const runs = [];
@@ -59,7 +57,7 @@ function briefCell(b, most, onPick) {
   cell.dataset.from = String(b.from);
   cell.dataset.to = String(b.to);
   const head = el("span", "lg-head");
-  head.append(elText("b", "", dur(b.played)), elText("span", "", `${shortDate(b.from)} ${clockOf(b.from)}`));
+  head.append(elText("b", "", dur(b.played)), elText("span", "", `${shortDay(b.from)} ${clockTime(b.from)}`));
   if (b.who) head.append(elText("span", "", b.who));
   cell.append(head);
   for (const [key, label, show] of METERS) {
@@ -119,7 +117,7 @@ export async function render(body) {
   for (const s of sessionsList) {
     const o = el("option");
     o.value = s.index;
-    o.textContent = `${new Date(s.start).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })} · ${s.zones[0] || "Unknown zone"}`;
+    o.textContent = `${dayTime(s.start)} · ${s.zones[0] || "Unknown zone"}`;
     sess.appendChild(o);
   }
   if (picked && picked.index != null) sess.value = String(picked.index);
@@ -234,7 +232,7 @@ export async function render(body) {
       const quality = r.code === "itemquality" ? QUALITY_LINE.exec(r.text) : null;
       const textHtml = quality ? `${highlight(quality[1], term)} is <span class="tl-q" style="--c:var(--q-${quality[2]}, var(--muted))">${quality[2]}</span>` : r.text ? highlight(r.text, term) : "";
       html += `<div class="tl-row" style="top:${i * ROW_PX}px" data-code="${esc(r.code)}">
-        <span class="tl-time">${clock(r.ms)}</span>
+        <span class="tl-time" title="${exactStamp(r.ms)}">${clockExact(r.ms)}</span>
         <span class="tl-word" title="Filter by ${esc(r.word)}">${esc(r.word)}</span>
         <span class="tl-text">${textHtml}</span>
       </div>`;

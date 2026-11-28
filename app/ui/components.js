@@ -6,6 +6,7 @@ import { GLYPHS, svg } from "./glyphs.js";
 import { drawCrest } from "./crests.js";
 import { BY_KEY } from "./feats-catalog.js";
 import { counted } from "./motion.js";
+import { clockTime, dayHeading, hourName, shortDay } from "./dates.js";
 
 const HALF_MILE_YD = 880;
 const YARDS_PER_MILE = 1760;
@@ -53,9 +54,18 @@ export function wireTips() {
   });
 }
 
+const joined = (parts) => parts.filter((p) => p != null && p !== "").flatMap((p, i) => (i ? [" · ", p] : [p]));
+
+/** A line made of text and nodes, `parts` told apart by a middle dot, so a note can hold a stamp that keeps itself current. */
+export const noteLine = (cls, parts, tag = "span") => {
+  const line = el(tag, cls);
+  line.append(...joined([parts].flat()));
+  return line;
+};
+
 /**
  * A stat tile: label, the number (HTML so a unit can sit in a `<small>`), one note line. `count` is `[n, format]`: the
- * number counts up from 0 to `n` when the page plays, `format(n)` giving its HTML.
+ * number counts up from 0 to `n` when the page plays, `format(n)` giving its HTML. `note` is text, a node or a list of both.
  */
 export function tile(label, value, note, { size = "", best = "", extra = null, count = null } = {}) {
   const t = el("div", "sc-tile");
@@ -63,7 +73,7 @@ export function tile(label, value, note, { size = "", best = "", extra = null, c
   const number = el("span", `sc-num${size ? ` sc-num-${size}` : ""}`, value);
   if (count) counted(number, ...count);
   t.append(number);
-  if (note) t.append(elText("span", "sc-sub", note));
+  if (note && !(Array.isArray(note) && !note.some(Boolean))) t.append(noteLine("sc-sub", note));
   if (extra) t.append(extra);
   if (best) t.append(elText("span", "best", best));
   return t;
@@ -190,8 +200,6 @@ export function compare(spread, { lo = 0, hi, name = "You", text } = {}) {
   return host;
 }
 
-export const shortDate = (ms) => new Date(ms).toLocaleDateString([], { day: "numeric", month: "short" });
-
 /**
  * Progress to a ceiling: the name and `value / cap` over a bar that fills, and under it the share and `eta` when given.
  * `size: "lg"` makes the figure a headline. A bar at its cap reads "Max", or `doneText`. `count` is off for a list of many.
@@ -213,7 +221,7 @@ export function goal(value, cap, { label = "", eta = "", size = "", color = "", 
   if (color) fill.style.setProperty("--c", color);
   track.append(fill);
   const foot = el("div", "sg-f");
-  foot.append(elText("span", "", done ? doneText : `${Math.floor(share * 100)}%`), elText("span", "", [note, eta].filter(Boolean).join(" · ")));
+  foot.append(elText("span", "", done ? doneText : `${Math.floor(share * 100)}%`), noteLine("", [note, eta]));
   box.append(head, track, foot);
   return box;
 }
@@ -249,7 +257,7 @@ export function pace(rate, spread, { label, unit = "an hour", total = "", format
   } else {
     t.append(elText("span", "sc-sub", qualifies ? `${peers} of 3 ${noun} to compare` : "Under 15 minutes"));
   }
-  if (peak && !best && (spread || peak.value > rate)) t.append(elText("span", "sc-sub", `Best${levels ? ` at ${levels}` : ""}: ${text(peak.value)} · ${shortDate(peak.from)}`));
+  if (peak && !best && (spread || peak.value > rate)) t.append(elText("span", "sc-sub", `Best${levels ? ` at ${levels}` : ""}: ${text(peak.value)} · ${shortDay(peak.from)}`));
   if (record) {
     const line = elText(record.href ? "a" : "span", "sc-sub sc-pace-record", `Record ${text(record.value)} · level ${record.level}`);
     if (record.href) line.href = record.href;
@@ -261,7 +269,7 @@ export function pace(rate, spread, { label, unit = "an hour", total = "", format
 
 /** The show-off tile: the label, the value, the date it was set, and a link to that session. */
 export function record(label, value, when, href, { count = null, note = "", onOpen = null } = {}) {
-  const t = tile(label, value, [when, note].filter(Boolean).join(" · "), { size: "xl", count });
+  const t = tile(label, value, [when, note], { size: "xl", count });
   if (!href) return t;
   const a = el("a", "sc-tile sc-record");
   a.href = href;
@@ -270,10 +278,7 @@ export function record(label, value, when, href, { count = null, note = "", onOp
   return a;
 }
 
-const clockOf = (sec) => {
-  const d = new Date(sec * 1000);
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-};
+const clockOf = (sec) => clockTime(sec * 1000);
 
 /**
  * The session strip: zones in order, XP per bucket, combat, moments and the clock. Drawn from the recap's `buckets`,
@@ -355,7 +360,7 @@ export function strip(r, { compact = false } = {}) {
     next.setMinutes(0, 0, 0);
     next.setHours(next.getHours() + 1);
     for (let t = next.getTime() / 1000; t < r.start + spanS - 480; t += 3600) {
-      if (t - r.start > 840) lab(t - r.start, `${String(new Date(t * 1000).getHours()).padStart(2, "0")}:00`);
+      if (t - r.start > 840) lab(t - r.start, hourName(t * 1000));
     }
   }
   const cross = svg("rect", { x: -9, y: 0, width: 1, height: ey + 20, fill: "#f0f1f3", opacity: 0.5 });
@@ -477,8 +482,6 @@ export function collectionRow(name, feats, { draw, onPick = null, picked = null,
   return row;
 }
 
-const dayOf = (sec) => new Date(sec * 1000).toLocaleDateString([], { weekday: "long", day: "numeric", month: "long" });
-
 /**
  * A session card: date line, the title, the compact strip, one line of totals and a chip for each feat earned.
  * `onOpen` makes the whole card a link. `live` ends the time range on "now"; `others` are more characters in the card.
@@ -493,7 +496,7 @@ export function sessionCard(r, { onOpen = null, who = true, chip = null, live = 
     };
   }
   const head = el("p", "sc-session-d");
-  head.append(`${dayOf(r.start)} · ${clockOf(r.start)} to ${live ? "now" : clockOf(r.end)}`);
+  head.append(`${dayHeading(r.start * 1000)} · ${clockOf(r.start)} to ${live ? "now" : clockOf(r.end)}`);
   if (who) head.append(` · ${[r.character, ...others].map(displayName).join(", ")}`);
   card.append(head, elText("h3", "sc-session-t", r.title.text));
   if (r.buckets?.xp?.length) card.append(strip(r, { compact: true }));

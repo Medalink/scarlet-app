@@ -137,7 +137,7 @@ export async function render(body) {
     card({ name: "Soloist", tier: 0, glyph: "dungeons", crest: "character", progress: 0.3, counted: "No dungeon run alone yet", to_next: "1 to Uncommon", share: 6 }),
     card({ name: "Slayer", tier: 2, tier_name: "Rare", glyph: "kills", crest: "character", progress: 0.99, counted: "9,912 kills", to_next: "88 to Epic", share: 64 }),
     card({ name: "Rampage", tier: 2, tier_name: "Rare", glyph: "kills", crest: "character", progress: 0.04, counted: "312 kills in one session", to_next: "288 to Epic" }),
-    card({ name: "Flawless", tier: 5, tier_name: "Scarlet", glyph: "shield", crest: "character", progress: 1, counted: "100 dungeon runs with no deaths in the party", to_next: "Scarlet since 4 November", share: 0.4 }),
+    card({ name: "Flawless", tier: 5, tier_name: "Scarlet", glyph: "shield", crest: "character", progress: 1, counted: "100 dungeon runs with no deaths in the party", to_next: "Scarlet since Nov 4", share: 0.4 }),
     card({ name: "Veteran", tier: 3, tier_name: "Epic", glyph: "hours", crest: "account", progress: 0.4, counted: "1,840 hours on the account", to_next: "120 to Legendary" }),
   );
   root.append(section("Feat card", cards, caption("The card has no bar: the next piece filling in on the crest is the progress.")));
@@ -197,9 +197,9 @@ export async function render(body) {
   );
   const records = tiles(
     [
-      record("Best XP an hour", num(69658), "21 Nov · level 41", "#sessions", { count: [69658, num] }),
-      record("Most kills", num(744), "21 Nov · level 42", "#sessions", { count: [744, num] }),
-      record("Highest balance", moneyHtml(724903), "20 Nov", ""),
+      record("Best XP an hour", num(69658), "Nov 21 · level 41", "#sessions", { count: [69658, num] }),
+      record("Most kills", num(744), "Nov 21 · level 42", "#sessions", { count: [744, num] }),
+      record("Highest balance", moneyHtml(724903), "Nov 20", ""),
     ],
     3,
   );

@@ -1,7 +1,7 @@
 // Loot: what each player received as a quality-coloured bar per loot rule, with their rolls, and drop rates per
 // creature as chance bars.
 
-import { invoke, el, elText, state, esc, displayName, num, dur, stack, tiles, fillRow, pace, shortDate, wireTips } from "../lib.js";
+import { invoke, el, elText, state, esc, displayName, num, dur, stack, tiles, fillRow, pace, shortDay, wireTips } from "../lib.js";
 import { counted, play } from "../motion.js";
 import { openAs } from "./paces.js";
 
@@ -167,10 +167,10 @@ function dropRates(view) {
 
 function farmTile(f) {
   const p = f.pace;
-  const t = pace(p.rate, p.spread, { label: f.name, total: `${num(p.count)} in ${dur(p.played)}, ${shortDate(p.from)} · ${num(f.total)} looted`, format: fixed, text: fixed, best: p.isBest, peak: p.best, peers: p.peers });
+  const t = pace(p.rate, p.spread, { label: f.name, total: `${num(p.count)} in ${dur(p.played)}, ${shortDay(p.from)} · ${num(f.total)} looted`, format: fixed, text: fixed, best: p.isBest, peak: p.best, peers: p.peers });
   if (!state.ch) t.append(elText("span", "sc-sub", displayName(f.character)));
   if (f.record) {
-    const a = elText("a", "sc-sub sc-pace-record", `Most in a session ${num(f.record.value)} · ${shortDate(f.record.from)}`);
+    const a = elText("a", "sc-sub sc-pace-record", `Most in a session ${num(f.record.value)} · ${shortDay(f.record.from)}`);
     a.href = `#sessions/${f.record.from}-${f.record.to}`;
     a.onclick = openAs(f.character);
     t.append(a);
@@ -184,7 +184,7 @@ function firstTile(f) {
   a.onclick = openAs(f.character);
   const name = elText("span", "sc-first-name", f.name);
   if (QUALITY[f.quality]) name.style.color = `var(--q-${QUALITY[f.quality]})`;
-  a.append(name, elText("span", "sc-sub", `First looted ${shortDate(f.first[0])}`));
+  a.append(name, elText("span", "sc-sub", `First looted ${shortDay(f.first[0])}`));
   if (!state.ch) a.append(elText("span", "sc-sub", displayName(f.character)));
   return a;
 }

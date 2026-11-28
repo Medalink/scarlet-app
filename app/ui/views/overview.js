@@ -4,7 +4,7 @@
 // experience by level and gold, dungeons, played with and deaths, play time
 // by day and by zone, play history.
 
-import { invoke, esc, displayName, num, dur, moneyHtml, dateStr, dateTime, SERIES, state, wireTips } from "../lib.js";
+import { invoke, esc, displayName, num, dur, moneyHtml, dayKey, dayRange, shortDay, weekdayDay, clockTime, dayTime, monthName, weekStart, stampHtml, SERIES, state, wireTips } from "../lib.js";
 import { countMarked, play } from "../motion.js";
 import { goalsSheet } from "./goals-section.js";
 
@@ -35,8 +35,6 @@ const XP_PARTS = [
   ["xo", "Other", SERIES[4]],
 ];
 
-const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const MO = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const HEAT_WEEKS = 20;
 const GOLD_POINTS = 30;
 const HISTORY_ROWS = 10;
@@ -58,11 +56,6 @@ let entering = false;
 export const className = (c) => CLASS_NAME[c] || (c ? c[0] + c.slice(1).toLowerCase() : "");
 export const raceName = (r) => RACE_NAME[r] || String(r || "").replace(/([a-z])([A-Z])/g, "$1 $2");
 export const plural = (n, one, many) => `${num(n)} ${n === 1 ? one : many}`;
-export const day = (ms) => {
-  const d = new Date(ms);
-  return `${WD[d.getDay()]} ${d.getDate()} ${MO[d.getMonth()]}`;
-};
-export const hm = (ms) => new Date(ms).toTimeString().slice(0, 5);
 const net = (s) => (s.g || 0) - (s.s || 0);
 
 export function longDur(secs) {
@@ -114,13 +107,13 @@ function header(ov, name) {
   const bits = [identity, ov.faction, ov.zone ? `in ${ov.zone}` : "", ov.played ? `${longDur(ov.played)} played` : ""].filter(Boolean);
   const first = ov.sessions.length ? ov.sessions[ov.sessions.length - 1].t : 0;
   const since = first
-    ? `Recorded since ${day(first * 1000)}${ov.firstLevel > 1 ? `, from level ${ov.firstLevel}` : ""}`
+    ? `Recorded since ${shortDay(first * 1000)}${ov.firstLevel > 1 ? `, from level ${ov.firstLevel}` : ""}`
     : "";
   const holes = ov.gaps
     ? `${plural(ov.gaps, "stretch", "stretches")} of play not recorded${ov.gapSecs ? `, about ${longDur(ov.gapSecs)}` : ""}`
     : "";
   const notes = [since, holes].filter(Boolean).map((t) => `<p class="ch-note">${esc(t)}</p>`);
-  const last = ov.through ? `<p class="ch-note">Last session ${day(ov.through * 1000)} ${hm(ov.through * 1000)}</p>` : "";
+  const last = ov.through ? `<p class="ch-note">${stampHtml(ov.through * 1000, "Last session ")}</p>` : "";
   return `<section class="ch-head" style="--cls:${color}">
     <div>
       <h1 class="ch-name">${esc(displayName(name))}</h1>
@@ -132,19 +125,11 @@ function header(ov, name) {
 
 // This week -----------------------------------------------------------------
 
-export function mondayOf(now) {
-  const m = new Date(now);
-  m.setHours(0, 0, 0, 0);
-  m.setDate(m.getDate() - ((m.getDay() + 6) % 7));
-  return m;
-}
-
 function week(ov) {
-  const monday = mondayOf(new Date());
+  const monday = weekStart();
   const sunday = new Date(monday);
   sunday.setDate(monday.getDate() + 6);
-  const from = monday.getMonth() === sunday.getMonth() ? "" : ` ${MO[monday.getMonth()]}`;
-  const range = `Mon ${monday.getDate()}${from} to Sun ${sunday.getDate()} ${MO[sunday.getMonth()]}`;
+  const range = dayRange(monday.getTime(), sunday.getTime());
   const rows = ov.sessions.filter((s) => s.t * 1000 >= monday.getTime());
   const sum = rows.reduce(
     (a, s) => ({ p: a.p + (s.p || 0), r: a.r + (s.r || 0), q: a.q + (s.q || 0), gold: a.gold + net(s) }),
@@ -189,7 +174,7 @@ function levelRead(level, l, last) {
   const head = `<b>Level ${level}${last ? " so far" : ""}</b>`;
   if (xpMode === "time") {
     const bits = [dur(l.p || 0)];
-    if (l.at) bits.push(`reached ${day(l.at * 1000)}`);
+    if (l.at) bits.push(`reached ${shortDay(l.at * 1000)}`);
     if (l.zone) bits.push(`mostly in ${l.zone}`);
     bits.push(plural(l.k || 0, "kill", "kills"), plural(l.q || 0, "quest", "quests"), plural(l.dd || 0, "death", "deaths"));
     return `${head} · ${bits.map(esc).join(" · ")}`;
@@ -310,7 +295,7 @@ function goldMod(ov, cls = "last", focus = false) {
   if (pts.length > 1) {
     plot = `<div class="gold-plot">
         <svg id="g-svg" viewBox="0 0 300 100" preserveAspectRatio="none"></svg>
-        <div class="gold-axis"><span>${day(pts[0].t * 1000)}</span><span>${day(pts[pts.length - 1].t * 1000)}</span></div>
+        <div class="gold-axis"><span>${shortDay(pts[0].t * 1000)}</span><span>${shortDay(pts[pts.length - 1].t * 1000)}</span></div>
       </div>
       <p class="readout" id="g-out"></p>`;
   }
@@ -354,8 +339,8 @@ function wireGold(body, ov) {
     cross.setAttribute("x2", gx(i));
     cross.setAttribute("visibility", "visible");
     out.innerHTML = pts[i].from
-      ? `<b>${day(pts[i].t * 1000)}</b> · ${moneyHtml(pts[i].m)} · ${esc(pts[i].from)}`
-      : `<b>${day(pts[i].t * 1000)} ${hm(pts[i].t * 1000)}</b> · ${moneyHtml(pts[i].m)}`;
+      ? `<b>${weekdayDay(pts[i].t * 1000)}</b> · ${moneyHtml(pts[i].m)} · ${esc(pts[i].from)}`
+      : `<b>${dayTime(pts[i].t * 1000)}</b> · ${moneyHtml(pts[i].m)}`;
   });
   svg.addEventListener("pointerleave", rest);
   rest();
@@ -379,7 +364,7 @@ function capStrip(ov) {
   const c = ov.cap;
   const a = capShare(ov);
   const first = ov.sessions.length ? ov.sessions[ov.sessions.length - 1].t : 0;
-  const since = c.reached ? `since ${day(c.reached * 1000)}` : `since first seen ${first ? day(first * 1000) : ""}`.trim();
+  const since = c.reached ? `since ${shortDay(c.reached * 1000)}` : `since first seen ${first ? shortDay(first * 1000) : ""}`.trim();
   const cells = [
     ["Time at max level", playTime(a.p)],
     ["Gold an hour", signed(a.perHour)],
@@ -467,20 +452,20 @@ function deathsMod(ov) {
 function heatDays(ov) {
   const byDay = new Map();
   for (const s of ov.sessions) {
-    const key = dateStr(s.t * 1000);
+    const key = dayKey(s.t * 1000);
     const d = byDay.get(key) || { p: 0, n: 0 };
     d.p += s.p || 0;
     d.n += 1;
     byDay.set(key, d);
   }
-  const start = mondayOf(new Date());
+  const start = weekStart();
   start.setDate(start.getDate() - (HEAT_WEEKS - 1) * 7);
   const today = Date.now();
   const days = [];
   for (let i = 0; i < HEAT_WEEKS * 7; i++) {
     const d = new Date(start);
     d.setDate(start.getDate() + i);
-    const hit = byDay.get(dateStr(d.getTime())) || { p: 0, n: 0 };
+    const hit = byDay.get(dayKey(d.getTime())) || { p: 0, n: 0 };
     days.push({ t: d.getTime(), p: hit.p, n: hit.n, future: d.getTime() > today });
   }
   return days;
@@ -494,8 +479,8 @@ function heatMod(ov) {
   let months = "<span></span>";
   let was = -1;
   for (let w = 0; w < HEAT_WEEKS; w++) {
-    const m = new Date(days[w * 7].t).getMonth();
-    months += `<span>${m === was ? "" : MO[m]}</span>`;
+    const m = monthName(days[w * 7].t);
+    months += `<span>${m === was ? "" : m}</span>`;
     was = m;
   }
   const names = ["Mon", "", "Wed", "", "Fri", "", ""].map((d) => `<span>${d}</span>`).join("");
@@ -517,8 +502,8 @@ function wireHeat(body, ov) {
   const out = body.querySelector("#heat-out");
   const say = (d) => {
     out.innerHTML = d.p
-      ? `<b>${day(d.t)}</b> · ${playTime(d.p)} in ${plural(d.n, "session", "sessions")}`
-      : `<b>${day(d.t)}</b> · not played`;
+      ? `<b>${weekdayDay(d.t)}</b> · ${playTime(d.p)} in ${plural(d.n, "session", "sessions")}`
+      : `<b>${weekdayDay(d.t)}</b> · not played`;
   };
   const pick = (e) => {
     const c = e.target.closest("i[data-i]");
@@ -611,7 +596,7 @@ function sessionRows(ov) {
   return {
     name: "sessions",
     rows: all.map((g) => {
-      const when = g.live ? "In progress" : `${day(g.from)} <small>${hm(g.from)}</small>`;
+      const when = g.live ? "In progress" : `${weekdayDay(g.from)} <small>${clockTime(g.from)}</small>`;
       const cells = `<span class="ph-when">${when}</span>${playedBar(g.p, most)}${levelChip(g.lo, g.hi)}${figures(g.q, g.gold, g.zones)}`;
       return g.linked ? `<a class="ph-row" href="#sessions/${g.from}-${g.to}">${cells}</a>` : `<div class="ph-row">${cells}</div>`;
     }),
@@ -621,7 +606,7 @@ function sessionRows(ov) {
 function dayRows(ov) {
   const days = new Map();
   for (const s of ov.sessions) {
-    const key = dateStr(s.t * 1000);
+    const key = dayKey(s.t * 1000);
     const d = days.get(key) || { t: s.t * 1000, rows: [] };
     d.rows.push(s);
     days.set(key, d);
@@ -630,7 +615,7 @@ function dayRows(ov) {
   const most = Math.max(...all.map((d) => d.p), 1);
   return {
     name: "days",
-    rows: all.map((d) => `<div class="ph-row"><span class="ph-when">${day(d.t)}</span>${playedBar(d.p, most)}${levelChip(d.lo, d.hi)}${figures(d.q, d.gold, d.zones)}</div>`),
+    rows: all.map((d) => `<div class="ph-row"><span class="ph-when">${weekdayDay(d.t)}</span>${playedBar(d.p, most)}${levelChip(d.lo, d.hi)}${figures(d.q, d.gold, d.zones)}</div>`),
   };
 }
 
@@ -646,7 +631,7 @@ function levelRowsHtml(ov) {
         ? playedBar(l.p || 0, most)
         : `<span class="ph-played part" data-tip="Not recorded for the whole level"><b>–</b><i style="--w:0%"></i></span>`;
       const bits = [`${num(levelXp(l))} XP`, plural(l.k || 0, "kill", "kills"), plural(l.q || 0, "quest", "quests"), plural(l.dd || 0, "death", "deaths")];
-      const where = [l.zone, l.at ? `reached ${dateStr(l.at * 1000)}` : "before recording"].filter(Boolean);
+      const where = [l.zone, l.at ? `reached ${shortDay(l.at * 1000)}` : "before recording"].filter(Boolean);
       return `<div class="ph-row ph-level"><span class="ph-when">Level ${lv}</span>${bar}<span class="ph-bits">${esc(bits.join(" · "))}</span><span class="ph-where">${esc(where.join(" · "))}</span></div>`;
     }),
   };
@@ -676,7 +661,7 @@ function importedMod(ov) {
   const seen = im.dropped.sales + im.dropped.buys;
   const lines = [
     im.sales || im.buys
-      ? `<p class="sub">${plural(im.sales, "sale", "sales")} for ${moneyHtml(im.sales_copper)} and ${plural(im.buys, "purchase", "purchases")} for ${moneyHtml(im.buys_copper)}, ${dateStr(im.first)} to ${dateStr(im.last)}.</p>`
+      ? `<p class="sub">${plural(im.sales, "sale", "sales")} for ${moneyHtml(im.sales_copper)} and ${plural(im.buys, "purchase", "purchases")} for ${moneyHtml(im.buys_copper)}, ${dayRange(im.first, im.last)}.</p>`
       : "",
     `<p class="sub">${esc(source)} kept these and Scarlet did not.${seen ? ` ${num(seen)} more matched what Scarlet recorded and are not counted twice.` : ""} Other views and totals leave them out.</p>`,
   ].join("");
@@ -689,7 +674,7 @@ function importedMod(ov) {
   const dayRows = days.length
     ? `<h3>Sales and purchases by day</h3><ul class="sc-key im-key"><li><i style="background:var(--alt-4)"></i>Received</li><li><i style="background:var(--alt-1)"></i>Paid</li></ul>
       <div class="im-list">${days
-        .map((d) => `<div class="im-day"><span class="im-when">${day(d.d * 1000)}</span>${side(d.sold, d.sold_copper, "got", "for")}${side(d.bought, d.bought_copper, "paid", "for")}</div>`)
+        .map((d) => `<div class="im-day"><span class="im-when">${weekdayDay(d.d * 1000)}</span>${side(d.sold, d.sold_copper, "got", "for")}${side(d.bought, d.bought_copper, "paid", "for")}</div>`)
         .join("")}</div>`
     : "";
   const sold = im.items.filter((i) => i.sold > 0).sort((a, b) => b.sold_copper - a.sold_copper).slice(0, IMPORT_ITEMS);
@@ -706,14 +691,6 @@ function importedMod(ov) {
   return mod("w12 first last", `Imported from ${source}`, lines + dayRows + itemRows);
 }
 
-const until = (sec) => {
-  const d = sec - Date.now() / 1000;
-  if (d <= 0) return "reset";
-  const days = Math.floor(d / 86400);
-  const hours = Math.floor((d % 86400) / 3600);
-  return days ? `in ${days}d ${hours}h` : `in ${hours}h ${Math.floor((d % 3600) / 60)}m`;
-};
-
 function lockRow(l) {
   const known = l.done != null && l.total != null && l.total > 0;
   const bar =
@@ -723,7 +700,7 @@ function lockRow(l) {
   const pips = known ? `${bar}<b>${l.done}/${l.total}</b>` : `<span class="dim">–</span>`;
   const difficulty = l.kind === "world boss" ? "World boss" : l.difficulty || "–";
   return `<div class="lk-row"><span class="lk-name">${esc(l.name)}${l.extended ? ' <em class="ph-at">extended</em>' : ""}</span><span class="lk-diff">${esc(difficulty)}</span>
-    <span class="lk-boss">${pips}</span><span class="lk-reset" data-tip="${dateTime(l.reset_at * 1000)}">Resets ${until(l.reset_at)}</span></div>`;
+    <span class="lk-boss">${pips}</span><span class="lk-reset">${stampHtml(l.reset_at * 1000, l.reset_at * 1000 > Date.now() ? "Resets " : "Reset ", { tip: true })}</span></div>`;
 }
 
 function lifetimeMod(life) {
@@ -736,7 +713,7 @@ function lifetimeMod(life) {
   if (!counts.length && !life.locks.length) return "";
   const countTiles = counts.length
     ? `<div class="sc-grid" style="grid-template-columns:repeat(${counts.length},minmax(0,1fr))">${counts
-        .map(([label, c]) => `<div class="sc-tile"><span class="sc-label">${label}</span><span class="sc-num sc-num-xl" data-to="${c.total}" data-as="num">${num(c.total)}</span><span class="sc-sub">Last read ${dateStr(c.at * 1000)}</span></div>`)
+        .map(([label, c]) => `<div class="sc-tile"><span class="sc-label">${label}</span><span class="sc-num sc-num-xl" data-to="${c.total}" data-as="num">${num(c.total)}</span><span class="sc-sub">${stampHtml(c.at * 1000, "Last read ")}</span></div>`)
         .join("")}</div>`
     : "";
   const lockRows = life.locks.length ? `<h3>Instance locks</h3><div class="lk-list">${life.locks.map(lockRow).join("")}</div>` : "";

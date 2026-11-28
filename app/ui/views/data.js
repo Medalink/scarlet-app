@@ -1,6 +1,6 @@
 // Data: sizes, export, combat-log compression and the watcher switch, then the lines other addons wrote.
 
-import { invoke, el, num, bytes, state, esc, displayName, dateTime, makeSwitch, setSwitch } from "../lib.js";
+import { invoke, el, num, bytes, state, esc, displayName, stampHtml, makeSwitch, setSwitch } from "../lib.js";
 
 let lastStatus = "";
 let lastStatusClass = "status";
@@ -103,7 +103,7 @@ function summary(view) {
   const rows = view.keys
     .map(
       (k) => `<tr><td>${esc(k.label)}</td><td class="num">${num(k.lines)}</td>
-        <td class="dim">${dateTime(k.first_ms)}</td><td class="dim">${dateTime(k.last_ms)}</td></tr>`,
+        <td class="dim">${stampHtml(k.first_ms)}</td><td class="dim">${stampHtml(k.last_ms)}</td></tr>`,
     )
     .join("");
   const wrap = el("div", "scroll-x");
@@ -131,7 +131,7 @@ function recent(view) {
     const hit = view.lines.filter((l) => !pick.value || l.key === pick.value);
     tb.innerHTML = hit
       .map(
-        (l) => `<tr><td class="dim">${dateTime(l.ms)}</td><td>${esc(l.label)}</td>
+        (l) => `<tr><td class="dim">${stampHtml(l.ms)}</td><td>${esc(l.label)}</td>
           <td class="dim">${esc(displayName(l.character))}</td><td>${esc(l.text)}</td></tr>`,
       )
       .join("");

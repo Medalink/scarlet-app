@@ -1,7 +1,7 @@
 // The Character page's goals: how far the level, skills, reputations and Legacy are from their ceilings, the pace of
 // the latest run at the cap, and the character's records. Drawn from the `goals` command.
 
-import { el, elText, num, dur, moneyHtml, tiles, fillRow, goal, record, shortDate } from "../lib.js";
+import { el, elText, num, dur, moneyHtml, tiles, fillRow, goal, record, shortDay } from "../lib.js";
 import { paceTiles } from "./paces.js";
 
 export const TIERS = ["", "Hated", "Hostile", "Unfriendly", "Neutral", "Friendly", "Honored", "Revered", "Exalted"];
@@ -128,7 +128,7 @@ export function recordTiles(records, { open, owner = null, keys = null }) {
     if (keys && !keys.includes(key)) continue;
     const r = records.find((x) => x.key === key);
     if (!r) continue;
-    const when = key === "balance" ? shortDate(r.at) : `${shortDate(r.at)} · level ${r.level}`;
+    const when = key === "balance" ? shortDay(r.at) : `${shortDay(r.at)} · level ${r.level}`;
     const note = [owner?.(r), r.item?.name].filter(Boolean).join(" · ");
     list.push(record(name, show(r.value), when, r.span ? `#sessions/${r.span[0]}-${r.span[1]}` : "", { count: [r.value, show], note, onOpen: open(r) }));
   }
@@ -151,7 +151,7 @@ export function goalsSheet(g, ov, eta, { atCap, onOpen }) {
   const latest = atCap && g.latest ? paceTiles(g.latest.paces, g.latest.played, { onOpen }) : null;
   const records = recordsMod(g.records, onOpen);
   const rows = [];
-  if (latest) rows.push(mod("w12 first last", `Latest run, ${shortDate(g.latest.from)}`, latest));
+  if (latest) rows.push(mod("w12 first last", `Latest run, ${shortDay(g.latest.from)}`, latest));
   if (atCap) rows.push(records);
   rows.push(levelMod(ov, eta, cap, atCap), skillsMod(g.caps.skills), repsMod(g.caps.reps, g.caps.legacy ? "w7 first" : "w12 first last"));
   if (g.caps.legacy) rows.push(legacyMod(g.caps.legacy));
