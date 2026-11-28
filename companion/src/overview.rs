@@ -1480,7 +1480,6 @@ fn commas(n: i64) -> String {
     if n < 0 { format!("-{out}") } else { out }
 }
 
-/// "Fri 28 Nov", with the year when it is not the year of `now`.
 fn date_text(ts: i64, now: i64) -> String {
     use chrono::{Datelike, Local, TimeZone};
     let (Some(t), Some(n)) = (
@@ -1489,7 +1488,7 @@ fn date_text(ts: i64, now: i64) -> String {
     ) else {
         return String::new();
     };
-    let mut text = t.format("%a %-d %b").to_string();
+    let mut text = t.format("%a %b %-d").to_string();
     if t.year() != n.year() {
         text.push_str(&format!(" {}", t.year()));
     }
