@@ -3,6 +3,7 @@
 //! effect other lines show, that effect measured at each rank. Feeds the app's Legacy view.
 
 use crate::archive::Event;
+use crate::art::art;
 use crate::tables::csv;
 use crate::talents::Line;
 use serde::Serialize;
@@ -126,9 +127,21 @@ pub struct Talent {
     pub name: String,
     pub rank: u32,
     pub max_ranks: u32,
+    pub col: Option<u32>,
+    pub row: Option<u32>,
+    pub icon: Option<u32>,
+    /// A slot the client lays out that no talent fills yet.
+    pub placeholder: bool,
     pub texts: Vec<RankText>,
     pub changes: Vec<RankChange>,
     pub measure: Option<Measure>,
+}
+
+#[derive(Serialize)]
+pub struct Link {
+    pub tree_id: String,
+    pub from: String,
+    pub to: String,
 }
 
 #[derive(Serialize, Default)]
@@ -136,6 +149,7 @@ pub struct Legacy {
     /// The first Legacy line: ranks before it are unknown and nothing before it is measured.
     pub known_since: Option<i64>,
     pub talents: Vec<Talent>,
+    pub links: Vec<Link>,
 }
 
 #[derive(Default)]
@@ -652,10 +666,14 @@ pub fn build<'a>(lines: impl IntoIterator<Item = Line<'a>>) -> Legacy {
                 tree: tree_name(&n.tree_id),
                 tree_id: n.tree_id.clone(),
                 node_id: id.clone(),
-                spell_id,
                 name,
                 rank: n.rank(),
+                icon: art().icon(&spell_id),
+                spell_id,
                 max_ranks: n.max_ranks,
+                col: None,
+                row: None,
+                placeholder: false,
                 texts: n
                     .texts()
                     .into_iter()
@@ -671,6 +689,55 @@ pub fn build<'a>(lines: impl IntoIterator<Item = Line<'a>>) -> Legacy {
             }
         })
         .collect();
+    let laid: HashMap<String, &crate::art::LegacyNode> = art()
+        .legacy
+        .iter()
+        .flat_map(|t| t.nodes.iter())
+        .map(|n| (n.id.to_string(), n))
+        .collect();
+    for t in &mut talents {
+        if let Some(n) = laid.get(&t.node_id) {
+            t.col = Some(n.col);
+            t.row = Some(n.row);
+            t.icon = t.icon.or(Some(n.icon).filter(|i| *i > 0));
+        }
+    }
+    let shown: HashSet<String> = talents.iter().map(|t| t.node_id.clone()).collect();
+    for tree in &art().legacy {
+        for n in tree
+            .nodes
+            .iter()
+            .filter(|n| !shown.contains(&n.id.to_string()))
+        {
+            talents.push(Talent {
+                tree: tree_name(&tree.id.to_string()),
+                tree_id: tree.id.to_string(),
+                node_id: n.id.to_string(),
+                spell_id: n.spell.to_string(),
+                name: n.name.clone(),
+                rank: 0,
+                max_ranks: n.max,
+                col: Some(n.col),
+                row: Some(n.row),
+                icon: Some(n.icon).filter(|i| *i > 0),
+                placeholder: n.placeholder,
+                texts: Vec::new(),
+                changes: Vec::new(),
+                measure: None,
+            });
+        }
+    }
+    let links = art()
+        .legacy
+        .iter()
+        .flat_map(|t| {
+            t.edges.iter().map(|(from, to)| Link {
+                tree_id: t.id.to_string(),
+                from: from.to_string(),
+                to: to.to_string(),
+            })
+        })
+        .collect();
     talents.sort_by(|a, b| {
         a.tree_id
             .cmp(&b.tree_id)
@@ -681,6 +748,7 @@ pub fn build<'a>(lines: impl IntoIterator<Item = Line<'a>>) -> Legacy {
     Legacy {
         known_since,
         talents,
+        links,
     }
 }
 

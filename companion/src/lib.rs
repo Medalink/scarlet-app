@@ -5,6 +5,7 @@
 pub mod addons;
 pub mod agg;
 pub mod archive;
+pub mod art;
 pub mod counts;
 pub mod dungeonjournal;
 pub mod events;

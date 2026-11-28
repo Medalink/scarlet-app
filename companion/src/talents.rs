@@ -2,11 +2,16 @@
 //! the order points were taken in, and respecs. Feeds the app's Talents view and talents.csv.
 
 use crate::archive::Event;
+use crate::art::art;
 use crate::tables::csv;
 use serde::Serialize;
 use std::collections::{HashMap, HashSet, hash_map::Entry};
 
-pub const CODES: [&str; 8] = ["S", "L", "TG", "TA", "TY", "TD", "TQ", "SN"];
+pub const CODES: [&str; 9] = ["S", "L", "TG", "TA", "TY", "TV", "TD", "TQ", "SN"];
+pub const COLS: u32 = 4;
+pub const ROWS: u32 = 7;
+const CELL: f64 = 600.0;
+const TYPO_FACTOR: i64 = 3;
 const BURST_GAP_MS: i64 = 60_000;
 const OFFER_WINDOW_MS: i64 = 600_000;
 const RESET_WINDOW_MS: i64 = 120_000;
@@ -37,6 +42,7 @@ pub struct Change {
     pub entry_id: String,
     pub spell_id: String,
     pub spell: String,
+    pub icon: Option<u32>,
     pub tab_id: String,
     pub tab: String,
     pub rank: u32,
@@ -71,14 +77,25 @@ pub struct Respec {
 }
 
 #[derive(Serialize)]
+pub struct Choice {
+    pub spell_id: String,
+    pub name: String,
+    pub icon: Option<u32>,
+}
+
+#[derive(Serialize)]
 pub struct BuildNode {
     pub node_id: String,
     pub spell_id: String,
     pub name: String,
+    pub icon: Option<u32>,
     pub rank: u32,
     pub max_ranks: u32,
-    pub x: Option<i64>,
-    pub y: Option<i64>,
+    pub col: Option<u32>,
+    pub row: Option<u32>,
+    pub to: Vec<String>,
+    /// The entries of a choice node, the taken one first; empty on any other node.
+    pub choices: Vec<Choice>,
 }
 
 #[derive(Serialize)]
@@ -143,7 +160,22 @@ pub fn from_events(events: &[Event]) -> Talents {
 
 type Place<'a> = (Option<i64>, Option<i64>, &'a str);
 
+struct Variant<'a> {
+    spell: &'a str,
+    max: u32,
+}
+
+struct Slot<'a> {
+    x: i64,
+    y: i64,
+    tab: &'a str,
+    max: u32,
+    entries: Vec<Variant<'a>>,
+    edges: Vec<&'a str>,
+}
+
 struct Names<'a> {
+    layouts: HashMap<&'a str, HashMap<&'a str, Slot<'a>>>,
     spells: HashMap<&'a str, &'a str>,
     tabs: HashMap<&'a str, &'a str>,
     places: HashMap<&'a str, Place<'a>>,
@@ -179,6 +211,7 @@ impl Names<'_> {
 
 fn names<'a>(lines: &[Line<'a>]) -> Names<'a> {
     let mut n = Names {
+        layouts: HashMap::new(),
         spells: HashMap::new(),
         tabs: HashMap::new(),
         places: HashMap::new(),
@@ -192,7 +225,36 @@ fn names<'a>(lines: &[Line<'a>]) -> Names<'a> {
             "TY" => {
                 n.tabs.insert(field(l, 0), field(l, 1));
             }
+            "TV" => {
+                n.layouts.insert(field(l, 0), HashMap::new());
+            }
             "TD" => {
+                if let (Some(x), Some(y)) = (field(l, 2).parse().ok(), field(l, 3).parse().ok()) {
+                    n.layouts.entry(field(l, 0)).or_default().insert(
+                        field(l, 1),
+                        Slot {
+                            x,
+                            y,
+                            tab: field(l, 6),
+                            max: number(field(l, 5)).unwrap_or(0),
+                            entries: field(l, 7)
+                                .split(',')
+                                .filter_map(|e| {
+                                    let mut it = e.split(':');
+                                    let _entry = it.next().filter(|id| !id.is_empty())?;
+                                    Some(Variant {
+                                        spell: it.next().unwrap_or(""),
+                                        max: it.next().and_then(number).unwrap_or(0),
+                                    })
+                                })
+                                .collect(),
+                            edges: field(l, 8)
+                                .split(',')
+                                .filter_map(|e| e.split(':').next().filter(|id| !id.is_empty()))
+                                .collect(),
+                        },
+                    );
+                }
                 n.places.insert(
                     field(l, 1),
                     (
@@ -353,6 +415,7 @@ pub fn build<'a>(lines: impl IntoIterator<Item = Line<'a>>) -> Talents {
                     entry_id: field(l, 2).to_string(),
                     spell_id: field(l, 6).to_string(),
                     spell: names.spell(field(l, 6)),
+                    icon: art().icon(field(l, 6)),
                     tab: names.tab_name(&tab_id),
                     tab_id,
                     rank,
@@ -374,6 +437,111 @@ pub fn build<'a>(lines: impl IntoIterator<Item = Line<'a>>) -> Talents {
     out
 }
 
+fn tab_at(tabs: &mut Vec<TabBuild>, names: &Names, id: &str) -> usize {
+    if let Some(at) = tabs.iter().position(|t| t.id == id) {
+        return at;
+    }
+    tabs.push(TabBuild {
+        id: id.to_string(),
+        name: names.tab_name(id),
+        spent: 0,
+        available: None,
+        nodes: Vec::new(),
+    });
+    tabs.len() - 1
+}
+
+fn median(mut values: Vec<i64>) -> i64 {
+    values.sort_unstable();
+    values.get(values.len() / 2).copied().unwrap_or(0)
+}
+
+fn read_back(v: i64, median: i64) -> i64 {
+    if median > 0 && v > TYPO_FACTOR * median {
+        v / 10
+    } else {
+        v
+    }
+}
+
+fn cell(v: i64, origin: i64, last: u32) -> u32 {
+    (((v - origin) as f64 / CELL).round().max(0.0) as u32).min(last - 1)
+}
+
+fn laid_out<'a>(
+    layout: &HashMap<&'a str, Slot<'a>>,
+    names: &Names,
+    state: &HashMap<String, Node>,
+    tabs: &mut Vec<TabBuild>,
+    placed: &mut HashSet<&'a str>,
+) {
+    let med_x = median(layout.values().map(|s| s.x).collect());
+    let med_y = median(layout.values().map(|s| s.y).collect());
+    let at: HashMap<&str, (i64, i64)> = layout
+        .iter()
+        .map(|(id, s)| (*id, (read_back(s.x, med_x), read_back(s.y, med_y))))
+        .collect();
+    let top = at.values().map(|p| p.1).min().unwrap_or(0);
+    let mut left: HashMap<&str, i64> = HashMap::new();
+    for (id, s) in layout {
+        let x = at[id].0;
+        left.entry(s.tab)
+            .and_modify(|l| *l = (*l).min(x))
+            .or_insert(x);
+    }
+    let mut ids: Vec<&&str> = layout.keys().collect();
+    ids.sort();
+    for id in ids {
+        let s = &layout[*id];
+        let Some(first) = s.entries.first() else {
+            continue;
+        };
+        if s.tab.is_empty() || (!names.shown.is_empty() && !names.shown.contains(s.tab)) {
+            continue;
+        }
+        let taken = state.get(*id);
+        let spell = taken.map_or(first.spell, |n| n.spell.as_str());
+        let tab = tab_at(tabs, names, s.tab);
+        let (x, y) = at[*id];
+        let choices = if s.entries.len() > 1 {
+            let mut all: Vec<&str> = s.entries.iter().map(|e| e.spell).collect();
+            all.sort_by_key(|e| *e != spell);
+            all.into_iter()
+                .map(|e| Choice {
+                    spell_id: e.to_string(),
+                    name: names.spell(e),
+                    icon: art().icon(e),
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let mut to: Vec<String> = s
+            .edges
+            .iter()
+            .filter(|t| layout.get(*t).is_some_and(|o| o.tab == s.tab))
+            .map(|t| t.to_string())
+            .collect();
+        to.dedup();
+        tabs[tab].nodes.push(BuildNode {
+            node_id: id.to_string(),
+            spell_id: spell.to_string(),
+            name: names.spell(spell),
+            icon: art().icon(spell),
+            rank: taken.map_or(0, |n| n.rank),
+            max_ranks: taken
+                .map(|n| n.max)
+                .filter(|m| *m > 0)
+                .unwrap_or(first.max.max(s.max)),
+            col: Some(cell(x, left[s.tab], COLS)),
+            row: Some(cell(y, top, ROWS)),
+            to,
+            choices,
+        });
+        placed.insert(id);
+    }
+}
+
 fn build_of(tg: &Line, names: &Names, state: &mut HashMap<u32, HashMap<String, Node>>) -> Build {
     let group = number(field(tg, 1)).unwrap_or(1);
     let nodes = state.remove(&group).unwrap_or_default();
@@ -391,43 +559,49 @@ fn build_of(tg: &Line, names: &Names, state: &mut HashMap<u32, HashMap<String, N
             nodes: Vec::new(),
         });
     }
+    let mut placed: HashSet<&str> = HashSet::new();
+    if let Some(layout) = names.layouts.get(field(tg, 5)) {
+        laid_out(layout, names, &nodes, &mut tabs, &mut placed);
+    }
     let mut ids: Vec<&String> = nodes.keys().collect();
     ids.sort();
-    for id in ids {
+    for id in ids.into_iter().filter(|id| !placed.contains(id.as_str())) {
         let n = &nodes[id];
-        let at = match tabs.iter().position(|t| t.id == n.tab) {
-            Some(at) => at,
-            None => {
-                tabs.push(TabBuild {
-                    id: n.tab.clone(),
-                    name: names.tab_name(&n.tab),
-                    spent: 0,
-                    available: None,
-                    nodes: Vec::new(),
-                });
-                tabs.len() - 1
-            }
-        };
-        let (x, y) = names
-            .places
-            .get(id.as_str())
-            .map_or((None, None), |p| (p.0, p.1));
+        let at = tab_at(&mut tabs, names, &n.tab);
         tabs[at].nodes.push(BuildNode {
             node_id: id.clone(),
             spell_id: n.spell.clone(),
             name: names.spell(&n.spell),
+            icon: art().icon(&n.spell),
             rank: n.rank,
             max_ranks: n.max,
-            x,
-            y,
+            col: None,
+            row: None,
+            to: Vec::new(),
+            choices: Vec::new(),
         });
     }
     for t in &mut tabs {
-        t.nodes
-            .sort_by_key(|n| (n.y.unwrap_or(i64::MAX), n.x.unwrap_or(i64::MAX)));
+        t.nodes.sort_by_key(|n| {
+            (
+                n.row.unwrap_or(u32::MAX),
+                n.col.unwrap_or(u32::MAX),
+                n.node_id.clone(),
+            )
+        });
         if t.spent == 0 {
             t.spent = t.nodes.iter().map(|n| n.rank).sum();
         }
+    }
+    let left = |t: &TabBuild| {
+        t.nodes
+            .iter()
+            .filter_map(|n| names.layouts.get(field(tg, 5))?.get(n.node_id.as_str()))
+            .map(|s| s.x)
+            .min()
+    };
+    if tabs.iter().all(|t| left(t).is_some()) {
+        tabs.sort_by_key(left);
     }
     Build {
         ms: tg.ms,
