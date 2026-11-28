@@ -491,6 +491,42 @@ export function writeGrind(wow, { alt = false } = {}) {
   return wow;
 }
 
+const resetSession = (start, level) =>
+  session(start, [
+    [0, "S", "1.15.8", "WARRIOR", "Human", level, "Alliance", "0.9.0", 1, "Forever", 1, 11508, 5, 3600, 3843, 60],
+    [1, "Z", ELWYNN, 0, "none", 0, "Elwynn Forest", "Goldshire"],
+    [20, "ES"],
+  ]);
+
+/**
+ * A character whose saved store started over: three sessions at levels 2 to 4 numbered q 1 to 3, then a new store
+ * that numbers three later sessions at levels 5 to 7 from q 1 again, so both runs are named 1-3 and 1-1 (addons).
+ */
+export const RESET = {
+  name: "Reset-Fixture",
+  account: "E2ERESET",
+  before: [resetSession(1795400000, 2), resetSession(1795407200, 3), resetSession(1795414400, 4)],
+  after: [resetSession(1795500000, 5), resetSession(1795507200, 6), resetSession(1795514400, 7)],
+  addon: { before: { start: 1795400000, lines: [[20, "gm", "N", ELWYNN, 4390, 6700, 2447]] }, after: { start: 1795500000, lines: [[20, "gm", "N", ELWYNN, 4400, 6710, 2447]] } },
+};
+
+/** Writes the World of Warcraft folder of `RESET` as the first store (`stage` "before") or the one that began again ("after"); `unreadable` adds a chunk in an encoding no reader knows. */
+export function writeReset(wow, stage, { unreadable = false } = {}) {
+  const sessions = RESET[stage];
+  const chunks = sessions.map((s, i) => chunk(i + 1, RESET.name, s.start, text(s.lines), i % 2 ? "txt" : "d64"));
+  if (unreadable) chunks.push({ ...chunk(chunks.length + 1, RESET.name, sessions[0].start + 86400, ["0\tES"], "txt"), e: "zz" });
+  const addons = { v: 1, seq: 1, chunks: [chunk(1, RESET.name, RESET.addon[stage].start, text(RESET.addon[stage].lines), "txt")], buf: [] };
+  const tables = [
+    `ScarletDB = ${lua({ v: 1, seq: chunks.length, chunks, buf: [], chars: { [RESET.name]: { v: 1 } } })}`,
+    `ScarletAddonsDB = ${lua(addons)}`,
+  ];
+  const file = savedVariablesPath(wow, RESET);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, ["", ...tables, ""].join("\n"));
+  fs.mkdirSync(path.join(wow, "_forever_", "Interface", "AddOns", "Scarlet"), { recursive: true });
+  return wow;
+}
+
 /** Writes a World of Warcraft folder that holds `fullBuild(now)` alone. */
 export function writeFullBuild(wow, now = Date.now()) {
   const character = fullBuild(now);

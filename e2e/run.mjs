@@ -11,7 +11,7 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { launch } from "./cdp.mjs";
 import zlib from "node:zlib";
-import { ALT, CHARACTERS, ELWYNN, FISHING, GRIND, GUILD, LATER, WESTFALL, fullBuild, lineCount, savedVariablesPath, trades, writeFullBuild, writeGrind, writeTrades, writeWow } from "./scenario.mjs";
+import { ALT, CHARACTERS, ELWYNN, FISHING, GRIND, GUILD, LATER, RESET, WESTFALL, fullBuild, lineCount, savedVariablesPath, trades, writeFullBuild, writeGrind, writeReset, writeTrades, writeWow } from "./scenario.mjs";
 
 const REPO = path.resolve(import.meta.dirname, "..");
 const WINDOWS = process.platform === "win32";
@@ -138,6 +138,34 @@ const hashOf = (dir) =>
       .sort()
       .map((name) => [name, crypto.createHash("sha256").update(fs.readFileSync(path.join(dir, name))).digest("hex")]),
   );
+
+const stateFile = (site) => path.join(site.out, "state.json");
+
+const readState = (site) => JSON.parse(read(stateFile(site)));
+
+const NEW_MARKS = /#(?:t|restart|since|bad)$/;
+
+const dropNewMarks = (site) => {
+  const old = Object.fromEntries(Object.entries(readState(site)).filter(([key]) => !NEW_MARKS.test(key)));
+  fs.writeFileSync(stateFile(site), JSON.stringify(old, null, 2) + "\n");
+};
+
+const resetPayloads = (site) => ({
+  main: hashOf(path.join(site.out, RESET.name, "payloads")),
+  addons: hashOf(path.join(site.out, RESET.name, "addons", "payloads")),
+});
+
+const resetSessions = (site) => csvRows(path.join(site.out, RESET.name, "tables/sessions.csv"));
+
+const resetLevel = (site) => JSON.parse(read(path.join(site.out, RESET.name, "overview.json"))).level;
+
+const RESTARTED = /The game's Scarlet store started over on [A-Z][a-z]{2} \d{1,2}(?: \d{4})?; 3 recordings read since\./;
+const ADDONS_RESTARTED = /The game's Scarlet addon store started over on [A-Z][a-z]{2} \d{1,2}(?: \d{4})?; 1 recording read since\./;
+const UNREADABLE = /1 recording in SavedVariables could not be read\./;
+
+function expectOldFilesKept(what, before, now) {
+  for (const [name, hash] of Object.entries(before)) expectEqual(`${what}: ${name} is still there, unchanged`, now[name], hash);
+}
 
 const csvRows = (file) => read(file).trim().split(/\r?\n/).length - 1;
 
@@ -422,6 +450,93 @@ const CHECKS = [
       expectMatch("the output", run.out, new RegExp(`${LATER.character}: 1 chunks, ${LATER.lines.length} events`));
       expectNoMatch("the output", run.out, new RegExp(`${PROBE}:`));
       expectEqual("rows in tables/sessions.csv", csvRows(path.join(s.out, LATER.character, "tables/sessions.csv")), 3);
+    },
+  },
+  {
+    lane: "cli",
+    name: "a saved store that started over is read again, and nothing exported before is overwritten",
+    run(ctx) {
+      const s = ctx.site.reset;
+      writeReset(s.wow, "before");
+      const first = exportSite(ctx, s);
+      expectEqual("exit code", first.code, 0);
+      expectMatch("the first export", first.out, /Reset-Fixture: 3 chunks, 9 events/);
+      expectNoMatch("the first export", first.out, /started over/);
+      const old = resetPayloads(s);
+      expectEqual("payload files of the first store", Object.keys(old.main), ["1-3.scl"]);
+      expectEqual("addon payload files of the first store", Object.keys(old.addons), ["1-1.scl"]);
+      expectEqual("level after the first store", resetLevel(s), 4);
+      expectEqual("sessions after the first store", resetSessions(s), 3);
+
+      writeReset(s.wow, "after", { unreadable: true });
+      const again = exportSite(ctx, s);
+      expectEqual("exit code after the store started over", again.code, 0);
+      expectMatch("the export of the new store", again.out, /Reset-Fixture: 3 chunks, 9 events/);
+      expectMatch("the export of the new addon store", again.out, /Reset-Fixture: 1 addon chunks, 1 addon lines/);
+      expectMatch("the line for the store", again.out, RESTARTED);
+      expectMatch("the line for the addon store", again.out, ADDONS_RESTARTED);
+      expectMatch("the line for the chunk that did not decode", again.err, UNREADABLE);
+      const now = resetPayloads(s);
+      expectOldFilesKept("main payloads", old.main, now.main);
+      expectOldFilesKept("addon payloads", old.addons, now.addons);
+      expectEqual("payload files after the restart", Object.keys(now.main).sort(), ["1-3-1795500000.scl", "1-3.scl"]);
+      expectEqual("addon payload files after the restart", Object.keys(now.addons).sort(), ["1-1-1795500000.scl", "1-1.scl"]);
+      expectEqual("level after the restart", resetLevel(s), 7);
+      expectEqual("sessions after the restart", resetSessions(s), 6);
+      const marks = readState(s);
+      const key = Object.keys(marks).find((k) => k.endsWith("Scarlet.lua") && k.includes("E2ERESET"));
+      expectEqual("the marks of the store", [marks[key], marks[`${key}#t`], marks[`${key}#since`], marks[`${key}#bad`]], [3, 1795514400, 3, 1]);
+    },
+  },
+  {
+    lane: "cli",
+    name: "a second export after the store started over reads nothing new",
+    run(ctx) {
+      const s = ctx.site.reset;
+      const before = resetPayloads(s);
+      const run = exportSite(ctx, s);
+      expectEqual("exit code", run.code, 0);
+      expectMatch("the output", run.out, /no new chunks \(1 SavedVariables file\(s\), 1 chunk\(s\) failed to decode\)/);
+      expectNoMatch("the output", run.out, /started over/);
+      expectEqual("payload files after the second export", resetPayloads(s), before);
+      expectEqual("sessions after the second export", resetSessions(s), 6);
+    },
+  },
+  {
+    lane: "cli",
+    name: "a state.json from before the store's times were kept is migrated, and still reads a store that started over",
+    run(ctx) {
+      const s = ctx.site.legacy;
+      writeReset(s.wow, "before");
+      expectEqual("exit code of the first export", exportSite(ctx, s).code, 0);
+      const old = resetPayloads(s);
+      dropNewMarks(s);
+      for (const key of Object.keys(readState(s))) if (NEW_MARKS.test(key)) throw mismatch("a state.json in the old shape", "no marks with times", key);
+
+      const migrated = exportSite(ctx, s);
+      expectEqual("exit code of the export that migrates", migrated.code, 0);
+      expectMatch("the export that migrates", migrated.out, /no new chunks/);
+      expectNoMatch("the export that migrates", migrated.out, /started over/);
+      expectEqual("payload files after the migration", resetPayloads(s), old);
+      const key = Object.keys(readState(s)).find((k) => k.endsWith("Scarlet.lua") && k.includes("E2ERESET"));
+      expectEqual("the marks of the store after the migration", [readState(s)[key], readState(s)[`${key}#t`], readState(s)[`${key}#addons#t`]], [3, 1795414400, 1795400000]);
+
+      dropNewMarks(s);
+      writeReset(s.wow, "after");
+      const again = exportSite(ctx, s);
+      expectEqual("exit code after the store started over", again.code, 0);
+      expectMatch("the export of the new store", again.out, /Reset-Fixture: 3 chunks, 9 events/);
+      expectMatch("the line for the store", again.out, RESTARTED);
+      expectMatch("the line for the addon store", again.out, ADDONS_RESTARTED);
+      const now = resetPayloads(s);
+      expectOldFilesKept("main payloads", old.main, now.main);
+      expectOldFilesKept("addon payloads", old.addons, now.addons);
+      expectEqual("payload files after the restart", Object.keys(now.main).sort(), ["1-3-1795500000.scl", "1-3.scl"]);
+      expectEqual("level after the restart", resetLevel(s), 7);
+      expectEqual("sessions after the restart", resetSessions(s), 6);
+      const last = exportSite(ctx, s);
+      expectMatch("the export after that", last.out, /no new chunks/);
+      expectEqual("payload files after the export after that", resetPayloads(s), now);
     },
   },
   {
@@ -1015,6 +1130,33 @@ const CHECKS = [
   },
   {
     lane: "app",
+    name: "the Data page says the game's store started over and how many recordings could not be read",
+    async run(ctx) {
+      const s = ctx.site.restart;
+      fs.mkdirSync(s.home, { recursive: true });
+      writeReset(s.wow, "before");
+      expectEqual("exporting the first store", exportSite(ctx, s).code, 0);
+      writeReset(s.wow, "after", { unreadable: true });
+      expectEqual("exporting the store that started over", exportSite(ctx, s).code, 0);
+      fs.writeFileSync(path.join(s.home, "settings.json"), JSON.stringify({ wow: s.wow, data: s.out, watch: false, last_view: "data", keep_addon: false, open_with_wow: false, upload: { enabled: false, server: ctx.website.url } }));
+      const app = await launch({ exe: ctx.exe, home: s.home, reducedMotion: true });
+      try {
+        await booted(app);
+        await open(app, "data", /Export now/);
+        const notes = await app.until(`(() => { const n = [...document.querySelectorAll("#body .store-notes .status")].map((x) => x.textContent); return n.length === 3 ? n : null; })()`, "the Data page lists the store's notes");
+        expectMatch("the note for the store", notes[0], new RegExp(`^${RESTARTED.source}$`));
+        expectMatch("the note for the addon store", notes[1], new RegExp(`^${ADDONS_RESTARTED.source}$`));
+        expectEqual("the note for the chunk that did not decode", notes[2], "1 recording in SavedVariables could not be read.");
+        const failed = await app.evaluate(`[...document.querySelectorAll("#body .store-notes .status")].map((x) => x.className)`);
+        expectEqual("which notes are errors", failed.map((c) => c.includes("err")), [false, false, true]);
+        expectEqual("exceptions, console errors and failed requests", app.problems, []);
+      } finally {
+        if ((await app.close()) === 3) ctx.breach = true;
+      }
+    },
+  },
+  {
+    lane: "app",
     name: "nothing was reported",
     run(ctx) {
       expectEqual("exceptions, console errors and failed requests", running(ctx).problems, []);
@@ -1224,7 +1366,7 @@ async function main() {
   const dir = given.keep ? path.resolve(given.keep) : fs.mkdtempSync(path.join(os.tmpdir(), "scarlet-lane-"));
   fs.mkdirSync(dir, { recursive: true });
   const website = await listenWebsite();
-  const ctx = { dir, cli, exe, website, keep: Boolean(given.keep), app: null, grind: null, full: null, trades: null, now: Date.now(), site: { cli: site(path.join(dir, "cli")), app: site(path.join(dir, "app")), motion: site(path.join(dir, "motion")), grind: site(path.join(dir, "grind")), full: site(path.join(dir, "full")), trades: site(path.join(dir, "trades")) } };
+  const ctx = { dir, cli, exe, website, keep: Boolean(given.keep), app: null, grind: null, full: null, trades: null, now: Date.now(), site: { cli: site(path.join(dir, "cli")), app: site(path.join(dir, "app")), motion: site(path.join(dir, "motion")), grind: site(path.join(dir, "grind")), full: site(path.join(dir, "full")), trades: site(path.join(dir, "trades")), reset: site(path.join(dir, "reset")), legacy: site(path.join(dir, "legacy")), restart: site(path.join(dir, "restart")) } };
   writeWow(ctx.site.cli.wow);
 
   let result = { failed: 1, seconds: 0 };
