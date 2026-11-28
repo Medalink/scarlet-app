@@ -932,15 +932,18 @@ const CHECKS = [
     name: "talents of a character first read with every point spent are drawn from the baseline, with no pick date",
     async run(ctx) {
       const app = await fullApp(ctx);
-      const [, second] = fullBuild(ctx.now).sessions.map((s) => s.start * 1000 + 5000);
+      const [first, second] = fullBuild(ctx.now).sessions.map((s) => s.start * 1000 + 5000);
       await open(app, "character", /Points spent 9 \/ 9/, /No talent lines recorded|Select a character/, "character/talents");
       const body = await app.evaluate(BODY);
       expectMatch("the points head and the tabs", body, /Points spent 9 \/ 9 .* Unspent 0 .* Arms · 6 points .* Fury · 3 points/);
       expectMatch("the build's read", body, new RegExp(`Talents .* Read ${daysAgo(second)} days ago`));
-      expectNoMatch("a timeline with no change to show", body, /Order points were taken|Respecs/);
+      expectMatch("the timeline's one row", body, new RegExp(`Order points were taken Level 20 9 points already spent in 5 talents when Scarlet first read group 1 Read ${daysAgo(first)} days ago Every point was already spent when Scarlet first read this character`));
+      expectNoMatch("respecs with none recorded", body, /Respecs/);
       expectNoMatch("a pick in the timeline", body, /Picked|Refunded|Switched choice|Changed while not tracked|point \d+ ·/);
       expectEqual("the ranks drawn", (await text(app, "#body .tf-tab .tf-slot .tf-rank")).sort(), ["1/1", "1/1", "2/2", "2/2", "3/3"]);
       expectEqual("every drawn talent is at its maximum", await app.evaluate(`[...document.querySelectorAll("#body .tf-tab .tf-slot")].map((s) => s.dataset.state)`), Array(5).fill("maxed"));
+      const held = await app.evaluate(`(() => { const t = document.querySelector("#body .tp-pick.held time"); return { text: t.textContent, title: t.title, ago: Number(t.dataset.ago) }; })()`);
+      expectEqual("the held row's read", held, { text: `Read ${daysAgo(first)} days ago`, title: exactStamp(first), ago: first });
       expectEqual("rows that carry a pick", await app.evaluate(`document.querySelectorAll("#body .tp-pick:not(.held)").length`), 0);
     },
   },

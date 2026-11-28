@@ -73,7 +73,7 @@ function buildSection(body, build) {
 
 function timelineSection(body, data) {
   const changes = data.changes.filter((c) => c.kind !== "baseline");
-  if (!changes.length) return;
+  if (!changes.length && !data.held.length) return;
   body.appendChild(el("h3", "section-title", "Order points were taken"));
   const multi = new Set(data.changes.map((c) => c.group)).size > 1;
   const where = (g) => (multi ? ` · group ${g}` : "");
@@ -106,6 +106,7 @@ function timelineSection(body, data) {
     picks.append(row);
   }
   body.appendChild(list);
+  if (!changes.length) body.appendChild(el("div", "dim", "Every point was already spent when Scarlet first read this character"));
 }
 
 function respecSection(body, data) {
