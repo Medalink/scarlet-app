@@ -55,6 +55,10 @@ export async function render(body) {
     invoke("map_list", { ch: state.ch }).catch(() => state.store?.maps ?? []),
   ]);
   body.innerHTML = "";
+  if (!maps.length) {
+    body.appendChild(el("div", "empty", "No paths recorded yet"));
+    return;
+  }
   const openmap = status.art === "openmap" && status.installed;
   // Survey unless OpenMap is the art and installed, and then what the player last picked.
   let look = "survey";
@@ -136,11 +140,6 @@ export async function render(body) {
   main.append(toggles, stage);
   wrap.append(side, main);
   body.appendChild(wrap);
-
-  if (!maps.length) {
-    side.appendChild(el("div", "empty", "No path points yet."));
-    return;
-  }
 
   let current = maps[0].id;
   let view = null; // {x, y, w, h} in map-percent space

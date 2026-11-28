@@ -130,12 +130,9 @@ function chaseRow(x) {
 }
 
 function dropRates(view) {
-  const p = panel("Drop rates");
   const list = creatures(view);
-  if (!list.length) {
-    p.appendChild(el("div", "empty", "No creature loot with an item list recorded yet."));
-    return p;
-  }
+  if (!list.length) return null;
+  const p = panel("Drop rates");
   const q = el("input");
   q.placeholder = "Filter creature or item…";
   q.style.width = "260px";
@@ -287,11 +284,8 @@ function playerEntry(who, rows, view, most) {
 }
 
 function received(view) {
+  if (!view.attribution.length) return null;
   const p = panel("Items received");
-  if (!view.attribution.length) {
-    p.appendChild(el("div", "empty", "No loot recorded yet."));
-    return p;
-  }
   const qTotals = SHADES.map(([label, c], i) => [label, view.attribution.reduce((n, a) => n + a.quality[i], 0), c]).filter((r) => r[1] > 0);
   const rTotals = ROLLS.map(([label, c, field]) => [label, view.attribution.reduce((n, a) => n + a[field], 0), c]).filter((r) => r[1] > 0);
   const keys = el("div", "lt-keys");
@@ -330,8 +324,13 @@ export async function render(body) {
   const view = await invoke("loot", { ch: state.ch });
   body.innerHTML = "";
   wireTips();
+  const sections = [farming(view), received(view), dropRates(view)].filter(Boolean);
+  if (!sections.length) {
+    body.append(el("div", "empty", "No loot recorded yet"));
+    return;
+  }
   const page = el("div", "lt");
-  page.append(...[farming(view), received(view), dropRates(view)].filter(Boolean));
+  page.append(...sections);
   body.append(page);
   play(page);
 }

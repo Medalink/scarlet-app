@@ -61,7 +61,7 @@ const VIEWS = [
   { key: "activity", shows: /Busiest hour: (Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d{1,2}:00 (AM|PM)/, never: /No play time recorded yet|events in an hour/ },
   { key: "log", shows: /kill Stonetusk Boar \(113\) by you/, never: /No events|Nothing recorded/ },
   { key: "sessions", shows: /^(?=.*2m in Westfall)(?=.*Level 5 to 6 in Elwynn Forest)(?=.*2m 10s · 2 kills · 1 quest · 1,605 XP)/, never: /No sessions yet\./ },
-  { key: "map", shows: /Westfall 1m 47s Elwynn Forest 1m 33s Paths Flights and teleports Deaths Creatures met/, never: /No path points yet/ },
+  { key: "map", shows: /Westfall 1m 47s Elwynn Forest 1m 33s Paths Flights and teleports Deaths Creatures met/, never: /No paths recorded yet/ },
   { key: "loot", shows: /^(?=.*Drop rates .* Stonetusk Boar 1 corpse Chunk of Boar Meat 1 of 1 Linen Cloth 1 of 1)(?=.*Items received Common 3 Uncommon 1 Rare 1 Received Rolls won Testa Fixture Solo 3 1 Group members \(1\) 1 player 2)/, never: /No creature loot with an item list|No loot recorded yet/ },
   { key: "character", hash: "character/class", shows: /Spells cast most Heroic Strike 1/, never: /Select a character|Loading the class section/ },
   { key: "character", hash: "character/talents", shows: /Points spent 3 \/ 4 .* Unspent 1 0 class · 1 spec Arms 3 Fury 0 Arms · 3 points I 2\/3 D 2\/2 .* Fury · 0 points .* Order points were taken Level 6 3 points already spent in 2 talents when Scarlet first read group 1 .* Improved Heroic Strike Picked · point 4 · Arms .* 1→2\/3/, never: /No talent lines recorded|Select a character/ },

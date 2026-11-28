@@ -40,7 +40,7 @@ function totals() {
   const week = sum(data.chars, (c) => sum(c.sessions.filter((s) => s[0] * 1000 >= monday), (s) => s[1]));
   const cells = [
     ["Characters", num(data.chars.length)],
-    ["Played", longDur(sum(data.chars, (c) => c.played))],
+    ["Played", longDur(sum(data.chars, (c) => c.played || c.recorded))],
     ["Gold", moneyHtml(sum(data.chars, (c) => c.money || 0) + data.warband)],
     ["This week", playTime(week)],
   ];
@@ -215,7 +215,7 @@ function dayBuckets() {
   earliest.setDate(earliest.getDate() - (DAYS - 1));
   const begin = new Date(Number.isFinite(first) ? Math.max(first, earliest.getTime()) : earliest.getTime());
   begin.setHours(0, 0, 0, 0);
-  const span = Math.round((Date.now() - begin.getTime()) / 86_400_000) + 1;
+  const span = Math.floor((Date.now() - begin.getTime()) / 86_400_000) + 1;
   const days = Array.from({ length: Math.min(DAYS, Math.max(1, span)) }, (_, i) => {
     const d = new Date(begin);
     d.setDate(begin.getDate() + i);
