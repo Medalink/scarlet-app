@@ -1,8 +1,9 @@
-// The talents section of Character: the selected character's build by tab, the order points were taken in, and respecs.
+// The talents section of Character: the selected character's build as the in-game talent frame, the order points were taken in, and respecs.
 
 import { invoke, el, esc, num, moneyHtml, dateTime, state, goal, stack, tile, tiles } from "../lib.js";
 import { play } from "../motion.js";
-import { goalList } from "./goals-section.js";
+import { hydrate } from "./classblocks.js";
+import { chip, treeFrame } from "./tree-frame.js";
 
 const KIND = {
   pick: "Picked",
@@ -13,21 +14,13 @@ const KIND = {
 
 const RESPEC = { refund: "Points refunded", reset: "Reset by the game", "spec change": "Spec changed by the game" };
 
-const table = (head, rows) => {
-  const wrap = el("div", "scroll-x");
-  const t = el("table", "talents");
-  t.innerHTML = `<thead><tr>${head.map(([label, cls]) => `<th class="${cls ?? ""}">${label}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody>`;
-  wrap.appendChild(t);
-  return wrap;
-};
-
 const TAB_COLORS = ["--s-1", "--s-2", "--s-4"];
 
-const level = (v) => (v == null ? "—" : v);
+const ROWS = 7;
 
 const plainName = (t) => t.spell || t.name || (t.spell_id ? `Spell ${t.spell_id}` : `Node ${t.node_id}`);
 
-const talentName = (t) => esc(plainName(t));
+const points = (n) => `${num(n)} ${n === 1 ? "point" : "points"}`;
 
 function pointsHead(build, spent, total) {
   const box = el("div", "goal-stack points-head");
@@ -35,6 +28,12 @@ function pointsHead(build, spent, total) {
   const unspent = [["class", build.unspent_class], ["spec", build.unspent_spec]].filter(([, n]) => n != null);
   box.append(tiles([tile("Unspent", num(unspent.reduce((a, [, n]) => a + n, 0)), unspent.map(([kind, n]) => `${num(n)} ${kind}`).join(" · "), { size: "md" })], 1));
   return box;
+}
+
+function tabFrame(tab) {
+  const nodes = tab.nodes.map((n) => ({ id: n.node_id, col: n.col, row: n.row, name: plainName(n), icon: n.icon, rank: n.rank, max: n.max_ranks, choices: n.choices }));
+  const links = tab.nodes.flatMap((n) => n.to.map((to) => [n.node_id, to]));
+  return treeFrame(nodes, links, { cols: 4, rows: ROWS });
 }
 
 function buildSection(body, build) {
@@ -48,7 +47,7 @@ function buildSection(body, build) {
   const known = build.unspent_class != null || build.unspent_spec != null;
   const total = spent + (build.unspent_class ?? 0) + (build.unspent_spec ?? 0);
   if (known && total > 0) {
-    const head = el("div", "panel");
+    const head = el("div", "panel compact");
     head.style.marginTop = "12px";
     head.append(pointsHead(build, spent, total));
     if (spent > 0) {
@@ -58,42 +57,56 @@ function buildSection(body, build) {
     }
     body.appendChild(head);
   }
+  const row = el("div", "tf-tabs");
   for (const tab of build.tabs) {
-    const p = el("div", "panel");
-    p.style.marginTop = "12px";
-    const name = tab.name || "Other talents";
-    p.innerHTML = `<h3>${esc(name)} <span class="dim">· ${num(tab.spent)} ${tab.spent === 1 ? "point" : "points"}</span></h3>`;
-    if (!tab.nodes.length) {
-      p.appendChild(el("div", "empty", "No points spent."));
-    } else {
-      const list = goalList(tab.nodes.map((n) => goal(n.rank, n.max_ranks, { label: plainName(n), count: false })));
-      list.classList.add("talent-goals");
-      p.appendChild(list);
-    }
-    body.appendChild(p);
+    const p = el("div", "panel tf-tab");
+    p.dataset.tab = tab.id;
+    p.innerHTML = `<h3>${esc(tab.name || "Other talents")} <span class="dim">· ${points(tab.spent)}</span></h3>`;
+    if (tab.nodes.length) p.appendChild(tabFrame(tab));
+    else p.appendChild(el("div", "empty", "No points spent."));
+    row.appendChild(p);
   }
+  body.appendChild(row);
 }
 
-function orderSection(body, data) {
+function timelineSection(body, data) {
   body.appendChild(el("h3", "section-title", "Order points were taken"));
   const changes = data.changes.filter((c) => c.kind !== "baseline");
   if (!changes.length && !data.held.length) {
     body.appendChild(el("div", "empty", "No talent changes recorded."));
     return;
   }
-  const groups = new Set(data.changes.map((c) => c.group));
-  const multi = groups.size > 1;
-  const head = [["Level", "num"], ["Point", "num"], ["Talent"], ["Tab"], ["Change"], ["Rank", "num"], ["Time"]];
-  if (multi) head.splice(1, 0, ["Group", "num"]);
-  const group = (g) => (multi ? `<td class="num">${g}</td>` : "");
-  const rows = [];
-  const held = data.held.map((h) => ({ ms: h.ms, row: `<tr><td class="num">${level(h.level)}</td>${group(h.group)}<td class="num dim">—</td><td colspan="4" class="dim">${num(h.points)} ${h.points === 1 ? "point" : "points"} already spent in ${num(h.nodes)} ${h.nodes === 1 ? "talent" : "talents"} when Scarlet first read group ${h.group}</td><td class="dim">${dateTime(h.ms)}</td></tr>` }));
-  const taken = changes.map((c) => ({
-    ms: c.ms,
-    row: `<tr><td class="num">${level(c.level)}</td>${group(c.group)}<td class="num">${c.point_no ?? "—"}</td><td>${talentName(c)}</td><td class="dim">${esc(c.tab || "")}</td><td>${KIND[c.kind] ?? esc(c.kind)}</td><td class="num">${c.old_rank ?? ""}→${c.rank}/${c.max_ranks}</td><td class="dim">${dateTime(c.ms)}</td></tr>`,
-  }));
-  for (const r of [...held, ...taken].sort((a, b) => a.ms - b.ms)) rows.push(r.row);
-  body.appendChild(table(head, rows));
+  const multi = new Set(data.changes.map((c) => c.group)).size > 1;
+  const where = (g) => (multi ? ` · group ${g}` : "");
+  const entries = [
+    ...data.held.map((h) => ({ ms: h.ms, level: h.level, held: h })),
+    ...changes.map((c) => ({ ms: c.ms, level: c.level, change: c })),
+  ].sort((a, b) => a.ms - b.ms);
+  const list = el("ol", "tp");
+  let at = null;
+  let picks = null;
+  for (const e of entries) {
+    if (!picks || e.level !== at) {
+      at = e.level;
+      const step = el("li", "tp-level");
+      step.append(el("h4", "tp-lv", at == null ? "Level unknown" : `Level ${at}`));
+      picks = el("ul", "tp-picks");
+      step.append(picks);
+      list.append(step);
+    }
+    const row = el("li", e.held ? "tp-pick held" : `tp-pick ${e.change.kind}`);
+    if (e.held) {
+      const h = e.held;
+      row.innerHTML = `<span class="tf-chip none"></span><span class="tp-text"><span class="tp-name">${points(h.points)} already spent in ${num(h.nodes)} ${h.nodes === 1 ? "talent" : "talents"} when Scarlet first read group ${h.group}</span><span class="tp-meta">${dateTime(h.ms)}${where(h.group)}</span></span>`;
+    } else {
+      const c = e.change;
+      row.append(chip(plainName(c), c.icon));
+      const meta = [KIND[c.kind] ?? esc(c.kind), c.point_no != null ? `point ${c.point_no}` : "", esc(c.tab || ""), dateTime(c.ms) + where(c.group)].filter(Boolean).join(" · ");
+      row.insertAdjacentHTML("beforeend", `<span class="tp-text"><span class="tp-name">${esc(plainName(c))}</span><span class="tp-meta">${meta}</span></span><span class="tp-rank">${c.old_rank ?? ""}→${c.rank}/${c.max_ranks}</span>`);
+    }
+    picks.append(row);
+  }
+  body.appendChild(list);
 }
 
 function respecSection(body, data) {
@@ -102,15 +115,14 @@ function respecSection(body, data) {
     body.appendChild(el("div", "empty", "No respecs recorded."));
     return;
   }
-  body.appendChild(
-    table(
-      [["Time"], ["Level", "num"], ["Group", "num"], ["Kind"], ["Points", "num"], ["Cost", "num"]],
-      data.respecs.map(
-        (r) =>
-          `<tr><td>${dateTime(r.ms)}</td><td class="num">${level(r.level)}</td><td class="num">${r.group}</td><td>${RESPEC[r.kind] ?? esc(r.kind)}</td><td class="num">${num(r.points)}</td><td class="num">${r.cost_copper == null ? "—" : moneyHtml(r.cost_copper)}</td></tr>`
-      )
-    )
-  );
+  const cards = el("div", "rs-cards");
+  for (const r of data.respecs) {
+    const c = el("div", `rs-card ${r.kind.replace(" ", "-")}`);
+    const facts = [r.level == null ? "" : `Level ${r.level}`, `Group ${r.group}`].filter(Boolean).join(" · ");
+    c.innerHTML = `<span class="rs-when">${dateTime(r.ms)}</span><span class="rs-kind">${RESPEC[r.kind] ?? esc(r.kind)}</span><span class="rs-points"><b>${num(r.points)}</b> ${r.points === 1 ? "point" : "points"}</span><span class="rs-facts">${facts}</span><span class="rs-cost">${r.cost_copper == null ? "No cost recorded" : `Cost ${moneyHtml(r.cost_copper)}`}</span>`;
+    cards.append(c);
+  }
+  body.appendChild(cards);
 }
 
 export async function render(body, given = null) {
@@ -128,7 +140,8 @@ export async function render(body, given = null) {
     return;
   }
   if (data.build) buildSection(body, data.build);
-  orderSection(body, data);
+  timelineSection(body, data);
   respecSection(body, data);
+  hydrate(body);
   play(body);
 }

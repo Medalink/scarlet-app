@@ -1,16 +1,10 @@
-// Legacy: the selected character's Legacy talents, their ranks over time and what each rank did.
+// Legacy: the selected character's Legacy trees as the in-game talent frame, their ranks over time and what each rank did.
 
 import { invoke, el, elText, esc, num, dateStr, dateTime, state, goal, tile, tiles } from "../lib.js";
 import { play } from "../motion.js";
+import { hydrate } from "./classblocks.js";
 import { mod } from "./goals-section.js";
-
-const table = (head, rows) => {
-  const wrap = el("div", "scroll-x");
-  const t = el("table", "talents");
-  t.innerHTML = `<thead><tr>${head.map(([label, cls]) => `<th class="${cls ?? ""}">${label}</th>`).join("")}</tr></thead><tbody>${rows.join("")}</tbody>`;
-  wrap.appendChild(t);
-  return wrap;
-};
+import { chip, treeFrame } from "./tree-frame.js";
 
 const fixed = (v, digits = 1) => (v == null ? "—" : v.toFixed(digits));
 
@@ -27,22 +21,29 @@ function effect(m, v) {
 
 const span = (r) => (r.trials ? (dateStr(r.first_ms) === dateStr(r.last_ms) ? dateStr(r.first_ms) : `${dateStr(r.first_ms)} to ${dateStr(r.last_ms)}`) : "");
 
-function measureTable(t) {
+function effectBars(t) {
   const m = t.measure;
   const rows = m.rows.filter((r) => r.trials || r.stated != null);
   if (!rows.length) return null;
-  const box = el("div");
-  box.appendChild(el("div", "dim", esc(m.what)));
-  box.appendChild(
-    table(
-      [["Rank", "num"], [esc(m.trials), "num"], ["Measured", "num"], ["Against rank 0", "num"], ["Tooltip", "num"], ["Recorded"]],
-      rows.map(
-        (r) =>
-          `<tr${r.rank === t.rank ? ' class="current"' : ""}><td class="num">${r.rank}</td><td class="num">${num(r.trials)}</td><td class="num">${value(m, r.value)}</td><td class="num">${effect(m, r.effect)}</td><td class="num">${r.stated == null ? "—" : `${fixed(r.stated, 0)}%`}</td><td class="dim">${span(r)}</td></tr>`
-      )
-    )
-  );
+  const top = Math.max(1, ...rows.flatMap((r) => [Math.abs(r.effect ?? 0), r.stated ?? 0]));
+  const box = el("div", "leg-effects");
+  box.append(elText("div", "dim", m.what));
+  for (const r of rows) {
+    const line = el("div", `leg-effect${r.rank === t.rank ? " current" : ""}`);
+    const fill = r.effect == null ? "" : `<i class="leg-fill${r.effect < 0 ? " neg" : ""}" style="width:${(Math.abs(r.effect) / top) * 100}%"></i>`;
+    const mark = r.stated == null ? "" : `<i class="leg-mark" style="left:${(r.stated / top) * 100}%" title="Tooltip ${fixed(r.stated, 0)}%"></i>`;
+    line.innerHTML = `<span class="leg-rank">Rank ${r.rank}</span><span class="leg-track">${fill}${mark}</span><span class="leg-read"><b>${value(m, r.value)}</b> measured in ${num(r.trials)} ${esc(m.trials.toLowerCase())}${r.effect == null ? "" : ` · ${effect(m, r.effect)} against rank 0`}${r.stated == null ? "" : ` · tooltip ${fixed(r.stated, 0)}%`}${span(r) ? ` · ${span(r)}` : ""}</span>`;
+    box.append(line);
+  }
   return box;
+}
+
+function history(t) {
+  const moves = t.changes.filter((c) => c.from != null);
+  if (!moves.length) return null;
+  const list = el("ol", "leg-hist");
+  for (const c of moves) list.insertAdjacentHTML("beforeend", `<li><b>${c.from}→${c.to}</b><span>${dateTime(c.ms)}</span></li>`);
+  return list;
 }
 
 function nextRank(t, legacy) {
@@ -51,28 +52,32 @@ function nextRank(t, legacy) {
   return { note: `Next rank costs ${cost}`, eta: legacy.available >= cost ? "Can afford" : `${num(cost - legacy.available)} short` };
 }
 
-function talentPanel(t, legacy) {
-  const p = el("div", "panel");
-  p.style.marginTop = "12px";
-  if (t.max_ranks > 0) p.append(goal(t.rank, t.max_ranks, { label: t.name, count: false, ...nextRank(t, legacy) }));
-  else p.innerHTML = `<h3>${esc(t.name)} <span class="dim">· rank ${t.rank}</span></h3>`;
+function talentCard(t, legacy) {
+  const p = el("div", "panel leg-card");
+  p.dataset.node = t.node_id;
+  const head = el("div", "leg-card-head");
+  head.append(chip(t.name, t.icon));
+  if (t.max_ranks > 0) head.append(goal(t.rank, t.max_ranks, { label: t.name, count: false, ...nextRank(t, legacy) }));
+  else head.append(el("h3", "", `${esc(t.name)} <span class="dim">· rank ${t.rank}</span>`));
+  p.append(head);
   if (t.texts.length) {
-    p.appendChild(
-      table(
-        [["Rank", "num"], ["Tooltip"]],
-        t.texts.map((x) => `<tr${x.rank === t.rank ? ' class="current"' : ""}><td class="num">${x.rank}</td><td class="text">${esc(x.text)}</td></tr>`)
-      )
-    );
+    const texts = el("ul", "leg-texts");
+    for (const x of t.texts) texts.insertAdjacentHTML("beforeend", `<li${x.rank === t.rank ? ' class="current"' : ""}><b>Rank ${x.rank}</b><span>${esc(x.text)}</span></li>`);
+    p.append(texts);
   }
-  if (t.measure) {
-    const m = measureTable(t);
-    if (m) p.appendChild(m);
-  }
-  const moves = t.changes.filter((c) => c.from != null);
-  if (moves.length) {
-    p.appendChild(el("div", "dim", moves.map((c) => `${c.from}→${c.to} ${dateTime(c.ms)}`).join(" · ")));
-  }
+  const bars = t.measure ? effectBars(t) : null;
+  if (bars) p.append(bars);
+  const moved = history(t);
+  if (moved) p.append(moved);
   return p;
+}
+
+function pips(legacy, spent) {
+  const box = el("div", "leg-pips");
+  box.setAttribute("role", "img");
+  box.setAttribute("aria-label", `${legacy.earned} of ${legacy.max} points earned, ${spent} spent, ${legacy.available} to spend`);
+  for (let n = 0; n < legacy.max; n += 1) box.append(el("i", n < spent ? "spent" : n < legacy.earned ? "free" : ""));
+  return box;
 }
 
 function sheet(legacy) {
@@ -82,10 +87,24 @@ function sheet(legacy) {
     return box;
   }
   const spent = legacy.trees.reduce((a, t) => a + t.spent, 0);
-  const head = el("div", "goal-stack points-head");
-  head.append(goal(legacy.earned, legacy.max, { size: "lg", label: "Earned" }), tiles([tile("Spent", num(spent), "", { size: "md" }), tile("To spend", num(legacy.available), "", { size: "md" })], 2));
+  const head = el("div", "leg-head");
+  const lead = el("div", "leg-lead");
+  lead.append(el("div", "leg-earned", `<span>Earned</span> <b>${num(legacy.earned)}</b> <em>/ ${num(legacy.max)}</em>`), pips(legacy, spent));
+  const cost = legacy.rank_cost;
+  const next = tile("Next rank", num(cost), legacy.available >= cost ? "Can afford" : `${num(cost - legacy.available)} short`, { size: "md" });
+  head.append(lead, tiles([tile("Spent", num(spent), "", { size: "md" }), tile("To spend", num(legacy.available), "", { size: "md" }), next], 3));
   box.append(mod("w12 first last", "Points", head));
   return box;
+}
+
+function treePanel(name, talents, links, legacy) {
+  const p = el("div", "panel tf-tab");
+  p.dataset.tree = name;
+  const spent = legacy?.trees.find((t) => t.name === name)?.spent ?? talents.reduce((a, t) => a + t.rank, 0);
+  p.innerHTML = `<h3>${esc(name)} <span class="dim">· ${num(spent)} ${spent === 1 ? "point" : "points"}</span></h3>`;
+  const nodes = talents.map((t) => ({ id: t.node_id, col: t.col, row: t.row, name: t.name, icon: t.icon, rank: t.rank, max: t.max_ranks, locked: t.placeholder }));
+  p.append(treeFrame(nodes, links.map((l) => [l.from, l.to]), { cols: 4, rows: 4 }));
+  return p;
 }
 
 export async function render(body) {
@@ -104,13 +123,21 @@ export async function render(body) {
   }
   const legacy = goals?.caps.legacy ?? null;
   body.appendChild(sheet(legacy));
-  let tree = null;
-  for (const t of data.talents) {
-    if (t.tree !== tree) {
-      tree = t.tree;
-      body.appendChild(el("h3", "section-title", esc(tree)));
-    }
-    body.appendChild(talentPanel(t, legacy));
+  const trees = [...new Set(data.talents.map((t) => t.tree_id))].sort();
+  const row = el("div", "tf-tabs");
+  for (const id of trees) {
+    const talents = data.talents.filter((t) => t.tree_id === id);
+    row.append(treePanel(talents[0].tree, talents, data.links.filter((l) => l.tree_id === id), legacy));
   }
+  body.appendChild(row);
+  for (const id of trees) {
+    const cards = data.talents.filter((t) => t.tree_id === id && !t.placeholder && (t.rank > 0 || t.texts.length || t.changes.length));
+    if (!cards.length) continue;
+    body.appendChild(el("h3", "section-title", esc(cards[0].tree)));
+    const list = el("div", "leg-cards");
+    for (const t of cards) list.append(talentCard(t, legacy));
+    body.appendChild(list);
+  }
+  hydrate(body);
   play(body);
 }

@@ -44,8 +44,8 @@ const VIEWS = [
   { key: "map", shows: /Elwynn Forest 12 points Westfall 10 points/, never: /No path points yet/ },
   { key: "loot", shows: /^(?=.*Drop rates .* Stonetusk Boar 1 corpse Chunk of Boar Meat 100% 1\/1 Linen Cloth 100% 1\/1)(?=.*Items received and rolls Common 3 Uncommon 1 Rare 1 Won 1 Testa Fixture Solo 3 1 Group members \(1\) 1 player 2)/, never: /No creature loot with an item list|No loot recorded yet/ },
   { key: "character", hash: "character/class", shows: /Spells cast most Heroic Strike 1/, never: /Select a character|Loading the class section/ },
-  { key: "character", hash: "character/talents", shows: /Points spent 3 \/ 4 .* Unspent 1 0 class · 1 spec Arms 3 Fury 0 Arms · 3 points Improved Heroic Strike 2 \/ 3 66% Deflection 2 \/ 2 Max Fury · 0 points No points spent\. .* Picked 1→2\/3/, never: /No talent lines recorded|Select a character/ },
-  { key: "legacy", shows: /^(?=.*Earned 2 \/ 65)(?=.*Spent 0 To spend 2)(?!.*Next ranks)(?!.*Ranks bought)(?=.*Progression Gourmand 1 \/ 3 33% Next rank costs 1 · Can afford Rank Tooltip)(?=.*Well Fed duration .* 0 1 15\.0 min — — .* 1 1 20\.0 min \+33% 33% )/, never: /No Legacy lines recorded|Select a character/ },
+  { key: "character", hash: "character/talents", shows: /Points spent 3 \/ 4 .* Unspent 1 0 class · 1 spec Arms 3 Fury 0 Arms · 3 points I 2\/3 D 2\/2 .* Fury · 0 points .* Order points were taken Level 6 3 points already spent in 2 talents when Scarlet first read group 1 .* Improved Heroic Strike Picked · point 4 · Arms .* 1→2\/3/, never: /No talent lines recorded|Select a character/ },
+  { key: "legacy", shows: /^(?=.*Earned 2 \/ 65)(?=.*Spent 0 To spend 2 Next rank 1 Can afford)(?!.*Next ranks)(?!.*Ranks bought)(?=.*Professions · 0 points .* Adventure · 0 points .* Progression · 0 points)(?=.*Progression G Gourmand 1 \/ 3 33% Next rank costs 1 · Can afford Rank 1)(?=.*Well Fed duration)(?=.*Rank 0 15\.0 min measured in 1 buffs)(?=.*Rank 1 20\.0 min measured in 1 buffs · \+33% against rank 0 · tooltip 33%)/, never: /No Legacy lines recorded|Select a character/ },
   {
     key: "items",
     shows: /^(?=.*Linen Cloth 2589 3 looted Testa Fixture 3 Warband bank \(E2EONE\) 20 Warband bank \(E2ETWO\) 5 28 42s ?00c 1s ?50c each Wool Cloth 2592 Guild bank 7 7 –)(?=.*Recipes 2× Linen Cloth 1× Bolt of Linen Cloth Testa Fixture)(?=.*Warband and guild banks Warband bank \(E2EONE\) 1 ?item Last read \d{4}-\d\d-\d\d \d\d:\d\d by Testa Fixture Balance 12g ?34s Warband bank \(E2ETWO\) 1 ?item Last read .* by Probe Lane Balance 5g ?00s Guild bank 1 ?item Last read .* by Probe Lane Balance 98g ?76s)(?!.*1s ?25c)/,
@@ -100,12 +100,13 @@ const site = (root) => ({ wow: path.join(root, "wow"), out: path.join(root, "out
 const listenWebsite = () =>
   new Promise((resolve) => {
     const seen = [];
+    const icons = [];
     const server = http.createServer((request, answer) => {
-      seen.push(`${request.method} ${request.url}`);
+      (request.method === "GET" && /^\/spell-icons\/\d+\.png$/.test(request.url) ? icons : seen).push(`${request.method} ${request.url}`);
       answer.statusCode = 404;
       answer.end();
     });
-    server.listen(0, "127.0.0.1", () => resolve({ server, seen, url: `http://127.0.0.1:${server.address().port}` }));
+    server.listen(0, "127.0.0.1", () => resolve({ server, seen, icons, url: `http://127.0.0.1:${server.address().port}` }));
   });
 
 const read = (file) => fs.readFileSync(file, "utf8");
@@ -505,30 +506,47 @@ const CHECKS = [
   },
   {
     lane: "app",
-    name: "the Legacy page draws points earned, and each talent once as a goal with the cost of its next rank",
+    name: "the Legacy page draws the three trees from the snapshot, locked placeholders, the arrows between talents and each talent once as a goal",
     async run(ctx) {
       const app = running(ctx);
       await selectCharacter(app, TESTA);
       await open(app, "legacy", /Earned/);
-      const lead = (await text(app, "#body .legacy-sheet .sc-goal.lg"))[0];
-      expectEqual("the points goal", lead, "Earned 2 / 65 3%");
-      expectEqual("the goals outside the points head", await text(app, "#body .sc-goal:not(.lg)"), ["Gourmand 1 / 3 33% Next rank costs 1 · Can afford"]);
+      expectEqual("the points earned", (await text(app, "#body .legacy-sheet .leg-earned"))[0], "Earned 2 / 65");
+      expectEqual("the points bar", await app.evaluate(`document.querySelector("#body .legacy-sheet .leg-pips").getAttribute("aria-label")`), "2 of 65 points earned, 0 spent, 2 to spend");
+      expectEqual("the trees", await text(app, "#body .tf-tab[data-tree] h3"), ["Professions · 0 points", "Adventure · 0 points", "Progression · 0 points"]);
+      expectEqual("slots drawn: 7 talents and 2 placeholders in each of 3 trees", await app.evaluate(`[document.querySelectorAll("#body .tf-slot").length, document.querySelectorAll("#body .tf-slot.locked").length]`), [27, 6]);
+      expectEqual("a talent never taken is drawn untaken", await app.evaluate(`document.querySelector('#body .tf-slot[data-node="110316"]').getAttribute("aria-label") + "|" + document.querySelector('#body .tf-slot[data-node="110316"]').dataset.state`), "Permanence, rank 0 of 2|untaken");
+      expectEqual("Gourmand holds its rank, shown before its icon arrives", await app.evaluate(`(() => { const s = document.querySelector('#body .tf-slot[data-node="110313"]'); return [s.getAttribute("aria-label"), s.dataset.state, s.querySelector(".tf-rank").textContent, s.querySelector(".tf-init").textContent]; })()`), ["Gourmand, rank 1 of 3", "partial", "1/3", "G"]);
+      expectEqual("the arrow from Gourmand to Permanence is lit by Gourmand's rank", await app.evaluate(`document.querySelector('#body .tf-arrow[data-from="110313"][data-to="110316"]')?.classList.contains("lit")`), true);
+      expectEqual("an arrow between untaken talents is drawn unlit", await app.evaluate(`document.querySelector('#body .tf-arrow[data-from="110315"][data-to="110309"]')?.classList.contains("lit")`), false);
+      expectEqual("the goals outside the points head", await text(app, "#body .sc-goal"), ["Gourmand 1 / 3 33% Next rank costs 1 · Can afford"]);
+      for (let waited = 0; waited < 3000 && !ctx.website.icons.length; waited += 100) await sleep(100);
+      expectEqual("the icon of Gourmand was asked for by its id alone", ctx.website.icons.includes("GET /spell-icons/134020.png"), true);
     },
   },
   {
     lane: "app",
-    name: "the Talents page draws points spent against the points left unspent, one split across the tabs and each talent as goals",
+    name: "the Talents page draws each tab as the in-game frame: untaken talents, ranks, arrows and a timeline by level",
     async run(ctx) {
       const app = running(ctx);
       await selectCharacter(app, TESTA);
       await open(app, "character", /Points spent/, null, "character/talents");
       expectEqual("the points goal: 3 spent and the 1 unspent point; the tabs' own available counts (0 and 3, the other tabs' points) are not points to spend", (await text(app, "#body .points-head .sc-goal.lg"))[0], "Points spent 3 / 4 75%");
       expectEqual("the split across the tabs", await text(app, "#body .tab-split .sc-key span"), ["Arms 3", "Fury 0"]);
-      const goals = await text(app, "#body .panel .sc-goal:not(.lg)");
-      for (const want of [/^Improved Heroic Strike 2 \/ 3 66%/, /^Deflection 2 \/ 2 Max/]) {
-        if (!goals.some((g) => want.test(g))) throw mismatch("a talent goal", String(want), JSON.stringify(goals));
-      }
-      if (goals.some((g) => /^(Arms|Fury) /.test(g))) throw mismatch("goal bars for the tabs", "none", JSON.stringify(goals));
+      expectEqual("the tabs", await text(app, "#body .tf-tab h3"), ["Arms · 3 points", "Fury · 0 points"]);
+      const slots = await app.evaluate(`[...document.querySelectorAll("#body .tf-slot")].map((s) => [s.dataset.node, s.dataset.state, s.getAttribute("aria-label"), s.querySelector(".tf-rank")?.textContent ?? "", s.style.left, s.style.top])`);
+      expectEqual("every visible node of both tabs, on the grid: the typo'd 33300 reads as row 2", slots, [
+        ["9001", "partial", "Improved Heroic Strike, rank 2 of 3", "2/3", "0px", "0px"],
+        ["9002", "maxed", "Deflection, rank 2 of 2", "2/2", "0px", "72px"],
+        ["9003", "untaken", "Overpower, rank 0 of 1", "", "72px", "72px"],
+        ["9004", "untaken", "Slam, rank 0 of 1. Choice of Slam or Whirlwind", "", "216px", "144px"],
+        ["9010", "untaken", "Rampage, rank 0 of 1", "", "0px", "0px"],
+        ["9011", "untaken", "Bloodthirst, rank 0 of 2", "0/2", "72px", "144px"],
+      ]);
+      expectEqual("the arrows: lit from a talent that holds a rank, unlit from one that holds none", await app.evaluate(`[...document.querySelectorAll("#body .tf-arrow")].map((a) => [a.dataset.from, a.dataset.to, a.classList.contains("lit")])`), [["9001", "9002", true], ["9010", "9011", false]]);
+      const picks = await text(app, "#body .tp-pick");
+      if (!picks.some((p) => /^I Improved Heroic Strike Picked · point 4 · Arms · .* 1→2\/3$/.test(p))) throw mismatch("the pick on the timeline", "I Improved Heroic Strike Picked · point 4 · Arms ... 1→2/3", JSON.stringify(picks));
+      expectEqual("the timeline groups by level", await text(app, "#body .tp-lv"), ["Level 6"]);
     },
   },
   {
