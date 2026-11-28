@@ -11,7 +11,7 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { launch } from "./cdp.mjs";
 import zlib from "node:zlib";
-import { ALT, CHARACTERS, ELWYNN, FISHING, GRIND, GUILD, LATER, RESET, WESTFALL, collapsed, dropped, fullBuild, german, upgraded, lineCount, savedVariablesPath, trades, writeFullBuild, writeGrind, writeReset, writeTrades, writeWow } from "./scenario.mjs";
+import { ALT, BLANK, CHARACTERS, CLOCK, ELWYNN, FISHING, GRIND, GUILD, LATER, RESET, WESTFALL, collapsed, dropped, fullBuild, german, upgraded, lineCount, savedVariablesPath, trades, writeBlank, writeClock, writeFullBuild, writeGrind, writeReset, writeTrades, writeWow } from "./scenario.mjs";
 
 const REPO = path.resolve(import.meta.dirname, "..");
 const WINDOWS = process.platform === "win32";
@@ -153,6 +153,18 @@ const dropNewMarks = (site) => {
 const resetPayloads = (site) => ({
   main: hashOf(path.join(site.out, RESET.name, "payloads")),
   addons: hashOf(path.join(site.out, RESET.name, "addons", "payloads")),
+});
+
+const storeMarks = (site, account) => {
+  const marks = readState(site);
+  const key = Object.keys(marks).find((k) => k.endsWith("Scarlet.lua") && k.includes(account));
+  return { marks, key };
+};
+
+const keptFiles = (site, character) => ({
+  payloads: hashOf(path.join(site.out, character, "payloads")),
+  addons: fs.existsSync(path.join(site.out, character, "addons", "payloads")) ? hashOf(path.join(site.out, character, "addons", "payloads")) : {},
+  text: read(path.join(site.out, character, "scarlet.txt")),
 });
 
 const resetSessions = (site) => csvRows(path.join(site.out, RESET.name, "tables/sessions.csv"));
@@ -537,6 +549,71 @@ const CHECKS = [
       const last = exportSite(ctx, s);
       expectMatch("the export after that", last.out, /no new chunks/);
       expectEqual("payload files after the export after that", resetPayloads(s), now);
+    },
+  },
+  {
+    lane: "cli",
+    name: "a clock that stepped back between two chunks reads nothing again, and a store that started over after that is still read",
+    run(ctx) {
+      const s = ctx.site.clock;
+      writeClock(s.wow, "before");
+      const first = exportSite(ctx, s);
+      expectEqual("exit code", first.code, 0);
+      expectMatch("the first export", first.out, /Clock-Fixture: 2 chunks, 6 events/);
+      expectNoMatch("the first export", first.out, /started over/);
+      const kept = keptFiles(s, CLOCK.name);
+      expectEqual("payload files of the first export", Object.keys(kept.payloads), ["9-10.scl"]);
+      const { marks, key } = storeMarks(s, CLOCK.account);
+      expectEqual("the marks after the first export", [marks[key], marks[`${key}#t`]], [10, 1795600200]);
+
+      for (const nth of ["second", "third"]) {
+        const again = exportSite(ctx, s);
+        expectEqual(`exit code of the ${nth} export`, again.code, 0);
+        expectMatch(`the ${nth} export`, again.out, /no new chunks/);
+        expectNoMatch(`the ${nth} export`, again.out, /started over/);
+        expectEqual(`files after the ${nth} export`, keptFiles(s, CLOCK.name), kept);
+        const now = storeMarks(s, CLOCK.account);
+        expectEqual(`the marks after the ${nth} export`, [now.marks[now.key], now.marks[`${now.key}#t`]], [10, 1795600200]);
+        expectEqual(`restart marks after the ${nth} export`, Object.keys(now.marks).filter((k) => /#(?:restart|since)$/.test(k)), []);
+      }
+
+      writeClock(s.wow, "after");
+      const restarted = exportSite(ctx, s);
+      expectEqual("exit code after the store started over", restarted.code, 0);
+      expectMatch("the export of the new store", restarted.out, /Clock-Fixture: 2 chunks, 6 events/);
+      expectMatch("the line for the store", restarted.out, /The game's Scarlet store started over on [A-Z][a-z]{2} \d{1,2}(?: \d{4})?; 2 recordings read since\./);
+      const now = keptFiles(s, CLOCK.name);
+      expectOldFilesKept("payloads", kept.payloads, now.payloads);
+      expectEqual("payload files after the restart", Object.keys(now.payloads).sort(), ["1-2.scl", "9-10.scl"]);
+      const after = storeMarks(s, CLOCK.account);
+      expectEqual("the marks after the restart", [after.marks[after.key], after.marks[`${after.key}#t`], after.marks[`${after.key}#since`]], [2, 1795700600, 2]);
+      const last = exportSite(ctx, s);
+      expectMatch("the export after that", last.out, /no new chunks/);
+      expectEqual("files after the export after that", keptFiles(s, CLOCK.name), now);
+    },
+  },
+  {
+    lane: "cli",
+    name: "a state.json from before the times were kept does not read lines with an empty field again",
+    run(ctx) {
+      const s = ctx.site.blank;
+      writeBlank(s.wow);
+      const first = exportSite(ctx, s);
+      expectEqual("exit code", first.code, 0);
+      expectMatch("the first export", first.out, /Blank-Fixture: 2 chunks, 9 events/);
+      expectMatch("the first export of the addon stream", first.out, /Blank-Fixture: 1 addon chunks, 2 addon lines/);
+      const kept = keptFiles(s, BLANK.name);
+      dropNewMarks(s);
+      for (const key of Object.keys(readState(s))) if (NEW_MARKS.test(key)) throw mismatch("a state.json in the old shape", "no marks with times", key);
+
+      const migrated = exportSite(ctx, s);
+      expectEqual("exit code of the export after the upgrade", migrated.code, 0);
+      expectMatch("the export after the upgrade", migrated.out, /no new chunks/);
+      expectNoMatch("the export after the upgrade", migrated.out, /started over|Blank-Fixture: \d+ (?:addon )?chunks/);
+      expectEqual("files after the export after the upgrade", keptFiles(s, BLANK.name), kept);
+      const { marks, key } = storeMarks(s, BLANK.account);
+      expectEqual("the marks after the upgrade", [marks[key], marks[`${key}#t`], marks[`${key}#addons#t`]], [2, 1795807200, 1795800000]);
+      expectEqual("restart marks after the upgrade", Object.keys(marks).filter((k) => /#(?:restart|since)$/.test(k)), []);
     },
   },
   {
@@ -1416,7 +1493,7 @@ async function main() {
   const dir = given.keep ? path.resolve(given.keep) : fs.mkdtempSync(path.join(os.tmpdir(), "scarlet-lane-"));
   fs.mkdirSync(dir, { recursive: true });
   const website = await listenWebsite();
-  const ctx = { dir, cli, exe, website, keep: Boolean(given.keep), app: null, grind: null, full: null, trades: null, now: Date.now(), site: { cli: site(path.join(dir, "cli")), app: site(path.join(dir, "app")), motion: site(path.join(dir, "motion")), grind: site(path.join(dir, "grind")), full: site(path.join(dir, "full")), trades: site(path.join(dir, "trades")), reset: site(path.join(dir, "reset")), legacy: site(path.join(dir, "legacy")), restart: site(path.join(dir, "restart")) } };
+  const ctx = { dir, cli, exe, website, keep: Boolean(given.keep), app: null, grind: null, full: null, trades: null, now: Date.now(), site: { cli: site(path.join(dir, "cli")), app: site(path.join(dir, "app")), motion: site(path.join(dir, "motion")), grind: site(path.join(dir, "grind")), full: site(path.join(dir, "full")), trades: site(path.join(dir, "trades")), reset: site(path.join(dir, "reset")), legacy: site(path.join(dir, "legacy")), restart: site(path.join(dir, "restart")), clock: site(path.join(dir, "clock")), blank: site(path.join(dir, "blank")) } };
   writeWow(ctx.site.cli.wow);
 
   let result = { failed: 1, seconds: 0 };

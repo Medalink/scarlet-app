@@ -2,12 +2,14 @@
 //!
 //! The addon numbers chunks from `seq`, and `seq` starts again at 0 whenever the saved table is
 //! gone (a deleted WTF folder, a file the game dropped for its size, a corrupted file). A mark
-//! of "the last `q` read" alone then skips every new chunk. So each stream also keeps the start
-//! time `t` of the last chunk read, and a chunk at or below the mark counts as new when it is
-//! later than that.
+//! of "the highest `q` read" alone then skips every new chunk. So each stream also keeps the
+//! highest start time `t` of its chunks, and a chunk at or below the mark counts as new when it
+//! is later than that. Both come from every chunk an export judged, read or already held and
+//! never one that would not decode, so a clock that stepped back between two chunks cannot pull
+//! the mark under a chunk already read.
 //!
 //! Keys per stream, `key` being the SavedVariables path (the addon stream adds `#addons`):
-//! `key` is the last `q`, and `key#t` its `t`, `key#restart` the `t` of the first chunk read
+//! `key` is the highest `q`, and `key#t` the highest `t`, `key#restart` the `t` of the first chunk read
 //! after the store started over, `key#since` the chunks read since, `key#bad` the chunks that
 //! would not decode at the last export. A `state.json` that has only `key` is read as it was
 //! and gains the rest as it goes.
@@ -37,8 +39,8 @@ pub(crate) struct Cursor {
     q: u64,
     t: Option<i64>,
     seq: Option<u64>,
-    latest: Option<(u64, i64)>,
-    confirmed: Option<(u64, i64)>,
+    highest_q: Option<u64>,
+    highest_t: Option<i64>,
     restarted_at: Option<i64>,
     after_restart: u64,
     read: u64,
@@ -52,8 +54,8 @@ impl Cursor {
             q: marks.get(key).copied().unwrap_or(0),
             t: marks.get(&format!("{key}{T}")).map(|t| *t as i64),
             seq,
-            latest: None,
-            confirmed: None,
+            highest_q: None,
+            highest_t: None,
             restarted_at: None,
             after_restart: 0,
             read: 0,
@@ -61,10 +63,7 @@ impl Cursor {
         }
     }
 
-    /// Whether `ch` was read by an earlier export. `held` answers, for a mark that has no time
-    /// yet (a `state.json` from before it was kept), whether the archive already holds the
-    /// chunk's lines.
-    pub(crate) fn judge(&self, ch: &Chunk, held: impl FnOnce() -> bool) -> Seen {
+    pub(crate) fn judge(&self, ch: &Chunk, archive_holds_chunk: impl FnOnce() -> bool) -> Seen {
         if ch.q > self.q {
             return Seen::New;
         }
@@ -74,19 +73,22 @@ impl Cursor {
         match self.t {
             Some(t) if ch.t > t => Seen::Restarted,
             Some(_) => Seen::Read,
-            None if held() => Seen::Read,
+            None if archive_holds_chunk() => Seen::Read,
             None => Seen::Restarted,
         }
     }
 
+    fn judged(&mut self, ch: &Chunk) {
+        self.highest_q = self.highest_q.max(Some(ch.q));
+        self.highest_t = self.highest_t.max(Some(ch.t));
+    }
+
     pub(crate) fn skipped(&mut self, ch: &Chunk) {
-        if self.confirmed.is_none_or(|(q, _)| ch.q > q) {
-            self.confirmed = Some((ch.q, ch.t));
-        }
+        self.judged(ch);
     }
 
     pub(crate) fn took(&mut self, ch: &Chunk, seen: Seen) {
-        self.latest = Some((ch.q, ch.t));
+        self.judged(ch);
         self.read += 1;
         if seen == Seen::Restarted && self.restarted_at.is_none() {
             self.restarted_at = Some(ch.t);
@@ -110,12 +112,8 @@ impl Cursor {
 
     pub(crate) fn finish(self, marks: &mut Marks) {
         let key = &self.key;
-        if let Some((q, t)) = self.latest {
+        if let (Some(q), Some(t)) = (self.highest_q, self.highest_t) {
             marks.insert(key.clone(), q);
-            marks.insert(format!("{key}{T}"), t as u64);
-        } else if self.t.is_none()
-            && let Some((_, t)) = self.confirmed
-        {
             marks.insert(format!("{key}{T}"), t as u64);
         }
         if let Some(at) = self.restarted_at {

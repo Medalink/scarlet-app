@@ -642,6 +642,65 @@ export function writeReset(wow, stage, { unreadable = false } = {}) {
   return wow;
 }
 
+/**
+ * A character whose chunks are numbered 9 and 10 while the clock stepped back between them, so chunk 10 starts 50 s before
+ * chunk 9; then a store that started over (q 1 and 2, much later).
+ */
+export const CLOCK = {
+  name: "Clock-Fixture",
+  account: "E2ECLOCK",
+  before: [[9, resetSession(1795600200, 2)], [10, resetSession(1795600150, 3)]],
+  after: [[1, resetSession(1795700000, 4)], [2, resetSession(1795700600, 5)]],
+};
+
+/** Writes the World of Warcraft folder of `CLOCK` with the chunks of `stage` (`before` or `after`). */
+export function writeClock(wow, stage) {
+  const numbered = CLOCK[stage];
+  const chunks = numbered.map(([q, s]) => chunk(q, CLOCK.name, s.start, text(s.lines), q % 2 ? "txt" : "d64"));
+  const seq = Math.max(...numbered.map(([q]) => q));
+  const file = savedVariablesPath(wow, CLOCK);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, ["", `ScarletDB = ${lua({ v: 1, seq, chunks, buf: [], chars: { [CLOCK.name]: { v: 1 } } })}`, ""].join("\n"));
+  fs.mkdirSync(path.join(wow, "_forever_", "Interface", "AddOns", "Scarlet"), { recursive: true });
+  return wow;
+}
+
+/** A character whose recording holds lines with one empty field (`EM` and `AO`, and an addon line), in two chunks. */
+export const BLANK = {
+  name: "Blank-Fixture",
+  account: "E2EBLANK",
+  sessions: [
+    session(1795800000, [
+      [0, "S", "1.15.8", "WARRIOR", "Human", 5, "Alliance", "0.9.0", 1, "Forever", 1, 11508, 5, 3600, 3843, 60],
+      [1, "Z", ELWYNN, 0, "none", 0, "Elwynn Forest", "Goldshire"],
+      [2, "EM", ""],
+      [3, "AO", ""],
+      [20, "ES"],
+    ]),
+    session(1795807200, [
+      [0, "S", "1.15.8", "WARRIOR", "Human", 6, "Alliance", "0.9.0", 1, "Forever", 1, 11508, 5, 3600, 3843, 60],
+      [1, "Z", ELWYNN, 0, "none", 0, "Elwynn Forest", "Goldshire"],
+      [2, "EM", ""],
+      [20, "ES"],
+    ]),
+  ],
+  addon: { start: 1795800000, lines: [[20, "gm", "N", ELWYNN, 4390, 6700, ""], [21, "gm", "X", ""]] },
+};
+
+/** Writes the World of Warcraft folder of `BLANK`. */
+export function writeBlank(wow) {
+  const chunks = BLANK.sessions.map((s, i) => chunk(i + 1, BLANK.name, s.start, text(s.lines), i % 2 ? "txt" : "d64"));
+  const addons = { v: 1, seq: 1, chunks: [chunk(1, BLANK.name, BLANK.addon.start, text(BLANK.addon.lines), "txt")], buf: [] };
+  const file = savedVariablesPath(wow, BLANK);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(
+    file,
+    ["", `ScarletDB = ${lua({ v: 1, seq: chunks.length, chunks, buf: [], chars: { [BLANK.name]: { v: 1 } } })}`, `ScarletAddonsDB = ${lua(addons)}`, ""].join("\n"),
+  );
+  fs.mkdirSync(path.join(wow, "_forever_", "Interface", "AddOns", "Scarlet"), { recursive: true });
+  return wow;
+}
+
 /** Writes a World of Warcraft folder that holds `fullBuild(now)` alone. */
 export function writeFullBuild(wow, now = Date.now()) {
   const character = fullBuild(now);
