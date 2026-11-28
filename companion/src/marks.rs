@@ -8,20 +8,27 @@
 //! never one that would not decode, so a clock that stepped back between two chunks cannot pull
 //! the mark under a chunk already read.
 //!
+//! A chunk with a `q` the mark holds and a `t` above the `t` of the highest-`q` chunk could still
+//! belong to a store that started over, when the app did not run until the new `seq` passed the old
+//! mark, or when one chunk written with the clock ahead keeps the highest `t` high. The export
+//! then looks in its archive for that chunk before it counts it as read.
+//!
 //! Keys per stream, `key` being the SavedVariables path (the addon stream adds `#addons`):
-//! `key` is the highest `q`, and `key#t` the highest `t`, `key#restart` the `t` of the first chunk read
-//! after the store started over, `key#since` the chunks read since, `key#bad` the chunks that
-//! would not decode at the last export. A `state.json` that has only `key` is read as it was
-//! and gains the rest as it goes.
+//! `key` is the highest `q`, `key#t` the highest `t`, `key#qt` the `t` of the chunk with the highest
+//! `q`, `key#restart` the `t` of the first chunk read after the store started over, `key#since` the
+//! chunks read since, `key#bad` the chunks that would not decode at the last export. A `state.json`
+//! that has only `key`, or `key` and `key#t`, is read as it was and gains the rest as it goes.
 
 use crate::export::Chunk;
 use chrono::{Datelike, Local, TimeZone};
 use serde::Serialize;
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 
 pub(crate) type Marks = BTreeMap<String, u64>;
 
 const T: &str = "#t";
+const QT: &str = "#qt";
 const RESTART: &str = "#restart";
 const SINCE: &str = "#since";
 const BAD: &str = "#bad";
@@ -38,9 +45,11 @@ pub(crate) struct Cursor {
     key: String,
     q: u64,
     t: Option<i64>,
+    q_t: Option<i64>,
     seq: Option<u64>,
     highest_q: Option<u64>,
     highest_t: Option<i64>,
+    highest_q_t: Option<i64>,
     restarted_at: Option<i64>,
     after_restart: u64,
     read: u64,
@@ -53,9 +62,11 @@ impl Cursor {
             key: key.to_string(),
             q: marks.get(key).copied().unwrap_or(0),
             t: marks.get(&format!("{key}{T}")).map(|t| *t as i64),
+            q_t: marks.get(&format!("{key}{QT}")).map(|t| *t as i64),
             seq,
             highest_q: None,
             highest_t: None,
+            highest_q_t: None,
             restarted_at: None,
             after_restart: 0,
             read: 0,
@@ -72,14 +83,21 @@ impl Cursor {
         }
         match self.t {
             Some(t) if ch.t > t => Seen::Restarted,
-            Some(_) => Seen::Read,
-            None if archive_holds_chunk() => Seen::Read,
-            None => Seen::Restarted,
+            Some(_) if self.q_t.is_some_and(|q_t| ch.t <= q_t) => Seen::Read,
+            _ if archive_holds_chunk() => Seen::Read,
+            _ => Seen::Restarted,
         }
     }
 
     fn judged(&mut self, ch: &Chunk) {
-        self.highest_q = self.highest_q.max(Some(ch.q));
+        match Some(ch.q).cmp(&self.highest_q) {
+            Ordering::Greater => {
+                self.highest_q = Some(ch.q);
+                self.highest_q_t = Some(ch.t);
+            }
+            Ordering::Equal => self.highest_q_t = self.highest_q_t.min(Some(ch.t)),
+            Ordering::Less => {}
+        }
         self.highest_t = self.highest_t.max(Some(ch.t));
     }
 
@@ -112,9 +130,10 @@ impl Cursor {
 
     pub(crate) fn finish(self, marks: &mut Marks) {
         let key = &self.key;
-        if let (Some(q), Some(t)) = (self.highest_q, self.highest_t) {
+        if let (Some(q), Some(t), Some(q_t)) = (self.highest_q, self.highest_t, self.highest_q_t) {
             marks.insert(key.clone(), q);
             marks.insert(format!("{key}{T}"), t as u64);
+            marks.insert(format!("{key}{QT}"), q_t as u64);
         }
         if let Some(at) = self.restarted_at {
             marks.insert(format!("{key}{RESTART}"), at as u64);

@@ -653,14 +653,22 @@ export const CLOCK = {
   after: [[1, resetSession(1795700000, 4)], [2, resetSession(1795700600, 5)]],
 };
 
-/** Writes the World of Warcraft folder of `CLOCK` with the chunks of `stage` (`before` or `after`). */
-export function writeClock(wow, stage) {
-  const numbered = CLOCK[stage];
-  const chunks = numbered.map(([q, s]) => chunk(q, CLOCK.name, s.start, text(s.lines), q % 2 ? "txt" : "d64"));
+/** A character whose chunk 2 was written with the clock days ahead, then a store that started over and numbered five chunks, so its `seq` passed the old highest `q` (3) before the app saw it. */
+export const AHEAD = {
+  name: "Ahead-Fixture",
+  account: "E2EAHEAD",
+  before: [[1, resetSession(1795900000, 2)], [2, resetSession(1795900000 + 5 * 86400, 3)], [3, resetSession(1795907200, 4)]],
+  after: [1, 2, 3, 4, 5].map((q) => [q, resetSession(1795950000 + (q - 1) * 7200, q + 4)]),
+};
+
+/** Writes the World of Warcraft folder of a numbered scenario (`CLOCK` or `AHEAD`) with the chunks of `stage` (`before` or `after`). */
+export function writeClock(wow, stage, scenario = CLOCK) {
+  const numbered = scenario[stage];
+  const chunks = numbered.map(([q, s]) => chunk(q, scenario.name, s.start, text(s.lines), q % 2 ? "txt" : "d64"));
   const seq = Math.max(...numbered.map(([q]) => q));
-  const file = savedVariablesPath(wow, CLOCK);
+  const file = savedVariablesPath(wow, scenario);
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, ["", `ScarletDB = ${lua({ v: 1, seq, chunks, buf: [], chars: { [CLOCK.name]: { v: 1 } } })}`, ""].join("\n"));
+  fs.writeFileSync(file, ["", `ScarletDB = ${lua({ v: 1, seq, chunks, buf: [], chars: { [scenario.name]: { v: 1 } } })}`, ""].join("\n"));
   fs.mkdirSync(path.join(wow, "_forever_", "Interface", "AddOns", "Scarlet"), { recursive: true });
   return wow;
 }
