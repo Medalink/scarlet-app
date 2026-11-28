@@ -77,7 +77,7 @@ pub struct MapInfo {
     id: u32,
     name: String,
     points: u64,
-    /// Seconds on the map: the gaps between its recorded positions, ignoring gaps over two minutes.
+    /// Seconds on the map, from the zone lines, standing still included.
     seconds: u64,
 }
 
@@ -122,7 +122,31 @@ fn maps_dir(st: &Store) -> std::path::PathBuf {
     st.data_dir.parent().unwrap_or(&st.data_dir).join("maps")
 }
 
-const MAP_GAP_MS: i64 = 120_000;
+fn zone_seconds<K: std::hash::Hash + Eq + Clone>(
+    st: &Store,
+    ch: Option<u32>,
+    key: impl Fn(&Row) -> Option<K>,
+) -> HashMap<K, i64> {
+    let mut secs: HashMap<K, i64> = HashMap::new();
+    let mut now: HashMap<u32, (i64, Option<K>)> = HashMap::new();
+    for r in &st.events {
+        if ch.is_some_and(|cc| r.ch != cc) {
+            continue;
+        }
+        let (prev_ms, zone) = now.entry(r.ch).or_insert((r.ms, None));
+        if let Some(z) = zone.as_ref() {
+            let dt = (r.ms - *prev_ms) / 1000;
+            if (0..=3600).contains(&dt) {
+                *secs.entry(z.clone()).or_default() += dt;
+            }
+        }
+        *prev_ms = r.ms;
+        if r.code == "Z" {
+            *zone = key(r);
+        }
+    }
+    secs
+}
 
 fn maps_of(st: &Store, ch: Option<u32>) -> Vec<MapInfo> {
     let mut counts: BTreeMap<u32, u64> = BTreeMap::new();
@@ -138,28 +162,14 @@ fn maps_of(st: &Store, ch: Option<u32>) -> Vec<MapInfo> {
         }
         *counts.entry(pl.map).or_default() += pl.pts.len() as u64;
     }
-    let mut seconds: BTreeMap<u32, u64> = BTreeMap::new();
-    let mut last: HashMap<u32, (i64, u32)> = HashMap::new();
-    for r in &st.paths {
-        if ch.is_some_and(|cc| r.ch != cc) {
-            continue;
-        }
-        let Some(map) = r.fields.first().and_then(|m| m.parse::<u32>().ok()) else {
-            continue;
-        };
-        if let Some(&(at, was)) = last.get(&r.ch)
-            && was == map
-            && (0..=MAP_GAP_MS).contains(&(r.ms - at))
-        {
-            *seconds.entry(map).or_default() += ((r.ms - at) / 1000) as u64;
-        }
-        last.insert(r.ch, (r.ms, map));
-    }
+    let seconds = zone_seconds(st, ch, |r| {
+        r.fields.first().and_then(|m| m.parse::<u32>().ok())
+    });
     let mut maps: Vec<MapInfo> = counts
         .into_iter()
         .map(|(id, points)| MapInfo {
             id,
-            seconds: seconds.get(&id).copied().unwrap_or(0),
+            seconds: seconds.get(&id).copied().unwrap_or(0).max(0) as u64,
             // The client's own map name, then the zone seen while on the map.
             name: st
                 .map_index
@@ -968,9 +978,6 @@ fn charts_sync(app: AppHandle, ch: Option<String>) -> Charts {
         let mut item_in: HashMap<u64, i64> = HashMap::new();
         let mut item_out: HashMap<u64, i64> = HashMap::new();
         let mut people: HashMap<String, i64> = HashMap::new();
-        let mut zone_secs: HashMap<String, i64> = HashMap::new();
-        let mut cur_zone = String::new();
-        let mut prev_ms: Option<i64> = None;
         let mut open_group: HashMap<String, i64> = HashMap::new();
         let mut damage_spells: HashMap<String, i64> = HashMap::new();
         let mut healing_spells: HashMap<String, i64> = HashMap::new();
@@ -990,25 +997,7 @@ fn charts_sync(app: AppHandle, ch: Option<String>) -> Charts {
             if c.is_some_and(|cc| r.ch != cc) {
                 continue;
             }
-            // Zone time: event-to-event delta attributed to the current zone.
-            if let Some(p) = prev_ms
-                && !cur_zone.is_empty()
-            {
-                let dt = (r.ms - p) / 1000;
-                if (0..=3600).contains(&dt) {
-                    *zone_secs.entry(cur_zone.clone()).or_default() += dt;
-                }
-            }
-            prev_ms = Some(r.ms);
             match r.code.as_str() {
-                "Z" => {
-                    cur_zone = r
-                        .fields
-                        .get(4)
-                        .filter(|z| !z.is_empty())
-                        .cloned()
-                        .unwrap_or_default();
-                }
                 "X" => {
                     xtot += r.fields.first().and_then(|f| f.parse().ok()).unwrap_or(0);
                     xp.push((r.ms, xtot));
@@ -1116,7 +1105,11 @@ fn charts_sync(app: AppHandle, ch: Option<String>) -> Charts {
         buffs.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         buffs.truncate(10);
 
-        let mut zones: Vec<(String, i64)> = zone_secs.into_iter().collect();
+        let mut zones: Vec<(String, i64)> = zone_seconds(st, c, |r| {
+            r.fields.get(4).filter(|z| !z.is_empty()).cloned()
+        })
+        .into_iter()
+        .collect();
         zones.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         zones.truncate(12);
 

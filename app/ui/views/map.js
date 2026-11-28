@@ -141,15 +141,17 @@ export async function render(body) {
   wrap.append(side, main);
   body.appendChild(wrap);
 
-  let current = maps[0].id;
+  const timed = maps.filter((m) => m.seconds > 0);
+  const listed = timed.length ? timed : maps;
+  let current = listed[0].id;
   let view = null; // {x, y, w, h} in map-percent space
 
-  for (const m of maps) {
+  for (const m of listed) {
     const active = m.id === current;
     const item = el("button", "map-item" + (active ? " active" : ""));
     item.type = "button";
     if (active) item.setAttribute("aria-current", "true");
-    item.innerHTML = `<div>${esc(m.name)}</div><div class="pts">${dur(m.seconds)}</div>`;
+    item.innerHTML = `<div>${esc(m.name)}</div>${m.seconds > 0 ? `<div class="pts">${dur(m.seconds)}</div>` : ""}`;
     item.onclick = () => {
       current = m.id;
       side.querySelectorAll(".map-item").forEach((i) => {
