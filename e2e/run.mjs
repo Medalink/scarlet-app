@@ -11,7 +11,7 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { launch } from "./cdp.mjs";
 import zlib from "node:zlib";
-import { ALT, CHARACTERS, ELWYNN, FISHING, GRIND, GUILD, LATER, WESTFALL, lineCount, savedVariablesPath, writeGrind, writeWow } from "./scenario.mjs";
+import { ALT, CHARACTERS, ELWYNN, FISHING, GRIND, GUILD, LATER, WESTFALL, fullBuild, lineCount, savedVariablesPath, writeFullBuild, writeGrind, writeWow } from "./scenario.mjs";
 
 const REPO = path.resolve(import.meta.dirname, "..");
 const WINDOWS = process.platform === "win32";
@@ -22,6 +22,21 @@ const SHOWN = { testa: TESTA.replace("-", " "), probe: PROBE.replace("-", " "), 
 const OTHER_GRIND = new RegExp(SHOWN.alt);
 const OTHER_CHARACTER = new RegExp(`${SHOWN.probe}|Kobold Vermin`);
 const OTHER_CHARACTER_ONLY = new Set(["character", "sessions", "log", "map", "loot", "data"]);
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const shortDay = (ms) => {
+  const d = new Date(ms);
+  return `${MONTHS[d.getMonth()]} ${d.getDate()}${d.getFullYear() === new Date().getFullYear() ? "" : ` ${d.getFullYear()}`}`;
+};
+const exactStamp = (ms) => {
+  const d = new Date(ms);
+  const two = (n) => String(n).padStart(2, "0");
+  return `${WEEKDAYS[d.getDay()]} ${MONTHS[d.getMonth()]} ${d.getDate()} ${d.getFullYear()} ${d.getHours() % 12 || 12}:${two(d.getMinutes())}:${two(d.getSeconds())} ${d.getHours() < 12 ? "AM" : "PM"}`;
+};
+const MOMENT = String.raw`(?:just now|\d+ (?:seconds?|minutes?|hours?|days?) ago|yesterday|in \d+ (?:seconds?|minutes?|hours?|days?)|[A-Z][a-z]{2} \d{1,2}(?: \d{4})?)`;
+const OLD_DATE_SHAPE = /\d{4}-\d\d-\d\d|\b\d{1,2}:\d\d(?::\d\d)?(?![:\d])(?! ?[AP]M)/;
+const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const BODY = `document.querySelector("#body").innerText.replace(/\\s+/g, " ")`;
 
@@ -48,7 +63,7 @@ const VIEWS = [
   { key: "legacy", shows: /^(?=.*Earned 2 \/ 65)(?=.*Spent 0 To spend 2 Next rank 1 Can afford)(?!.*Next ranks)(?!.*Ranks bought)(?=.*Professions · 0 points .* Adventure · 0 points .* Progression · 0 points)(?=.*Progression G Gourmand 1 \/ 3 33% Next rank costs 1 · Can afford Rank 1)(?=.*Well Fed duration)(?=.*Rank 0 15\.0 min measured in 1 buffs)(?=.*Rank 1 20\.0 min measured in 1 buffs · \+33% against rank 0 · tooltip 33%)/, never: /No Legacy lines recorded|Select a character/ },
   {
     key: "items",
-    shows: /^(?=.*Linen Cloth 2589 3 looted Testa Fixture 3 Warband bank \(E2EONE\) 20 Warband bank \(E2ETWO\) 5 28 42s ?00c 1s ?50c each Wool Cloth 2592 Guild bank 7 7 –)(?=.*Recipes 2× Linen Cloth 1× Bolt of Linen Cloth Testa Fixture)(?=.*Warband and guild banks Warband bank \(E2EONE\) 1 ?item Last read \d{4}-\d\d-\d\d \d\d:\d\d by Testa Fixture Balance 12g ?34s Warband bank \(E2ETWO\) 1 ?item Last read .* by Probe Lane Balance 5g ?00s Guild bank 1 ?item Last read .* by Probe Lane Balance 98g ?76s)(?!.*1s ?25c)/,
+    shows: new RegExp(String.raw`^(?=.*Linen Cloth 2589 3 looted Testa Fixture 3 Warband bank \(E2EONE\) 20 Warband bank \(E2ETWO\) 5 28 42s ?00c 1s ?50c each Wool Cloth 2592 Guild bank 7 7 –)(?=.*Recipes 2× Linen Cloth 1× Bolt of Linen Cloth Testa Fixture)(?=.*Warband and guild banks Warband bank \(E2EONE\) 1 ?item Last read ${MOMENT} by Testa Fixture Balance 12g ?34s Warband bank \(E2ETWO\) 1 ?item Last read .* by Probe Lane Balance 5g ?00s Guild bank 1 ?item Last read .* by Probe Lane Balance 98g ?76s)(?!.*1s ?25c)`),
     never: /No bags or bank recorded yet|No items match|Guild bank \(|account unknown/,
   },
   {
@@ -218,6 +233,19 @@ async function grindApp(ctx) {
   await booted(ctx.grind);
   await selectCharacter(ctx.grind, GRIND.name);
   return ctx.grind;
+}
+
+async function fullApp(ctx) {
+  if (ctx.full) return ctx.full;
+  const s = ctx.site.full;
+  fs.mkdirSync(s.home, { recursive: true });
+  writeFullBuild(s.wow, ctx.now);
+  expectEqual("exporting the full build fixture", exportSite(ctx, s).code, 0);
+  fs.writeFileSync(path.join(s.home, "settings.json"), JSON.stringify({ wow: s.wow, data: s.out, watch: false, last_view: "overview", keep_addon: false, open_with_wow: false, upload: { enabled: false, server: ctx.website.url } }));
+  ctx.full = await launch({ exe: ctx.exe, home: s.home, reducedMotion: true });
+  await booted(ctx.full);
+  await selectCharacter(ctx.full, fullBuild(ctx.now).name);
+  return ctx.full;
 }
 
 const text = (app, selector) => app.evaluate(`[...document.querySelectorAll(${JSON.stringify(selector)})].map((n) => n.innerText.replace(/\\s+/g, " ").trim())`);
@@ -572,7 +600,7 @@ const CHECKS = [
     async run(ctx) {
       const app = await openGrind(ctx, "activity", /Records/);
       const records = await text(app, "#body .goals-sheet .sc-record");
-      for (const want of [/^Longest day 25m 0s /, /^Most played week 1h 15m /, /^Longest streak 6 days Nov \d+ to Nov \d+/]) {
+      for (const want of [/^Longest day 25m 0s /, /^Most played week 1h 15m /, new RegExp(`^Longest streak 6 days ${shortDay(GRIND.sessions[0].start * 1000)} to ${shortDay(GRIND.sessions[5].start * 1000)}`)]) {
         if (!records.some((r) => want.test(r))) throw mismatch("a record tile", String(want), JSON.stringify(records));
       }
       const pace = (await text(app, "#body .goals-sheet .sc-pace"))[0] ?? "";
@@ -671,7 +699,7 @@ const CHECKS = [
       await modeSaved("day");
       await cardCount(3, "Days shows one card for each of the three days");
       await app.evaluate(`document.querySelector("#body .sc-sessions .sc-session").click()`);
-      await app.until(`/day, .* · 1 session · .* played/.test(${BODY})`, "a day's page reads as a day");
+      await app.until(`/(?:Sun|Mon|Tue|Wed|Thu|Fri|Sat) [A-Z][a-z]{2} \\d{1,2}(?: \\d{4})? .* · 1 session · .* played/.test(${BODY})`, "a day's page reads as a day");
       await app.evaluate(`location.hash = "sessions"`);
       await cardCount(3, "the list is back in Days");
       await press("WoW runs", "#body .sc-seg button");
@@ -896,6 +924,64 @@ const CHECKS = [
   },
   {
     lane: "app",
+    name: "talents of a character first read with every point spent are drawn from the baseline, with no pick date",
+    async run(ctx) {
+      const app = await fullApp(ctx);
+      const first = fullBuild(ctx.now).sessions[0].start * 1000 + 5000;
+      await open(app, "character", /Points spent 9 \/ 9/, /No talent lines recorded|Select a character/, "character/talents");
+      const body = await app.evaluate(BODY);
+      expectMatch("the points head and the tabs", body, /Points spent 9 \/ 9 .* Unspent 0 .* Arms · 6 points .* Fury · 3 points/);
+      expectMatch("the build's read", body, /Build by tab .* Read 2 days ago/);
+      expectMatch("the timeline's one row", body, /Order points were taken Level 20 9 points already spent in 5 talents when Scarlet first read group 1 Read 4 days ago Every point was already spent when Scarlet first read this character/);
+      expectNoMatch("a pick in the timeline", body, /Picked|Refunded|Switched choice|Changed while not tracked|point \d+ ·/);
+      expectEqual("the ranks drawn", (await text(app, "#body .tf-tab .tf-slot .tf-rank")).sort(), ["1/1", "1/1", "2/2", "2/2", "3/3"]);
+      expectEqual("every drawn talent is at its maximum", await app.evaluate(`[...document.querySelectorAll("#body .tf-tab .tf-slot")].map((s) => s.dataset.state)`), Array(5).fill("maxed"));
+      const held = await app.evaluate(`(() => { const t = document.querySelector("#body .tp-pick.held time"); return { text: t.textContent, title: t.title, ago: Number(t.dataset.ago) }; })()`);
+      expectEqual("the held row's read", held, { text: "Read 4 days ago", title: exactStamp(first), ago: first });
+      expectEqual("rows that carry a pick", await app.evaluate(`document.querySelectorAll("#body .tp-pick:not(.held)").length`), 0);
+    },
+  },
+  {
+    lane: "app",
+    name: "Legacy of a character first read with every rank taken draws them from the baseline, with no rank history dated at the read",
+    async run(ctx) {
+      const app = await fullApp(ctx);
+      await open(app, "legacy", /Earned 30 \/ 30/, /No Legacy lines recorded|Select a character/);
+      const body = await app.evaluate(BODY);
+      expectMatch("the points head", body, /Earned 30 \/ 30 .* Spent 30 To spend 0/);
+      expectMatch("the trees' points", body, /Professions · 12 points .* Adventure · 8 points .* Progression · 10 points/);
+      expectEqual("talents drawn at their maximum", await app.evaluate(`document.querySelectorAll("#body .tf-slot[data-state=maxed]").length`), 9);
+      const lines = await text(app, "#body .leg-hist li");
+      expectEqual("history lines", lines.length, 9);
+      for (const line of lines) expectMatch("a history line", line, /^Rank \d Already held when Scarlet first read this character$/);
+      expectNoMatch("a dated rank change", body, /\d→\d/);
+      expectEqual("dates on the page", await app.evaluate(`document.querySelectorAll("#body time").length`), 0);
+    },
+  },
+  {
+    lane: "app",
+    name: "every date reads month first with a 12-hour clock, and a shortened one keeps its exact value on hover",
+    async run(ctx) {
+      const app = running(ctx);
+      await open(app, "characters", /Last session/);
+      await selectCharacter(app, TESTA);
+      expectMatch("the title bar's range", await app.evaluate(`document.querySelector("#head-stats").textContent`), /^[\d,]+ events · [A-Z][a-z]{2} \d{1,2}(?: \d{4})? to [A-Z][a-z]{2} \d{1,2}(?: \d{4})?$/);
+      let seen = 0;
+      for (const [key, hash, shows] of [["characters", "characters", /Last session/], ["data", "data", /Addons recorded|Export now/], ["items", "items", /Warband and guild banks/], ["character", "character/talents", /Order points were taken/], ["legacy", "legacy", /Earned/], ["sessions", "sessions", /Elwynn Forest/], ["log", "log", /Stonetusk Boar/], ["activity", "activity", /Records/], ["stats", "stats", /Records/]]) {
+        await open(app, key, shows, null, hash);
+        expectNoMatch(`${hash}: a date in an old shape`, await app.evaluate(BODY), OLD_DATE_SHAPE);
+        const stamps = await app.evaluate(`[...document.querySelectorAll("#body time[data-ago]")].map((t) => ({ ago: Number(t.dataset.ago), text: t.textContent, hover: t.title || t.dataset.tip || t.closest("[data-tip]")?.dataset.tip || "" }))`);
+        for (const t of stamps) {
+          expectMatch(`${hash}: a moment`, t.text, new RegExp(`^(?:[A-Za-z ]+ )?${MOMENT}$`));
+          expectMatch(`${hash}: the exact value of ${t.text}`, t.hover, new RegExp(escapeRegExp(exactStamp(t.ago))));
+        }
+        seen += stamps.length;
+      }
+      if (seen < 8) throw mismatch("moments found across the pages", "at least 8", String(seen));
+    },
+  },
+  {
+    lane: "app",
     name: "the window closes cleanly",
     async run(ctx) {
       const app = running(ctx);
@@ -1006,7 +1092,7 @@ async function main() {
   const dir = given.keep ? path.resolve(given.keep) : fs.mkdtempSync(path.join(os.tmpdir(), "scarlet-lane-"));
   fs.mkdirSync(dir, { recursive: true });
   const website = await listenWebsite();
-  const ctx = { dir, cli, exe, website, keep: Boolean(given.keep), app: null, grind: null, site: { cli: site(path.join(dir, "cli")), app: site(path.join(dir, "app")), motion: site(path.join(dir, "motion")), grind: site(path.join(dir, "grind")) } };
+  const ctx = { dir, cli, exe, website, keep: Boolean(given.keep), app: null, grind: null, full: null, now: Date.now(), site: { cli: site(path.join(dir, "cli")), app: site(path.join(dir, "app")), motion: site(path.join(dir, "motion")), grind: site(path.join(dir, "grind")), full: site(path.join(dir, "full")) } };
   writeWow(ctx.site.cli.wow);
 
   let result = { failed: 1, seconds: 0 };
@@ -1015,6 +1101,7 @@ async function main() {
   } finally {
     if ((await ctx.app?.close().catch(() => null)) === 3) ctx.breach = true;
     if ((await ctx.grind?.close().catch(() => null)) === 3) ctx.breach = true;
+    if ((await ctx.full?.close().catch(() => null)) === 3) ctx.breach = true;
     website.server.close();
     if (ctx.keep || result.failed) console.log(`files kept in ${dir}`);
     else removeFolder(dir);

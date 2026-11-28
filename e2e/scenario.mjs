@@ -243,12 +243,63 @@ export const GRIND = { name: "Grind-Lane", account: "E2EGRIND", sessions: Array.
 /** A second character that played 20 minutes on each of the same six days, starting 10 minutes into the run of `GRIND`. */
 export const ALT = { name: "Alt-Lane", account: "E2EALT", sessions: Array.from({ length: 6 }, (_, n) => grindSession(n, { offset: ALT_OFFSET, run: ALT_RUN })) };
 
+const noonDaysAgo = (now, days) => {
+  const d = new Date(now);
+  return Math.floor(new Date(d.getFullYear(), d.getMonth(), d.getDate() - days, 12).getTime() / 1000);
+};
+
+const FULL_TALENTS = [
+  [9001, 7001, "Improved Heroic Strike", 3, 161, 1020, 2130, "9002:0"],
+  [9002, 7002, "Deflection", 2, 161, 1020, 2730, ""],
+  [9003, 7003, "Overpower", 1, 161, 1620, 2730, ""],
+  [9010, 7010, "Rampage", 1, 162, 5020, 2130, "9011:0"],
+  [9011, 7011, "Bloodthirst", 2, 162, 5620, 3330, ""],
+];
+
+const FULL_LEGACY = [
+  [1187, 110289, 1225457, "Master Chef", 5],
+  [1187, 110290, 1225451, "Working Overtime", 5],
+  [1187, 110286, 1225459, "Bartering", 2],
+  [1188, 110305, 1225477, "High Alert", 2],
+  [1188, 110301, 1225478, "Well Rested", 5],
+  [1188, 110298, 1225474, "Talented", 1],
+  [1189, 110313, 1225499, "Gourmand", 3],
+  [1189, 110316, 1225502, "Permanence", 2],
+  [1189, 110319, 1225501, "For Great Honor", 5],
+];
+
+const fullSession = (start) =>
+  session(start, [
+    [0, "S", "1.15.8", "WARRIOR", "Human", 20, "Alliance", "0.9.0", 1, "Forever", 1, 11508, 5, 3600, 3843, 60],
+    [1, "Z", ELWYNN, 0, "none", 0, "Elwynn Forest", "Goldshire"],
+    [4, "TY", 161, "Arms"],
+    [4, "TY", 162, "Fury"],
+    ...FULL_TALENTS.map(([, spell, name]) => [4, "SN", spell, name]),
+    [4, "TV", 1, 1, 6, "a1b2c3d4"],
+    ...FULL_TALENTS.map(([node, spell, , max, tab, x, y, edges]) => [4, "TD", 1, node, x, y, 1, max, tab, `${node}:${spell}:${max}`, edges]),
+    [5, "TG", "s", 1, 1, "", "Arms", 1, "161:6:0,162:3:0", 0, 0, 1, ""],
+    ...FULL_TALENTS.map(([node, spell, , max, tab]) => [5, "TA", 1, node, node, max, "", max, spell, tab, "s"]),
+    ...FULL_LEGACY.map(([, , spell, name]) => [6, "SN", spell, name]),
+    [6.1, "LB", 30, 0, 30, 30, 30, 12, 8, 10, "s"],
+    ...[1187, 1188, 1189].flatMap((tree, i) =>
+      FULL_LEGACY.filter(([t]) => t === tree).map(([, node, spell, , max]) => [6.4 + i * 0.7, "LN", tree, node, node + 1000, max, "", max, max, spell, "s", ""]),
+    ),
+    [60, "ES"],
+  ]);
+
+/** A character first read with every talent and Legacy rank already taken, in two sessions that read the same build; its times are counted back from `now`. */
+export const fullBuild = (now = Date.now()) => ({
+  name: "Full-Build",
+  account: "E2EFULL",
+  sessions: [fullSession(noonDaysAgo(now, 4)), fullSession(noonDaysAgo(now, 2))],
+});
+
 const ADDON_LINES = [[20, "gm", "N", ELWYNN, 4390, 6700, 2447]];
 
 const text = (lines) => {
   let last = 0;
   return lines.map(([at, ...fields]) => {
-    const dt = (at - last) * 100;
+    const dt = Math.round((at - last) * 100);
     last = at;
     return [dt, ...fields].join("\t");
   });
@@ -403,6 +454,16 @@ export function writeGrind(wow, { alt = false } = {}) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     fs.writeFileSync(file, savedVariables(character, null));
   }
+  fs.mkdirSync(path.join(wow, "_forever_", "Interface", "AddOns", "Scarlet"), { recursive: true });
+  return wow;
+}
+
+/** Writes a World of Warcraft folder that holds `fullBuild(now)` alone. */
+export function writeFullBuild(wow, now = Date.now()) {
+  const character = fullBuild(now);
+  const file = savedVariablesPath(wow, character);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, savedVariables(character, null));
   fs.mkdirSync(path.join(wow, "_forever_", "Interface", "AddOns", "Scarlet"), { recursive: true });
   return wow;
 }
