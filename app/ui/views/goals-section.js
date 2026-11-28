@@ -1,7 +1,7 @@
 // The Character page's goals: how far the level, skills, reputations and Legacy are from their ceilings, the pace of
 // the latest run at the cap, and the character's records. Drawn from the `goals` command.
 
-import { el, elText, num, dur, moneyHtml, tiles, fillRow, goal, record, shortDay } from "../lib.js";
+import { el, elText, num, dur, moneyHtml, tiles, fillRow, goal, record, shortDay, stamp } from "../lib.js";
 import { paceTiles } from "./paces.js";
 
 export const TIERS = ["", "Hated", "Hostile", "Unfriendly", "Neutral", "Friendly", "Honored", "Revered", "Exalted"];
@@ -59,13 +59,28 @@ function skillGoals(skills) {
   return goalList(ordered.map((s) => goal(s.rank, s.max, { label: s.name, count: false })));
 }
 
+function unlearnedList(skills) {
+  const list = el("div", "goal-list");
+  for (const s of [...skills].sort((a, b) => b.unlearned.last_held_ms - a.unlearned.last_held_ms || a.name.localeCompare(b.name))) {
+    const row = el("div", "sc-gone");
+    const head = el("div", "sg-h");
+    head.append(elText("span", "sg-l", s.name), elText("span", "sg-n", `${num(s.unlearned.rank)} / ${num(s.unlearned.max)}`));
+    row.append(head, stamp(s.unlearned.last_held_ms, "Last held "));
+    list.append(row);
+  }
+  return list;
+}
+
 function skillsMod(skills) {
   if (!skills.some((s) => s.kind === "profession" || s.kind === "weapon")) return null;
   const kids = [];
+  const held = skills.filter((s) => !s.unlearned);
   for (const [kind, title] of [["profession", "Professions"], ["weapon", "Weapons and defense"]]) {
-    const of = skills.filter((s) => s.kind === kind);
+    const of = held.filter((s) => s.kind === kind);
     if (of.length) kids.push(label(title), skillGoals(of));
   }
+  const gone = skills.filter((s) => s.unlearned);
+  if (gone.length) kids.push(label("Unlearned"), unlearnedList(gone));
   return mod("w7 last", "Skills", ...kids);
 }
 

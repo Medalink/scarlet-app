@@ -294,6 +294,39 @@ export const fullBuild = (now = Date.now()) => ({
   sessions: [fullSession(noonDaysAgo(now, 4)), fullSession(noonDaysAgo(now, 2))],
 });
 
+const TRADES = [
+  [171, "Alchemy", 11],
+  [182, "Herbalism", 11],
+  [186, "Mining", 11],
+  [43, "Swords", 6],
+];
+
+const tradesSession = (start, held) =>
+  session(start, [
+    [0, "S", "1.15.8", "WARRIOR", "Human", 20, "Alliance", "0.9.0", 1, "Forever", 1, 11508, 5, 3600, 3843, 60],
+    [1, "Z", ELWYNN, 0, "none", 0, "Elwynn Forest", "Goldshire"],
+    ...held.flatMap(([id, rank, max]) => {
+      const [, name, category] = TRADES.find(([n]) => n === id);
+      return [[5, "KN", id, name, category], [6, "SL", id, rank, max, 0, "s"]];
+    }),
+    [60, "ES"],
+  ]);
+
+/**
+ * A character that listed Alchemy, Herbalism, Mining and Swords, then Herbalism, Mining and Swords without Alchemy, then
+ * only Swords: the header of the professions was collapsed, so the third read says nothing about them. Its times are
+ * counted back from `now`.
+ */
+export const trades = (now = Date.now()) => ({
+  name: "Trades-Fixture",
+  account: "E2ETRADES",
+  sessions: [
+    tradesSession(noonDaysAgo(now, 5), [[171, 225, 225], [182, 100, 300], [186, 150, 225], [43, 90, 200]]),
+    tradesSession(noonDaysAgo(now, 3), [[182, 120, 300], [186, 160, 225], [43, 92, 200]]),
+    tradesSession(noonDaysAgo(now, 1), [[43, 95, 200]]),
+  ],
+});
+
 const ADDON_LINES = [[20, "gm", "N", ELWYNN, 4390, 6700, 2447]];
 
 const text = (lines) => {
@@ -461,6 +494,16 @@ export function writeGrind(wow, { alt = false } = {}) {
 /** Writes a World of Warcraft folder that holds `fullBuild(now)` alone. */
 export function writeFullBuild(wow, now = Date.now()) {
   const character = fullBuild(now);
+  const file = savedVariablesPath(wow, character);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, savedVariables(character, null));
+  fs.mkdirSync(path.join(wow, "_forever_", "Interface", "AddOns", "Scarlet"), { recursive: true });
+  return wow;
+}
+
+/** Writes a World of Warcraft folder that holds `trades(now)` alone. */
+export function writeTrades(wow, now = Date.now()) {
+  const character = trades(now);
   const file = savedVariablesPath(wow, character);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, savedVariables(character, null));

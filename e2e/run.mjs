@@ -11,7 +11,7 @@ import path from "node:path";
 import { parseArgs } from "node:util";
 import { launch } from "./cdp.mjs";
 import zlib from "node:zlib";
-import { ALT, CHARACTERS, ELWYNN, FISHING, GRIND, GUILD, LATER, WESTFALL, fullBuild, lineCount, savedVariablesPath, writeFullBuild, writeGrind, writeWow } from "./scenario.mjs";
+import { ALT, CHARACTERS, ELWYNN, FISHING, GRIND, GUILD, LATER, WESTFALL, fullBuild, lineCount, savedVariablesPath, trades, writeFullBuild, writeGrind, writeTrades, writeWow } from "./scenario.mjs";
 
 const REPO = path.resolve(import.meta.dirname, "..");
 const WINDOWS = process.platform === "win32";
@@ -252,6 +252,34 @@ async function fullApp(ctx) {
   await selectCharacter(ctx.full, fullBuild(ctx.now).name);
   return ctx.full;
 }
+
+async function tradesApp(ctx) {
+  if (ctx.trades) return ctx.trades;
+  const s = ctx.site.trades;
+  fs.mkdirSync(s.home, { recursive: true });
+  writeTrades(s.wow, ctx.now);
+  expectEqual("exporting the trades fixture", exportSite(ctx, s).code, 0);
+  fs.writeFileSync(path.join(s.home, "settings.json"), JSON.stringify({ wow: s.wow, data: s.out, watch: false, last_view: "overview", keep_addon: false, open_with_wow: false, upload: { enabled: false, server: ctx.website.url } }));
+  ctx.trades = await launch({ exe: ctx.exe, home: s.home, reducedMotion: true });
+  await booted(ctx.trades);
+  await selectCharacter(ctx.trades, trades(ctx.now).name);
+  return ctx.trades;
+}
+
+const tradesSkills = async (app, pick) =>
+  JSON.parse(await app.evaluate(`(async () => { const skills = (await (await import("/bridge.js")).invoke("goals", { ch: "Trades-Fixture" })).caps.skills; return JSON.stringify(${pick}); })()`));
+
+const skillGroups = (app) =>
+  app.evaluate(`(() => {
+    const groups = {};
+    let title = "";
+    const mod = [...document.querySelectorAll("#body section.mod")].find((m) => m.querySelector("h2")?.textContent === "Skills");
+    for (const node of mod.children) {
+      if (node.classList.contains("sc-label")) groups[(title = node.textContent)] = [];
+      else if (title && node.classList.contains("goal-list")) for (const row of node.children) groups[title].push(row.innerText.replace(/\\s+/g, " ").trim());
+    }
+    return groups;
+  })()`);
 
 const text = (app, selector) => app.evaluate(`[...document.querySelectorAll(${JSON.stringify(selector)})].map((n) => n.innerText.replace(/\\s+/g, " ").trim())`);
 
@@ -1031,6 +1059,34 @@ const CHECKS = [
   },
   {
     lane: "app",
+    name: "a skill missing from a later baseline whose category was listed shows as unlearned, with its last rank and when it was last held",
+    async run(ctx) {
+      const app = await tradesApp(ctx);
+      const held = trades(ctx.now).sessions[0].start * 1000 + 6000;
+      await open(app, "character", /Unlearned/, /Select a character/);
+      const groups = await skillGroups(app);
+      expectEqual("professions drawn as held", groups.Professions.map((r) => r.split(" ")[0]).sort(), ["Herbalism", "Mining"]);
+      expectEqual("weapons drawn as held", groups["Weapons and defense"].map((r) => r.split(" ")[0]), ["Swords"]);
+      expectEqual("the unlearned group", groups.Unlearned, [`Alchemy 225 / 225 Last held ${daysAgo(held)} days ago`]);
+      const row = await app.evaluate(`(() => { const t = document.querySelector("#body .sc-gone time"); return { title: t.title, ago: Number(t.dataset.ago), bars: document.querySelectorAll("#body .sc-gone .sg-t").length }; })()`);
+      expectEqual("the last held moment", row, { title: exactStamp(held), ago: held, bars: 0 });
+      const goals = await tradesSkills(app, `skills.map((s) => [s.name, s.unlearned && [s.unlearned.last_held_ms, s.unlearned.rank, s.unlearned.max]]).sort()`);
+      expectEqual("the skills of the goals command", goals, [["Alchemy", [held, 225, 225]], ["Herbalism", null], ["Mining", null], ["Swords", null]]);
+    },
+  },
+  {
+    lane: "app",
+    name: "a skill missing from a baseline that lacks its whole category stays learned, and unlearned professions leave the roster",
+    async run(ctx) {
+      const app = await tradesApp(ctx);
+      const skills = await tradesSkills(app, `skills.filter((s) => !s.unlearned).map((s) => s.name).sort()`);
+      expectEqual("skills still learned after a baseline with only Swords", skills, ["Herbalism", "Mining", "Swords"]);
+      const roster = JSON.parse(await app.evaluate(`(async () => JSON.stringify((await (await import("/bridge.js")).invoke("roster")).chars.find((c) => c.name === "Trades-Fixture").professions.map((p) => p.name).sort()))()`));
+      expectEqual("the roster's professions", roster, ["Herbalism", "Mining"]);
+    },
+  },
+  {
+    lane: "app",
     name: "every date reads month first with a 12-hour clock, and a shortened one keeps its exact value on hover",
     async run(ctx) {
       const app = running(ctx);
@@ -1168,7 +1224,7 @@ async function main() {
   const dir = given.keep ? path.resolve(given.keep) : fs.mkdtempSync(path.join(os.tmpdir(), "scarlet-lane-"));
   fs.mkdirSync(dir, { recursive: true });
   const website = await listenWebsite();
-  const ctx = { dir, cli, exe, website, keep: Boolean(given.keep), app: null, grind: null, full: null, now: Date.now(), site: { cli: site(path.join(dir, "cli")), app: site(path.join(dir, "app")), motion: site(path.join(dir, "motion")), grind: site(path.join(dir, "grind")), full: site(path.join(dir, "full")) } };
+  const ctx = { dir, cli, exe, website, keep: Boolean(given.keep), app: null, grind: null, full: null, trades: null, now: Date.now(), site: { cli: site(path.join(dir, "cli")), app: site(path.join(dir, "app")), motion: site(path.join(dir, "motion")), grind: site(path.join(dir, "grind")), full: site(path.join(dir, "full")), trades: site(path.join(dir, "trades")) } };
   writeWow(ctx.site.cli.wow);
 
   let result = { failed: 1, seconds: 0 };
@@ -1178,6 +1234,7 @@ async function main() {
     if ((await ctx.app?.close().catch(() => null)) === 3) ctx.breach = true;
     if ((await ctx.grind?.close().catch(() => null)) === 3) ctx.breach = true;
     if ((await ctx.full?.close().catch(() => null)) === 3) ctx.breach = true;
+    if ((await ctx.trades?.close().catch(() => null)) === 3) ctx.breach = true;
     website.server.close();
     if (ctx.keep || result.failed) console.log(`files kept in ${dir}`);
     else removeFolder(dir);

@@ -1100,6 +1100,9 @@ main:has(.cv-banner) #pagetitle { display: none; }
 .sg-t > i { position: absolute; inset: 0 auto 0 0; width: var(--w); background: var(--c, var(--accent)); }
 .sg-f { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; color: var(--muted); }
 .sc-goal.done .sg-t > i { background: var(--fg); }
+.sc-gone { display: grid; gap: 4px; min-width: 0; padding-left: 10px; border-left: 2px solid var(--line2); }
+.sc-gone .sg-l, .sc-gone .sg-n { color: var(--muted); }
+.sc-gone time { font-size: 12.5px; color: var(--muted); }
 .sc-goal.lg { gap: 10px; }
 .sc-goal.lg .sg-h { align-items: flex-end; }
 .sc-goal.lg .sg-l { font: 750 24px/1 var(--display); color: var(--fg); }

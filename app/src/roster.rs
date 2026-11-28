@@ -7,7 +7,7 @@ use crate::store::Store;
 use scarlet::events::name_key;
 use scarlet::overview::{self, Overview};
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use tauri::AppHandle;
 
 const PROFESSIONS: [&str; 15] = [
@@ -297,13 +297,13 @@ fn own_transfers(moves: Vec<Move>, names: &[String]) -> Vec<Transfer> {
         .collect()
 }
 
-fn skills(latest: HashMap<u32, (i64, i64)>, st: &Store) -> Vec<Skill> {
+fn skills(latest: HashMap<u32, (i64, i64)>, st: &Store, unlearned: &HashSet<&str>) -> Vec<Skill> {
     let mut best: HashMap<String, (i64, i64)> = HashMap::new();
     for (id, (rank, max)) in latest {
         let Some(name) = st.names.get(&name_key('k', &id.to_string())) else {
             continue;
         };
-        if !PROFESSIONS.contains(&name.as_str()) {
+        if !PROFESSIONS.contains(&name.as_str()) || unlearned.contains(name.as_str()) {
             continue;
         }
         let e = best.entry(name.clone()).or_insert((0, 0));
@@ -562,6 +562,7 @@ fn build(st: &Store, accounts: Vec<(String, Vec<String>)>, group_by_account: boo
                 date: t.date,
             });
             let cap = ov.cap.as_ref().map_or(0, |c| c.level);
+            let goals = crate::recap::goals(st, i as u32);
             RosterChar {
                 name: name.clone(),
                 class: ov.class,
@@ -583,7 +584,7 @@ fn build(st: &Store, accounts: Vec<(String, Vec<String>)>, group_by_account: boo
                     .filter(|(_, l)| l.complete && l.share.p > 0)
                     .map(|(lv, l)| [i64::from(*lv), l.share.p])
                     .collect(),
-                professions: skills(rows, st),
+                professions: skills(rows, st, &goals.unlearned_names().collect()),
                 sent: sent[i],
                 received: received[i],
                 account: groups

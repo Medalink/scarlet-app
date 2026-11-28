@@ -212,6 +212,17 @@ pub struct Skill {
     rank: i64,
     max: i64,
     kind: &'static str,
+    unlearned: Option<Unlearned>,
+}
+
+/// A skill the character no longer lists: its rank and maximum on its last line, the time of that line, and the time
+/// of the first session baseline that lacked it.
+#[derive(Serialize)]
+pub struct Unlearned {
+    last_held_ms: i64,
+    rank: i64,
+    max: i64,
+    gone_by_ms: i64,
 }
 
 #[derive(Serialize, Clone)]
@@ -379,9 +390,21 @@ fn tree_name(id: &str) -> &'static str {
 }
 
 #[derive(Default)]
+struct Baseline {
+    ms: i64,
+    names: HashSet<String>,
+    categories: HashSet<i64>,
+    changed: HashSet<String>,
+}
+
+#[derive(Default)]
 struct Reading {
     cap: u32,
     skills: HashMap<String, (i64, i64)>,
+    held_ms: HashMap<String, i64>,
+    category: HashMap<String, i64>,
+    gone: HashMap<String, i64>,
+    baseline: Option<Baseline>,
     sheets: HashMap<String, (i64, i64)>,
     reps: HashMap<String, [i64; 4]>,
     nodes: HashMap<String, (String, String, i64, i64)>,
@@ -395,6 +418,7 @@ impl Reading {
         let name = |kind: char, id: &str| f.names.get(&name_key(kind, id)).cloned();
         match code {
             "S" => {
+                self.unlearn_skills_missing_from_baseline();
                 if let Ok(cap @ 1..) = field(fields, 13).parse::<u32>() {
                     self.cap = cap;
                 }
@@ -406,10 +430,29 @@ impl Reading {
                     self.quality.insert(number(fields, 0), q);
                 }
             }
+            "KN" => {
+                if let Ok(category) = field(fields, 2).parse::<i64>() {
+                    self.category.insert(field(fields, 1).to_string(), category);
+                }
+            }
             "SL" => {
                 if let Some(n) = name('k', field(fields, 0)) {
                     self.skills
-                        .insert(n, (number(fields, 1), number(fields, 2)));
+                        .insert(n.clone(), (number(fields, 1), number(fields, 2)));
+                    self.held_ms.insert(n.clone(), ms);
+                    self.gone.remove(&n);
+                    let baseline = self.baseline.get_or_insert_with(Baseline::default);
+                    if field(fields, 4) == "s" {
+                        if baseline.names.is_empty() {
+                            baseline.ms = ms;
+                        }
+                        if let Some(category) = self.category.get(&n) {
+                            baseline.categories.insert(*category);
+                        }
+                        baseline.names.insert(n);
+                    } else {
+                        baseline.changed.insert(n);
+                    }
                 }
             }
             "TS" if field(fields, 0) == "1" && !field(fields, 3).is_empty() => {
@@ -458,6 +501,27 @@ impl Reading {
         }
     }
 
+    fn unlearn_skills_missing_from_baseline(&mut self) {
+        let Some(baseline) = self.baseline.take() else {
+            return;
+        };
+        if baseline.names.is_empty() {
+            return;
+        }
+        for name in self.skills.keys() {
+            if baseline.names.contains(name) || baseline.changed.contains(name) {
+                continue;
+            }
+            if self
+                .category
+                .get(name)
+                .is_some_and(|c| baseline.categories.contains(c))
+            {
+                self.gone.entry(name.clone()).or_insert(baseline.ms);
+            }
+        }
+    }
+
     fn skills(&self) -> Vec<Skill> {
         let mut out: Vec<Skill> = self
             .skills
@@ -472,6 +536,12 @@ impl Reading {
                 } else {
                     "weapon"
                 },
+                unlearned: self.gone.get(n).map(|gone_by| Unlearned {
+                    last_held_ms: self.held_ms.get(n).copied().unwrap_or(*gone_by),
+                    rank: *rank,
+                    max: *max,
+                    gone_by_ms: *gone_by,
+                }),
             })
             .collect();
         for (n, (rank, max)) in &self.sheets {
@@ -481,6 +551,7 @@ impl Reading {
                     rank: *rank,
                     max: *max,
                     kind: "profession",
+                    unlearned: None,
                 });
             }
         }
@@ -577,6 +648,7 @@ impl Goals {
         for r in f.events.between(0, i64::MAX) {
             reading.feed(f, r.ms, r.code, r.fields);
         }
+        reading.unlearn_skills_missing_from_baseline();
         let mut rows: Vec<Row> = groups.iter().filter_map(|g| Row::of(f, g)).collect();
         rows.sort_by_key(|r| r.from);
         let caps = Caps {
@@ -698,6 +770,19 @@ impl Goals {
         })
     }
 
+    fn learned(&self) -> impl Iterator<Item = &Skill> {
+        self.caps.skills.iter().filter(|s| s.unlearned.is_none())
+    }
+
+    /// The names of the skills the character has unlearned.
+    pub fn unlearned_names(&self) -> impl Iterator<Item = &str> {
+        self.caps
+            .skills
+            .iter()
+            .filter(|s| s.unlearned.is_some())
+            .map(|s| s.name.as_str())
+    }
+
     pub fn summary(&self) -> CapSummary {
         let nearness = |r: &&Rep| {
             (
@@ -706,8 +791,8 @@ impl Goals {
             )
         };
         CapSummary {
-            skills_known: self.caps.skills.len(),
-            skills_maxed: self.caps.skills.iter().filter(|s| s.rank >= s.max).count(),
+            skills_known: self.learned().count(),
+            skills_maxed: self.learned().filter(|s| s.rank >= s.max).count(),
             rep: self
                 .caps
                 .reps
