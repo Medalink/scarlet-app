@@ -141,8 +141,7 @@ export async function render(body) {
   wrap.append(side, main);
   body.appendChild(wrap);
 
-  const timed = maps.filter((m) => m.seconds > 0);
-  const listed = timed.length ? timed : maps;
+  const listed = maps;
   let current = listed[0].id;
   let view = null; // {x, y, w, h} in map-percent space
 

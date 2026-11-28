@@ -134,6 +134,9 @@ fn zone_seconds<K: std::hash::Hash + Eq + Clone>(
             continue;
         }
         let (prev_ms, zone) = now.entry(r.ch).or_insert((r.ms, None));
+        if r.code == "S" {
+            *zone = None;
+        }
         if let Some(z) = zone.as_ref() {
             let dt = (r.ms - *prev_ms) / 1000;
             if (0..=3600).contains(&dt) {
