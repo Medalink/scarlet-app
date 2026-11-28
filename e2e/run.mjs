@@ -533,7 +533,7 @@ const CHECKS = [
       await selectCharacter(app, "");
       await open(app, "items", /Value held/);
       const drawn = await app.evaluate(`({ goal: document.querySelector("#body .it .sc-tile")?.innerText.replace(/\\s+/g, " ").trim() ?? "", farmed: [...document.querySelectorAll("#body .it-farm")].map((n) => n.textContent.trim()) })`);
-      if (!/^Carried by characters 4s ?50c Best 4s ?50c · .* Priced: 1 of 2 items$/.test(drawn.goal)) throw mismatch("the value held", "Carried by characters 4s 50c Best 4s 50c · day Priced: 1 of 2 items", drawn.goal);
+      if (!/^Carried by characters 4s ?50c Best 4s ?50c · .* Priced: 1 of 2 kinds$/.test(drawn.goal)) throw mismatch("the value held", "Carried by characters 4s 50c Best 4s 50c · day Priced: 1 of 2 kinds", drawn.goal);
       expectEqual("a goal bar on the value held", await app.evaluate(`document.querySelectorAll("#body .it .sc-goal").length`), 0);
       if (!drawn.farmed.includes("3 looted")) throw mismatch("the farmed total of Linen Cloth", "3 looted", JSON.stringify(drawn.farmed));
     },

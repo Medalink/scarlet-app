@@ -165,7 +165,7 @@ function wealth(view) {
   const p = el("div", "panel");
   p.innerHTML = "<h3>Value held</h3>";
   const best = w.record ? `Best ${money(w.record.value)} · ${dayHeading(w.record.at * 1000)}` : "";
-  const priced = `Priced: ${num(w.priced)} of ${num(w.priced + w.unpriced)} items`;
+  const priced = `Priced: ${num(w.priced)} of ${num(w.priced + w.unpriced)} kinds`;
   p.append(tiles([tile("Carried by characters", moneyHtml(w.value), [best, priced], { size: "xl", count: [w.value, moneyHtml] })], 1));
   return p;
 }
