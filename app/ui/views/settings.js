@@ -178,7 +178,8 @@ async function drawBoxes(body, box, s, dataIn) {
   const head = el("div", "split-head");
   const add = el("button", "btn", "Add folder");
   add.type = "button";
-  add.onclick = () => pick((picked) => save(s.wow, [...extra, picked]));
+  const hasPrimary = list.some((f) => f.primary);
+  add.onclick = () => pick((picked) => (hasPrimary ? save(s.wow, [...extra, picked]) : save(picked, extra)));
   head.append(el("span", "", "WoW folders"), add);
   box.appendChild(head);
   for (const f of list) {
