@@ -511,7 +511,7 @@ const CHECKS = [
       const app = running(ctx);
       await selectCharacter(app, TESTA);
       await open(app, "legacy", /Earned/);
-      expectEqual("the points earned", (await text(app, "#body .legacy-sheet .leg-earned"))[0], "Earned 2 / 65");
+      expectEqual("the points earned", (await text(app, "#body .legacy-sheet .leg-earned"))[0], "Earned 2 / 65 3%");
       expectEqual("the points bar", await app.evaluate(`document.querySelector("#body .legacy-sheet .leg-pips").getAttribute("aria-label")`), "2 of 65 points earned, 0 spent, 2 to spend");
       expectEqual("the trees", await text(app, "#body .tf-tab[data-tree] h3"), ["Professions · 0 points", "Adventure · 0 points", "Progression · 0 points"]);
       expectEqual("slots drawn: 7 talents and 2 placeholders in each of 3 trees", await app.evaluate(`[document.querySelectorAll("#body .tf-slot").length, document.querySelectorAll("#body .tf-slot.locked").length]`), [27, 6]);

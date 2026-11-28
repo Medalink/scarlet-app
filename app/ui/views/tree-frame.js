@@ -84,8 +84,8 @@ function arrow(from, to, lit) {
 export function treeFrame(nodes, links, { cols = 4, rows = 0 } = {}) {
   const placed = nodes.filter((n) => n.col != null && n.row != null);
   const loose = nodes.filter((n) => n.col == null || n.row == null);
-  let width = Math.max(cols, ...placed.map((n) => n.col + 1));
-  let height = Math.max(rows, ...placed.map((n) => n.row + 1));
+  let width = placed.length ? Math.max(cols, ...placed.map((n) => n.col + 1)) : cols;
+  let height = placed.length ? Math.max(rows, ...placed.map((n) => n.row + 1)) : 0;
   const seen = new Set(placed.map((n) => `${n.col},${n.row}`));
   const all = [...placed];
   let at = 0;
@@ -94,7 +94,7 @@ export function treeFrame(nodes, links, { cols = 4, rows = 0 } = {}) {
     all.push({ ...n, col: at % width, row: height + Math.floor(at / width) });
     at += 1;
   }
-  if (loose.length) height += Math.ceil((at || 1) / width);
+  if (loose.length) height += Math.ceil(at / width);
   const frame = el("div", "tf-frame");
   frame.style.setProperty("--slot", `${SLOT}px`);
   frame.style.setProperty("--gap", `${GAP}px`);

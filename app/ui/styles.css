@@ -848,6 +848,7 @@ table.alts th.gap, table.alts td.gap { padding-left: 28px; }
 .leg-earned { display: flex; align-items: baseline; gap: 8px; font-size: 13.5px; color: var(--muted); }
 .leg-earned b { font: 750 34px/1 var(--display); color: var(--fg); }
 .leg-earned em { font-style: normal; font-size: 15px; }
+.leg-earned small { font-size: 13px; }
 .leg-pips { display: grid; grid-template-columns: repeat(auto-fit, minmax(7px, 1fr)); gap: 2px; margin-top: 10px; max-width: 760px; }
 .leg-pips i { height: 14px; border-radius: 1px; background: var(--line2); }
 .leg-pips i.free { background: transparent; box-shadow: inset 0 0 0 1.5px var(--gold); }
@@ -866,7 +867,6 @@ table.alts th.gap, table.alts td.gap { padding-left: 28px; }
 .leg-effect.current { color: var(--fg); }
 .leg-track { position: relative; height: 8px; background: var(--line); border-radius: 1px; }
 .leg-fill { position: absolute; inset: 0 auto 0 0; background: var(--alt-4); }
-.leg-fill.neg { background: var(--alt-1); }
 .leg-mark { position: absolute; top: -4px; bottom: -4px; width: 2px; margin-left: -1px; background: var(--gold); }
 .leg-read b { color: var(--fg); font-weight: 650; }
 .leg-hist { display: flex; flex-wrap: wrap; gap: 6px 22px; margin: 0; padding: 0; list-style: none; font-size: 12.5px; color: var(--muted); }

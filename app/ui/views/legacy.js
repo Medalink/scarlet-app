@@ -25,13 +25,21 @@ function effectBars(t) {
   const m = t.measure;
   const rows = m.rows.filter((r) => r.trials || r.stated != null);
   if (!rows.length) return null;
-  const top = Math.max(1, ...rows.flatMap((r) => [Math.abs(r.effect ?? 0), r.stated ?? 0]));
+  const base = m.rows.find((r) => r.rank === 0)?.value;
+  const markAt = (r) => {
+    if (r.stated == null) return null;
+    if (m.kind === "chance") return r.stated;
+    if (!(base > 0)) return null;
+    return base * (1 + ((r.effect ?? 1) < 0 ? -r.stated : r.stated) / 100);
+  };
+  const top = Math.max(1e-9, ...rows.flatMap((r) => [r.value ?? 0, markAt(r) ?? 0]));
   const box = el("div", "leg-effects");
   box.append(elText("div", "dim", m.what));
   for (const r of rows) {
     const line = el("div", `leg-effect${r.rank === t.rank ? " current" : ""}`);
-    const fill = r.effect == null ? "" : `<i class="leg-fill${r.effect < 0 ? " neg" : ""}" style="width:${(Math.abs(r.effect) / top) * 100}%"></i>`;
-    const mark = r.stated == null ? "" : `<i class="leg-mark" style="left:${(r.stated / top) * 100}%" title="Tooltip ${fixed(r.stated, 0)}%"></i>`;
+    const fill = r.value == null ? "" : `<i class="leg-fill" style="width:${(r.value / top) * 100}%"></i>`;
+    const at = markAt(r);
+    const mark = at == null ? "" : `<i class="leg-mark" style="left:${(at / top) * 100}%" title="Tooltip ${fixed(r.stated, 0)}%"></i>`;
     line.innerHTML = `<span class="leg-rank">Rank ${r.rank}</span><span class="leg-track">${fill}${mark}</span><span class="leg-read"><b>${value(m, r.value)}</b> measured in ${num(r.trials)} ${esc(m.trials.toLowerCase())}${r.effect == null ? "" : ` · ${effect(m, r.effect)} against rank 0`}${r.stated == null ? "" : ` · tooltip ${fixed(r.stated, 0)}%`}${span(r) ? ` · ${span(r)}` : ""}</span>`;
     box.append(line);
   }
@@ -89,7 +97,7 @@ function sheet(legacy) {
   const spent = legacy.trees.reduce((a, t) => a + t.spent, 0);
   const head = el("div", "leg-head");
   const lead = el("div", "leg-lead");
-  lead.append(el("div", "leg-earned", `<span>Earned</span> <b>${num(legacy.earned)}</b> <em>/ ${num(legacy.max)}</em>`), pips(legacy, spent));
+  lead.append(el("div", "leg-earned", `<span>Earned</span> <b>${num(legacy.earned)}</b> <em>/ ${num(legacy.max)}</em> <small>${legacy.max > 0 ? Math.floor((legacy.earned / legacy.max) * 100) : 0}%</small>`), pips(legacy, spent));
   const cost = legacy.rank_cost;
   const next = tile("Next rank", num(cost), legacy.available >= cost ? "Can afford" : `${num(cost - legacy.available)} short`, { size: "md" });
   head.append(lead, tiles([tile("Spent", num(spent), "", { size: "md" }), tile("To spend", num(legacy.available), "", { size: "md" }), next], 3));
