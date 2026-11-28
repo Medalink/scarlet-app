@@ -43,6 +43,8 @@ fn main() {
             "get_settings",
             "set_settings",
             "browse_wow",
+            "browse_data",
+            "open_folder",
             "save_view",
             "set_open_with_wow",
             "set_group_by_account",

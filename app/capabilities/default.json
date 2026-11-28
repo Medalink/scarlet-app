@@ -52,6 +52,8 @@
     "allow-get-settings",
     "allow-set-settings",
     "allow-browse-wow",
+    "allow-browse-data",
+    "allow-open-folder",
     "allow-save-view",
     "allow-set-open-with-wow",
     "allow-set-group-by-account",

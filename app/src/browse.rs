@@ -1,7 +1,7 @@
 //! The Browse button in Settings: Windows' own folder picker, and the check that what it
 //! returned is a WoW folder.
 
-use crate::commands::blocking;
+use crate::commands::{blocking, with_store};
 use crate::settings::wide;
 use std::ffi::c_void;
 use std::path::{Path, PathBuf};
@@ -210,11 +210,15 @@ pub async fn browse_data(app: AppHandle) -> Option<String> {
     .await
 }
 
-/// Shows a folder, or the folder that holds a file, in Explorer.
+/// Shows the data folder (`"data"`) or the folder of the settings file (`"settings"`) in Explorer.
 #[tauri::command]
-pub async fn open_folder(path: String) -> Result<(), String> {
+pub async fn open_folder(app: AppHandle, which: String) -> Result<(), String> {
+    let given = match which.as_str() {
+        "data" => with_store(&app, |st| st.data_dir.clone()),
+        "settings" => crate::settings::path(),
+        other => return Err(format!("Scarlet has no folder called {other}.")),
+    };
     blocking(move || {
-        let given = PathBuf::from(&path);
         let dir = if given.is_dir() {
             given
         } else {

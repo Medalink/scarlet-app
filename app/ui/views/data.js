@@ -28,7 +28,7 @@ async function renderStored(body) {
   if (st) {
     const open = el("button", "btn", "Open folder");
     open.type = "button";
-    open.onclick = () => invoke("open_folder", { path: st.data_dir }).catch((e) => {
+    open.onclick = () => invoke("open_folder", { which: "data" }).catch((e) => {
       status.className = "status err";
       status.textContent = String(e);
     });

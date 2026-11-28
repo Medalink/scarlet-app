@@ -125,7 +125,7 @@ async function general(body) {
   const where = el("div", "settings-file");
   const open = el("button", "btn", "Open");
   open.type = "button";
-  open.onclick = () => invoke("open_folder", { path: s.file }).catch((e) => {
+  open.onclick = () => invoke("open_folder", { which: "settings" }).catch((e) => {
     st.className = "status err";
     st.textContent = String(e);
   });

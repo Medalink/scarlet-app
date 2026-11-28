@@ -868,6 +868,20 @@ const CHECKS = [
   },
   {
     lane: "app",
+    name: "open folder is allowed and takes a folder key, not a path",
+    async run(ctx) {
+      const app = running(ctx);
+      const answer = (args) =>
+        app.evaluate(
+          `window.__TAURI_INTERNALS__.invoke("open_folder", ${JSON.stringify(args)}).then(() => "opened", (e) => String(e))`,
+        );
+      expectEqual("open_folder with an unknown key", await answer({ which: "elsewhere" }), "Scarlet has no folder called elsewhere.");
+      const raw = await answer({ path: ctx.site.app.home });
+      if (!/missing required key which/.test(raw)) throw mismatch("open_folder with a raw path", "an answer that names the missing key", raw);
+    },
+  },
+  {
+    lane: "app",
     name: "run setup again walks the three steps",
     async run(ctx) {
       const app = running(ctx);
