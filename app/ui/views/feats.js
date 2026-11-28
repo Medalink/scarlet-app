@@ -147,44 +147,49 @@ function localNews(storeKey, feats, account = false) {
     }));
 }
 
-function head(model) {
-  const box = el("div", "feats-head");
-  const counts = tiles(
-    [...TIERS].reverse().map((t) => tile(TIER_NAMES[t], num(model.tiers[t - 1]), "", { size: "md", extra: crest("kills", t, { size: 28, scope: model.crest ?? "character" }) })),
-    5,
-  );
-  if (model.crest === "account") {
-    box.style.gridTemplateColumns = "minmax(0, 1fr)";
-    box.append(counts);
-    return box;
+function tierCounts(model) {
+  const group = el("span", "feat-tiers");
+  for (const t of [...TIERS].reverse()) {
+    const n = model.tiers[t - 1];
+    const cell = el("span", `feat-tier${n ? "" : " none"}`);
+    cell.title = `${TIER_NAMES[t]}${n ? `: ${num(n)}` : ""}`;
+    cell.append(crest("kills", t, { size: 26, scope: model.crest ?? "character", label: TIER_NAMES[t] }));
+    if (n) cell.append(elText("b", "", num(n)));
+    group.append(cell);
   }
-  const ring = el("div", "sc-panel feats-ring");
-  const inner = el("span", "", `<b class="sc-num" style="font-size:40px">${num(model.held)}</b><br><span class="sc-label">of ${num(model.total)}</span>`);
-  const text = el("div");
-  text.append(elText("h2", "sc-h3", `${displayName(model.name)} holds ${num(model.held)} ${model.held === 1 ? "feat" : "feats"}`));
-  ring.append(progressRing(model.total ? model.held / model.total : 0, { size: 112, inner }), text);
-  box.append(ring, counts);
+  return group;
+}
+
+function compactHead(model, tag = "div") {
+  const row = el(tag, "feat-row");
+  const name = elText("h3", "feat-row-name", model.crest === "account" ? "Account" : displayName(model.name));
+  const inner = el("b", "", num(model.held));
+  const ring = el("span", "feat-row-ring");
+  ring.append(progressRing(model.total ? model.held / model.total : 0, { size: 44, inner }), elText("span", "", `of ${num(model.total)}`));
+  row.append(name, ring, tierCounts(model));
   if (model.score != null) {
-    const score = el("div", "sc-panel");
-    score.append(elText("p", "sc-label", "Feat score"), el("p", "sc-num sc-num-md", `${num(model.score)}<small> of ${num(model.scoreMax)}</small>`));
-    box.append(score);
-  } else {
-    box.style.gridTemplateColumns = "minmax(0, 1fr) minmax(0, 2fr)";
+    const score = el("span", "feat-row-score");
+    score.append(elText("span", "sc-label", "Feat score"), el("b", "", `${num(model.score)}<small> / ${num(model.scoreMax)}</small>`));
+    row.append(score);
   }
-  return box;
+  return row;
 }
 
 function ladder(feat) {
   const cat = BY_KEY.get(feat.key);
   const list = el("div", "feat-ladder");
   if (!cat) return list;
-  for (const t of [...TIERS].reverse()) {
-    const need = (feat.thresholds ?? cat.thresholds)[t - 1];
-    const row = el("div", `rung t${t}${feat.tier >= t ? " got" : ""}`);
-    const fill = feat.value == null ? (feat.tier >= t ? 1 : 0) : Math.min(1, feat.value / need);
+  const thresholds = feat.thresholds ?? cat.thresholds;
+  for (const t of TIERS) {
+    const need = thresholds[t - 1];
+    const got = feat.tier >= t;
+    const next = feat.tier + 1 === t;
+    const row = el("div", `rung t${t}${got ? " got" : ""}${next ? " next" : ""}`);
+    const fill = got ? 1 : next && feat.value != null ? Math.min(1, feat.value / need) : 0;
     const bar = el("i");
     bar.style.setProperty("--w", `${fill * 100}%`);
-    row.append(tierChip(t, TIER_NAMES[t]), elText("span", "", countText(cat, need)), bar);
+    const reads = next && feat.value != null && feat.value > 0 ? `${amount(cat, feat.value)} / ${amount(cat, need)}` : countText(cat, need);
+    row.append(crest(feat.glyph ?? feat.icon, t, { size: 30, scope: feat.crest ?? "character", label: TIER_NAMES[t] }), tierChip(t, TIER_NAMES[t]), elText("span", "", reads), bar);
     list.append(row);
   }
   return list;
@@ -209,6 +214,13 @@ function detail(feat) {
   top.append(text);
   box.append(top, ladder(feat));
   return box;
+}
+
+function progressNote(f) {
+  const cat = BY_KEY.get(f.key);
+  const first = (f.thresholds ?? cat?.thresholds)?.[0];
+  if (!cat || f.tier > 0 || !(f.value > 0) || !first) return "";
+  return `${amount(cat, f.value)} of ${amount(cat, first)}`;
 }
 
 function wall(model) {
@@ -256,7 +268,7 @@ function wall(model) {
       const shown = feats.filter(wanted);
       if (!shown.length) continue;
       const row = collectionRow(c, shown, {
-        draw: { crest: (f) => cardCrest(f, 48) },
+        draw: { crest: (f) => cardCrest(f, 48), note: progressNote },
         picked: filter.picked,
         onPick: (f) => ((filter.picked = f.key), draw()),
         all: feats,
@@ -273,7 +285,7 @@ function wall(model) {
 
 function accountBlock(model) {
   const block = el("section", "feats-block feats-account");
-  block.append(head(model));
+  block.append(compactHead(model));
   const layout = el("div", "feats-layout");
   const rows = el("div", "feats-rows");
   const side = el("div", "feats-side");
@@ -281,7 +293,7 @@ function accountBlock(model) {
   let picked = (model.feats.find((f) => f.tier > 0) ?? model.feats[0])?.key ?? null;
   const draw = () => {
     const onPick = (f) => ((picked = f.key), draw());
-    rows.replaceChildren(collectionRow("Account", model.feats, { draw: { crest: (f) => cardCrest(f, 48) }, picked, onPick }));
+    rows.replaceChildren(collectionRow("Account", model.feats, { draw: { crest: (f) => cardCrest(f, 48), note: progressNote }, picked, onPick }));
     side.replaceChildren(detail(model.feats.find((f) => f.key === picked)));
   };
   draw();
@@ -291,31 +303,33 @@ function accountBlock(model) {
 
 function characterBlock(model, single) {
   const block = el("section", "feats-block");
-  if (!single) block.append(elText("h3", "section-title", displayName(model.name)));
-  block.append(head(model));
-  if (model.closest.length) {
-    block.append(elText("h2", "sc-h feats-h", "Closest to the next tier"), cardList(model.closest, true));
+  const row = compactHead(model, single ? "div" : "button");
+  if (!single) {
+    row.type = "button";
+    row.setAttribute("aria-expanded", "false");
+    row.append(el("span", "feat-row-more"));
   }
+  block.append(row);
+  const body = el("div", "feat-body");
+  body.hidden = !single;
+  block.append(body);
   const reveal = () => {
-    if (block.querySelector(".feats-wall")) return;
-    button?.remove();
-    const drawn = wall(model);
-    if (tail) tail.before(drawn);
-    else block.append(drawn);
+    if (!body.firstChild) {
+      if (model.closest.length) body.append(elText("h2", "sc-h feats-h", "Closest to the next tier"), cardList(model.closest, true));
+      body.append(wall(model));
+    }
+    body.hidden = false;
+    row.setAttribute("aria-expanded", "true");
   };
-  let button = null;
-  let tail = null;
-  if (model.local && model.elsewhere) {
-    const more = `${num(model.elsewhere)} more ${model.elsewhere === 1 ? "feat is" : "feats are"} counted on the website`;
-    tail = linkRow(more, "Website settings", () => (location.hash = "settings/website"));
-    block.append(tail);
-  }
   if (single) reveal();
   else {
-    button = elText("button", "sc-btn quiet small", "Every feat");
-    button.type = "button";
-    button.onclick = reveal;
-    block.append(button);
+    row.onclick = () => {
+      if (body.hidden) reveal();
+      else {
+        body.hidden = true;
+        row.setAttribute("aria-expanded", "false");
+      }
+    };
   }
   return { block, reveal };
 }
@@ -332,6 +346,11 @@ function drawCharacters(box, models, account) {
   if (accountView) box.append(accountView);
   const views = entries.map((entry) => characterBlock(entry, single));
   for (const { block } of views) box.append(block);
+  const elsewhere = entries.filter((m) => m.local).reduce((sum, m) => sum + (m.elsewhere || 0), 0);
+  if (elsewhere) {
+    const more = `${num(elsewhere)} more ${elsewhere === 1 ? "feat is" : "feats are"} counted on the website`;
+    box.append(linkRow(more, "Website settings", () => (location.hash = "settings/website")));
+  }
   if (!single && expandNext && views.length) views[0].reveal();
   expandNext = false;
 

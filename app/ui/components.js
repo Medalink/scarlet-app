@@ -478,6 +478,8 @@ export function collectionRow(name, feats, { draw, onPick = null, picked = null,
     btn.type = "button";
     btn.title = `${f.name}${f.counted ? `: ${f.counted}` : ""}`;
     btn.append(draw.crest(f), elText("span", "", f.name));
+    const note = draw.note?.(f);
+    if (note) btn.append(elText("small", "sc-wall-note", note));
     if (onPick) btn.onclick = () => onPick(f);
     li.append(btn);
     wall.append(li);

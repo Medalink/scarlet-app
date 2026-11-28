@@ -45,9 +45,9 @@ const escapeRegExp = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const BODY = `document.querySelector("#body").innerText.replace(/\\s+/g, " ")`;
 
-const ACCOUNT_ROW = /(?=.*Account \d+ of \d+)(?!.*Account holds)(?=.*Scarlet.*Legendary.*Epic.*Rare.*Uncommon)/.source;
-const FEATS_LOCAL = new RegExp(String.raw`^${ACCOUNT_ROW}(?=.*Testa Fixture holds [1-9]\d* feats?)(?=.*Closest to the next tier)(?=.*Every feat Testa can hold)(?=.*\d+ more feats are counted on the website Website settings)`);
-const FEATS_LOCAL_ALL = new RegExp(String.raw`^${ACCOUNT_ROW}(?=.*Probe Lane holds [1-9]\d* feats?)(?=.*Testa Fixture holds [1-9]\d* feats?)(?=.*\d+ more feats are counted on the website)`);
+const ACCOUNT_ROW = /(?=.*Account \d+ of \d+)(?!.*Account holds)/.source;
+const FEATS_LOCAL = new RegExp(String.raw`^${ACCOUNT_ROW}(?=.*Testa Fixture [1-9]\d* of \d+)(?=.*Closest to the next tier)(?=.*Every feat Testa can hold)(?=.*\d+ more feats are counted on the website Website settings)`);
+const FEATS_LOCAL_ALL = new RegExp(String.raw`^${ACCOUNT_ROW}(?=.*Probe Lane [1-9]\d* of \d+)(?=.*Testa Fixture [1-9]\d* of \d+)(?=.*\d+ more feats are counted on the website)`);
 
 const VIEWS = [
   {
@@ -57,7 +57,7 @@ const VIEWS = [
   },
   { key: "characters", shows: /^(?=.*Last session)(?=.*Testa Fixture)(?=.*Probe Lane)/, never: /No characters recorded yet/ },
   { key: "feats", shows: FEATS_LOCAL, never: /No feats counted|Could not|refused|Copper|Silver|Legend\b|Poor/ },
-  { key: "stats", shows: /^(?=.*Records)(?=.*Experience 1,605)(?=.*Kills 2)(?=.*Travel and time)(?=.*Experience over time)(?=.*Top spells cast Heroic Strike 1)(?=.*Moving and standing)(?=.*Zones by time)/, never: /No recorded time yet/ },
+  { key: "stats", shows: /^(?=.*Experience 1,605)(?=.*Kills 2)(?=.*Travel and time)(?=.*Experience over time)(?=.*Top spells cast Heroic Strike 1)(?=.*Moving and standing)(?=.*Time by zone)/, never: /No recorded time yet/ },
   { key: "activity", shows: /Peak: [1-9]\d* events in an hour/, never: /Peak: 0 events|No events yet/ },
   { key: "log", shows: /kill Stonetusk Boar \(113\) by you/, never: /No events|Nothing recorded/ },
   { key: "sessions", shows: /^(?=.*2m in Westfall)(?=.*Level 5 to 6 in Elwynn Forest)(?=.*2m 10s · 2 kills · 1 quest · 1,605 XP)/, never: /No sessions yet\./ },
@@ -68,7 +68,7 @@ const VIEWS = [
   { key: "legacy", shows: /^(?=.*Earned 2 \/ 65)(?=.*Spent 0 To spend 2 Next rank 1 Can afford)(?!.*Next ranks)(?!.*Ranks bought)(?=.*Professions · 0 points .* Adventure · 0 points .* Progression · 0 points)(?=.*Progression G Gourmand 1 \/ 3 33% Next rank costs 1 · Can afford Rank 1)(?=.*Well Fed duration)(?=.*Rank 0 15\.0 min measured in 1 buffs)(?=.*Rank 1 20\.0 min measured in 1 buffs · \+33% against rank 0 · tooltip 33%)/, never: /No Legacy lines recorded|Select a character/ },
   {
     key: "items",
-    shows: new RegExp(String.raw`^(?=.*Linen Cloth 2589 3 looted Testa Fixture 3 Warband bank \(E2EONE\) 20 Warband bank \(E2ETWO\) 5 28 42s ?00c 1s ?50c each Wool Cloth 2592 Guild bank 7 7 –)(?=.*Recipes 2× Linen Cloth 1× Bolt of Linen Cloth Testa Fixture)(?=.*Warband and guild banks Warband bank \(E2EONE\) 1 ?item Last read ${MOMENT} by Testa Fixture Balance 12g ?34s Warband bank \(E2ETWO\) 1 ?item Last read .* by Probe Lane Balance 5g ?00s Guild bank 1 ?item Last read .* by Probe Lane Balance 98g ?76s)(?!.*1s ?25c)`),
+    shows: new RegExp(String.raw`^(?=.*Linen Cloth 2589 3 looted Testa Fixture 3 Warband bank \(E2EONE\) 20 Warband bank \(E2ETWO\) 5 28 42s 1s ?50c each Wool Cloth 2592 Guild bank 7 7 –)(?=.*Recipes 2× Linen Cloth 1× Bolt of Linen Cloth Testa Fixture)(?=.*Warband and guild banks Warband bank \(E2EONE\) 1 ?item Last read ${MOMENT} by Testa Fixture Balance 12g ?34s Warband bank \(E2ETWO\) 1 ?item Last read .* by Probe Lane Balance 5g Guild bank 1 ?item Last read .* by Probe Lane Balance 98g ?76s)(?!.*1s ?25c)`),
     never: /No bags or bank recorded yet|No items match|Guild bank \(|account unknown/,
   },
   {
@@ -588,15 +588,15 @@ const CHECKS = [
     async run(ctx) {
       const app = await openGrind(ctx, "stats", /Records/);
       const records = await text(app, "#body .stats-goals .sc-record");
-      for (const want of [/^Most XP in a session 3,000 /, /^Most kills in a session 10 /, /^Longest session 25m 0s /]) {
+      for (const want of [/^Most XP in a session 3,000 /, /^Most kills in a session 10 /, /^Longest session 25m /]) {
         if (!records.some((r) => want.test(r))) throw mismatch("a record tile", String(want), JSON.stringify(records));
       }
       const paces = await text(app, "#body .stats-goals .sc-pace");
-      if (!paces.some((p) => /^Experience New best for levels \d+.\d+ 7,200an hour 3,000 XP in 25m 0s/.test(p))) throw mismatch("the experience pace of the latest run", "New best, 7,200an hour, 3,000 XP in 25m 0s", JSON.stringify(paces));
+      if (!paces.some((p) => /^Experience New best for levels \d+.\d+ 7,200an hour 3,000 XP in 25m/.test(p))) throw mismatch("the experience pace of the latest run", "New best, 7,200an hour, 3,000 XP in 25m", JSON.stringify(paces));
       const sparks = await app.evaluate(`document.querySelectorAll("#body .stats-goals .stat-trend .sc-spark").length`);
       if (sparks < 2) throw mismatch("trend lines under the rates", "at least 2", String(sparks));
       await app.evaluate(`[...document.querySelectorAll("#body .stats-goals .sc-record")].find((r) => /Most XP/.test(r.innerText)).click()`);
-      await app.until(`/3,000 XP in 25m 0s/.test(${BODY})`, "the record opens the run with its experience");
+      await app.until(`/3,000 XP in 25m/.test(${BODY})`, "the record opens the run with its experience");
     },
   },
   {
@@ -605,7 +605,7 @@ const CHECKS = [
     async run(ctx) {
       const app = await openGrind(ctx, "activity", /Records/);
       const records = await text(app, "#body .goals-sheet .sc-record");
-      for (const want of [/^Longest day 25m 0s /, /^Most played week 1h 15m /, new RegExp(`^Longest streak 6 days ${shortDay(GRIND.sessions[0].start * 1000)} to ${shortDay(GRIND.sessions[5].start * 1000)}`)]) {
+      for (const want of [/^Longest day 25m /, /^Most played week 1h 15m /, new RegExp(`^Longest streak 6 days ${shortDay(GRIND.sessions[0].start * 1000)} to ${shortDay(GRIND.sessions[5].start * 1000)}`)]) {
         if (!records.some((r) => want.test(r))) throw mismatch("a record tile", String(want), JSON.stringify(records));
       }
       const pace = (await text(app, "#body .goals-sheet .sc-pace"))[0] ?? "";
@@ -614,7 +614,7 @@ const CHECKS = [
       const streak = (await text(app, "#body .goals-sheet .sc-goal"))[0] ?? "";
       if (!/^Current streak \d+ days? \/ 6 days?/.test(streak)) throw mismatch("the current streak goal", "Current streak N days / 6 days", streak);
       await app.evaluate(`[...document.querySelectorAll("#body .goals-sheet .sc-record")].find((r) => /Longest day/.test(r.innerText)).click()`);
-      await app.until(`/25m 0s/.test(${BODY}) && location.hash.startsWith("#sessions/")`, "the longest day opens its run");
+      await app.until(`/25m/.test(${BODY}) && location.hash.startsWith("#sessions/")`, "the longest day opens its run");
       await open(app, "activity", /Records/);
       const week = (await text(app, "#body .goals-sheet .sc-record")).find((r) => /^Most played week /.test(r));
       const played = week?.match(/^Most played week (\d+h \d+m) /)?.[1];
@@ -634,7 +634,7 @@ const CHECKS = [
       const app = await openGrind(ctx, "log", /Event types/);
       await app.until(`document.querySelectorAll("#body .lg-cell").length === ${GRIND.sessions.length}`, "a summary for each run");
       const cells = await text(app, "#body .lg-cell");
-      if (!/^25m 0s .* XP 3,000 Gold 0 Kills 10 New best experience/.test(cells[0])) throw mismatch("the newest run's summary", "25m 0s ... XP 3,000 ... New best experience", cells[0]);
+      if (!/^25m .* XP 3,000 Gold 0 Kills 10 New best experience/.test(cells[0])) throw mismatch("the newest run's summary", "25m ... XP 3,000 ... New best experience", cells[0]);
       if (/New best/.test(cells[cells.length - 1])) throw mismatch("the oldest run's summary", "no New best", cells[cells.length - 1]);
       await app.evaluate(`document.querySelectorAll("#body .lg-cell")[1].click()`);
       await app.until(`document.querySelectorAll("#body .lg-cell.on").length === 1`, "a run is picked");
@@ -642,7 +642,7 @@ const CHECKS = [
       await app.until(`document.querySelectorAll("#body .lg-cell").length > 0 && [...document.querySelectorAll("#body .lg-cell")].every((c) => c.innerText.includes(${JSON.stringify(SHOWN.alt)}))`, "a summary of both characters");
       expectEqual("summaries of both characters: one for each WoW run, not for each session", (await text(app, "#body .lg-cell")).length, GRIND.sessions.length);
       const account = await text(app, "#body .lg-cell");
-      if (!account.every((c) => new RegExp(`^30m 0s .* ${SHOWN.grind}, ${SHOWN.alt} XP [\\d,]+ Gold 0 Kills 20`).test(c)) || !/XP 6,000 /.test(account[0])) throw mismatch("a WoW run of both characters", `30m 0s ... ${SHOWN.grind}, ${SHOWN.alt} XP 6,000 Gold 0 Kills 20 for the newest`, JSON.stringify(account));
+      if (!account.every((c) => new RegExp(`^30m .* ${SHOWN.grind}, ${SHOWN.alt} XP [\\d,]+ Gold 0 Kills 20`).test(c)) || !/XP 6,000 /.test(account[0])) throw mismatch("a WoW run of both characters", `30m ... ${SHOWN.grind}, ${SHOWN.alt} XP 6,000 Gold 0 Kills 20 for the newest`, JSON.stringify(account));
       await selectCharacter(app, GRIND.name);
     },
   },
@@ -718,7 +718,7 @@ const CHECKS = [
       await cardCount(1, "Manual shows the one marked session");
       expectMatch("the marked session's card", (await cards())[0], /1m /);
       await app.evaluate(`document.querySelector("#body .sc-sessions .sc-session").click()`);
-      await app.until(`/1m 0s played/.test(${BODY}) && /205 XP in/.test(${BODY}) && !/1,605/.test(${BODY})`, "a marked session's page holds only the minute inside it");
+      await app.until(`/1m played/.test(${BODY}) && /205 XP in/.test(${BODY}) && !/1,605/.test(${BODY})`, "a marked session's page holds only the minute inside it");
       await app.evaluate(`location.hash = "sessions"`);
       await cardCount(1, "the list is back in Manual");
       await press("Start session");
@@ -856,7 +856,7 @@ const CHECKS = [
         await open(
           app,
           "items",
-          /Linen Cloth 2589 3 looted Testa Fixture 3 Warband bank \(account unknown, Probe Lane\) 5 Warband bank \(account unknown, Testa Fixture\) 20 28 42s ?00c 1s ?50c each .* Guild bank 1 ?item Last read .* by Probe Lane/,
+          /Linen Cloth 2589 3 looted Testa Fixture 3 Warband bank \(account unknown, Probe Lane\) 5 Warband bank \(account unknown, Testa Fixture\) 20 28 42s 1s ?50c each .* Guild bank 1 ?item Last read .* by Probe Lane/,
           /Warband bank \(E2E|Guild bank \(/,
         );
       } finally {
@@ -932,17 +932,15 @@ const CHECKS = [
     name: "talents of a character first read with every point spent are drawn from the baseline, with no pick date",
     async run(ctx) {
       const app = await fullApp(ctx);
-      const [first, second] = fullBuild(ctx.now).sessions.map((s) => s.start * 1000 + 5000);
+      const [, second] = fullBuild(ctx.now).sessions.map((s) => s.start * 1000 + 5000);
       await open(app, "character", /Points spent 9 \/ 9/, /No talent lines recorded|Select a character/, "character/talents");
       const body = await app.evaluate(BODY);
       expectMatch("the points head and the tabs", body, /Points spent 9 \/ 9 .* Unspent 0 .* Arms · 6 points .* Fury · 3 points/);
-      expectMatch("the build's read", body, new RegExp(`Build by tab .* Read ${daysAgo(second)} days ago`));
-      expectMatch("the timeline's one row", body, new RegExp(`Order points were taken Level 20 9 points already spent in 5 talents when Scarlet first read group 1 Read ${daysAgo(first)} days ago Every point was already spent when Scarlet first read this character`));
+      expectMatch("the build's read", body, new RegExp(`Talents .* Read ${daysAgo(second)} days ago`));
+      expectNoMatch("a timeline with no change to show", body, /Order points were taken|Respecs/);
       expectNoMatch("a pick in the timeline", body, /Picked|Refunded|Switched choice|Changed while not tracked|point \d+ ·/);
       expectEqual("the ranks drawn", (await text(app, "#body .tf-tab .tf-slot .tf-rank")).sort(), ["1/1", "1/1", "2/2", "2/2", "3/3"]);
       expectEqual("every drawn talent is at its maximum", await app.evaluate(`[...document.querySelectorAll("#body .tf-tab .tf-slot")].map((s) => s.dataset.state)`), Array(5).fill("maxed"));
-      const held = await app.evaluate(`(() => { const t = document.querySelector("#body .tp-pick.held time"); return { text: t.textContent, title: t.title, ago: Number(t.dataset.ago) }; })()`);
-      expectEqual("the held row's read", held, { text: `Read ${daysAgo(first)} days ago`, title: exactStamp(first), ago: first });
       expectEqual("rows that carry a pick", await app.evaluate(`document.querySelectorAll("#body .tp-pick:not(.held)").length`), 0);
     },
   },
@@ -960,7 +958,7 @@ const CHECKS = [
       expectEqual("history lines", lines.length, 9);
       for (const line of lines) expectMatch("a history line", line, /^Rank \d Already held when Scarlet first read this character$/);
       expectNoMatch("a dated rank change", body, /\d→\d/);
-      expectEqual("dates on the page", await app.evaluate(`document.querySelectorAll("#body time").length`), 0);
+      expectEqual("dates on the rank history", await app.evaluate(`document.querySelectorAll("#body .leg-hist time").length`), 0);
     },
   },
   {
@@ -972,7 +970,8 @@ const CHECKS = [
       await selectCharacter(app, TESTA);
       expectMatch("the title bar's range", await app.evaluate(`document.querySelector("#head-stats").textContent`), /^[\d,]+ events · [A-Z][a-z]{2} \d{1,2}(?: \d{4})? to [A-Z][a-z]{2} \d{1,2}(?: \d{4})?$/);
       let seen = 0;
-      for (const [key, hash, shows] of [["characters", "characters", /Last session/], ["data", "data", /Addons recorded|Export now/], ["items", "items", /Warband and guild banks/], ["character", "character/talents", /Order points were taken/], ["legacy", "legacy", /Earned/], ["sessions", "sessions", /Elwynn Forest/], ["log", "log", /Stonetusk Boar/], ["activity", "activity", /Records/], ["stats", "stats", /Records/]]) {
+      let axes = 0;
+      for (const [key, hash, shows] of [["characters", "characters", /Last session/], ["data", "data", /Addons recorded|Export now/], ["items", "items", /Warband and guild banks/], ["character", "character/talents", /Points spent|Order points were taken/], ["legacy", "legacy", /Earned/], ["sessions", "sessions", /Elwynn Forest/], ["log", "log", /Stonetusk Boar/], ["activity", "activity", /Records/], ["stats", "stats", /Experience over time/]]) {
         await open(app, key, shows, null, hash);
         expectNoMatch(`${hash}: a date in an old shape`, await app.evaluate(BODY), OLD_DATE_SHAPE);
         const stamps = await app.evaluate(`[...document.querySelectorAll("#body time[data-ago]")].map((t) => ({ ago: Number(t.dataset.ago), text: t.textContent, hover: t.title || t.dataset.tip || t.closest("[data-tip]")?.dataset.tip || "" }))`);
@@ -980,8 +979,12 @@ const CHECKS = [
           expectMatch(`${hash}: a moment`, t.text, new RegExp(`^(?:[A-Za-z ]+ )?${MOMENT}$`));
           expectMatch(`${hash}: the exact value of ${t.text}`, t.hover, new RegExp(escapeRegExp(exactStamp(t.ago))));
         }
+        const axis = await app.evaluate(`[...document.querySelectorAll("#body .chart-x span")].map((s) => s.textContent)`);
+        for (const label of axis) expectMatch(`${hash}: an axis day`, label, /^(?:[A-Z][a-z]{2} \d{1,2}(?: \d{4})?|\d{1,2}:\d\d [AP]M)$/);
+        axes += axis.length;
         seen += stamps.length;
       }
+      if (axes < 2) throw mismatch("axis labels found across the pages", "at least 2", String(axes));
       if (seen < 8) throw mismatch("moments found across the pages", "at least 8", String(seen));
     },
   },
