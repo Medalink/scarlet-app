@@ -475,11 +475,15 @@ fn laid_out<'a>(
     tabs: &mut Vec<TabBuild>,
     placed: &mut HashSet<&'a str>,
 ) {
-    let med_x = median(layout.values().map(|s| s.x).collect());
+    let mut tab_x: HashMap<&str, Vec<i64>> = HashMap::new();
+    for s in layout.values() {
+        tab_x.entry(s.tab).or_default().push(s.x);
+    }
+    let med_x: HashMap<&str, i64> = tab_x.into_iter().map(|(t, xs)| (t, median(xs))).collect();
     let med_y = median(layout.values().map(|s| s.y).collect());
     let at: HashMap<&str, (i64, i64)> = layout
         .iter()
-        .map(|(id, s)| (*id, (read_back(s.x, med_x), read_back(s.y, med_y))))
+        .map(|(id, s)| (*id, (read_back(s.x, med_x[s.tab]), read_back(s.y, med_y))))
         .collect();
     let top = at.values().map(|p| p.1).min().unwrap_or(0);
     let mut left: HashMap<&str, i64> = HashMap::new();

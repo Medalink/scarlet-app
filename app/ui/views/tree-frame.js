@@ -73,7 +73,7 @@ function arrow(from, to, lit) {
   const hx = x2 - ux * HEAD;
   const hy = y2 - uy * HEAD;
   const head = `${x2},${y2} ${hx - uy * HEAD * 0.55},${hy + ux * HEAD * 0.55} ${hx + uy * HEAD * 0.55},${hy - ux * HEAD * 0.55}`;
-  return `<g class="tf-arrow${lit ? " lit" : ""}" data-from="${from.id}" data-to="${to.id}"><line x1="${x1}" y1="${y1}" x2="${hx}" y2="${hy}"/><polygon points="${head}"/></g>`;
+  return `<g class="tf-arrow${lit ? " lit" : ""}" data-from="${esc(from.id)}" data-to="${esc(to.id)}"><line x1="${x1}" y1="${y1}" x2="${hx}" y2="${hy}"/><polygon points="${head}"/></g>`;
 }
 
 /**

@@ -700,6 +700,7 @@ pub fn build<'a>(lines: impl IntoIterator<Item = Line<'a>>) -> Legacy {
             t.col = Some(n.col);
             t.row = Some(n.row);
             t.icon = t.icon.or(Some(n.icon).filter(|i| *i > 0));
+            t.placeholder = n.placeholder && t.rank == 0;
         }
     }
     let shown: HashSet<String> = talents.iter().map(|t| t.node_id.clone()).collect();
